@@ -22,7 +22,6 @@ jobs:
 
       # TODO: Uncomment when Apple Developer secrets are configured
       # - name: Import Apple certificate
-      #   if: env.APPLE_CERTIFICATE != ''
       #   env:
       #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -43,13 +42,25 @@ jobs:
       - name: Build macOS (x86_64)
         run: bun run tauri build --target x86_64-apple-darwin
 
-      - name: Generate latest.json for updater
-        if: github.event_name == 'release'
+      - name: Get latest release tag
+        id: release
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          else
+            TAG=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
+            echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate latest.json for updater
+        if: steps.release.outputs.tag != ''
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          VERSION="${TAG#v}"
           REPO="${{ github.repository }}"
 
-          # Find the .tar.gz and .sig files for the updater
           ARM_TAR=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
           X86_TAR=$(ls src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
           ARM_SIG=$(cat "${ARM_TAR}.sig" 2>/dev/null || echo "")
@@ -61,36 +72,42 @@ jobs:
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
-            "notes": "See https://github.com/${REPO}/releases/tag/v${VERSION}",
+            "notes": "See https://github.com/${REPO}/releases/tag/${TAG}",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "darwin-aarch64": {
                 "signature": "${ARM_SIG}",
-                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/${ARM_TAR_NAME}"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/${ARM_TAR_NAME}"
               },
               "darwin-x86_64": {
                 "signature": "${X86_SIG}",
-                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/${X86_TAR_NAME}"
+                "url": "https://github.com/${REPO}/releases/download/${TAG}/${X86_TAR_NAME}"
               }
             }
           }
           EOF
 
-      - name: Upload release assets
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
-            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
-            latest.json
+      - name: Upload to release
+        if: steps.release.outputs.tag != ''
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          gh release upload "$TAG" \
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg \
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg \
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz \
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz \
+            latest.json \
+            --clobber 2>/dev/null || true
+          # Upload sig files if they exist
+          gh release upload "$TAG" \
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig \
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig \
+            --clobber 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts (for manual runs)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload artifacts (fallback)
+        if: steps.release.outputs.tag == ''
         uses: actions/upload-artifact@v4
         with:
           name: macos-builds
