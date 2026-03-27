@@ -75,6 +75,7 @@
     { label: "Brainstorming", color: "#d2a8ff" },
     { label: "Development", color: "#3fb950" },
     { label: "Code Review", color: "#58a6ff" },
+    { label: "PR Review", color: "#d29922" },
     { label: "Debugging", color: "#f85149" },
   ];
   const purposeColors = Object.fromEntries(purposes.map(p => [p.label, p.color]));

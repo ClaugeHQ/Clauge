@@ -143,6 +143,20 @@ You are in a debugging session. Your role:
 - After fixing, verify the original issue is resolved
 - Check for related bugs that might have the same root cause"#.to_string(),
 
+        "PR Review" => r#"# Session: PR Review
+
+You are in a PR review session. Your role:
+
+- Start by asking which branch or PR to review
+- Run `git diff main...<branch>` to see all changes
+- Review every changed file systematically
+- Check for: bugs, security issues, logic errors, edge cases
+- Verify error handling and test coverage for new code
+- Comment on code style only if it hurts readability
+- Flag breaking changes or missing migrations
+- Summarize: what the PR does, what's good, what needs fixing
+- Give a clear verdict: approve, request changes, or needs discussion"#.to_string(),
+
         _ => String::new(),
     }
 }

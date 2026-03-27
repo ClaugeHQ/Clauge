@@ -23,22 +23,31 @@
 
 ---
 
+## Session Purposes
+
+Each session runs with a specific purpose. Claude stays in that mode throughout the conversation.
+
+| Purpose | What happens |
+|---------|-------------|
+| **Brainstorming** | Explores ideas, asks questions, compares approaches. Won't jump to code until you say so. |
+| **Development** | Writes clean code, follows your codebase patterns, makes small focused changes. |
+| **Code Review** | Reviews your recent changes — finds bugs, security issues, missing edge cases. Gives specific, actionable feedback. |
+| **PR Review** | Asks for the branch, pulls the diff, and reviews the entire PR. Summarizes what changed and what needs fixing. |
+| **Debugging** | Reproduces the issue, traces the root cause step by step, verifies the fix. No guessing. |
+
 ## Features
 
-### Sessions with purpose
-Create sessions for **Brainstorming**, **Development**, **Code Review**, or **Debugging**. Claude adapts its behavior to match — brainstorming sessions explore ideas without jumping to code, development sessions focus on clean implementation, code review catches bugs and edge cases, debugging traces root causes methodically.
+**Parallel sessions, zero conflicts** — Run multiple sessions on the same project. Each one is automatically isolated so they don't overwrite each other's work.
 
-### Parallel sessions, zero conflicts
-Run multiple sessions on the same project at once. Each session is automatically isolated — edit files in one without breaking the other. Switch between them instantly, no re-spawning.
+**Embedded terminal** — Full interactive terminal built in. Colors, scrollback, resize. Switch between sessions instantly without re-spawning Claude.
 
-### ~10MB, minimal resource usage
-Built with Rust and Tauri. No Electron, no bundled Chromium. Starts in under a second, uses a fraction of the memory. Translucent sidebar, system tray, dark/light themes.
+**~10MB, low resource usage** — Built with Rust and Tauri. No Electron, no bundled Chromium. Starts fast, stays light.
 
-### Everything in one window
-Embedded interactive terminal with full color, scrollback, and resize. Sessions grouped by project with expand/collapse. Auto-discovers your existing Claude Code sessions. Usage limits visible in the menu bar.
+**Organized by project** — Sessions grouped by project folder with expand/collapse. Auto-discovers your existing Claude Code sessions.
 
-### Keyboard-first
-`Cmd+N` new session · `Cmd+1-9` switch sessions · `Cmd+B` toggle sidebar · `Escape` close modals
+**Usage tracking** — Session and weekly usage limits visible in the menu bar. Know how much headroom you have without leaving the app.
+
+**Themes and shortcuts** — Dark/light themes, accent colors. `Cmd+N` new session, `Cmd+1-9` switch, `Cmd+B` toggle sidebar.
 
 ## Download
 
