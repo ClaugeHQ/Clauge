@@ -6,7 +6,7 @@
   <title>Clauge — Run multiple Claude Code sessions in parallel</title>
   <meta name="description" content="Organize, label, and resume Claude Code sessions from a lightweight macOS app. Purpose-driven workflows, embedded terminal, automatic session isolation.">
   <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="../src-tauri/icons/icon.png">
+  <link rel="icon" href="icon.svg">
 </head>
 <body>
 
@@ -27,7 +27,7 @@
 <!-- Hero -->
 <section class="hero">
   <div class="container">
-    <h1 class="reveal">Run multiple Claude Code<br>sessions in parallel</h1>
+    <h1 class="reveal">Run multiple Claude Code<br>sessions <span class="hero-typewriter"></span></h1>
     <p class="subtitle reveal reveal-delay-1">Organized by project, each with its own purpose and terminal.<br>Built with Rust + Tauri.</p>
     <div class="hero-buttons reveal reveal-delay-2">
       <a id="hero-download" href="https://github.com/ansxuman/Clauge/releases/latest" class="btn-primary">
@@ -43,31 +43,56 @@
 <!-- Purposes -->
 <section class="purposes-section">
   <div class="container">
-    <div class="section-header reveal">
+    <div class="section-header reveal" style="text-align:center;max-width:600px;margin:0 auto 56px;">
       <p class="section-tag">Purposes</p>
       <h2 class="section-heading">Every session has a purpose</h2>
-      <p class="section-sub">Pick a mode when you create a session. Claude adapts its behavior to match.</p>
+      <p class="section-sub" style="max-width:100%;">Pick a mode when you create a session. Claude adapts its behavior to match — not a one-time instruction, it persists throughout.</p>
     </div>
     <div class="purposes-grid">
       <div class="purpose-card reveal" style="border-left-color: var(--purple);">
-        <div class="purpose-name" style="color: var(--purple);">Brainstorming</div>
-        <div class="purpose-desc">Explores ideas, compares approaches, challenges assumptions. Won't jump to code until you're ready.</div>
+        <div class="purpose-icon" style="color:var(--purple);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div>
+          <div class="purpose-name" style="color: var(--purple);">Brainstorming</div>
+          <div class="purpose-desc">Explores ideas, compares approaches, challenges assumptions. Won't jump to code until you're ready.</div>
+        </div>
       </div>
       <div class="purpose-card reveal reveal-delay-1" style="border-left-color: var(--green);">
-        <div class="purpose-name" style="color: var(--green);">Development</div>
-        <div class="purpose-desc">Writes clean code, follows your codebase patterns, makes focused changes one at a time.</div>
+        <div class="purpose-icon" style="color:var(--green);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <div>
+          <div class="purpose-name" style="color: var(--green);">Development</div>
+          <div class="purpose-desc">Writes clean code, follows your codebase patterns, makes focused changes one at a time.</div>
+        </div>
       </div>
       <div class="purpose-card reveal reveal-delay-2" style="border-left-color: var(--blue);">
-        <div class="purpose-name" style="color: var(--blue);">Code Review</div>
-        <div class="purpose-desc">Reviews your changes for bugs, security issues, and missing edge cases. Specific, actionable feedback.</div>
+        <div class="purpose-icon" style="color:var(--blue);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <div>
+          <div class="purpose-name" style="color: var(--blue);">Code Review</div>
+          <div class="purpose-desc">Reviews your changes for bugs, security issues, and missing edge cases. Specific, actionable feedback.</div>
+        </div>
       </div>
       <div class="purpose-card reveal reveal-delay-3" style="border-left-color: var(--yellow);">
-        <div class="purpose-name" style="color: var(--yellow);">PR Review</div>
-        <div class="purpose-desc">Pulls the branch diff, reviews the entire PR, summarizes what changed and what needs fixing.</div>
+        <div class="purpose-icon" style="color:var(--yellow);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/></svg>
+        </div>
+        <div>
+          <div class="purpose-name" style="color: var(--yellow);">PR Review</div>
+          <div class="purpose-desc">Pulls the branch diff, reviews the entire PR, summarizes what changed and what needs fixing.</div>
+        </div>
       </div>
       <div class="purpose-card reveal reveal-delay-4" style="border-left-color: var(--red);">
-        <div class="purpose-name" style="color: var(--red);">Debugging</div>
-        <div class="purpose-desc">Reproduces the issue, traces the root cause step by step, verifies the fix. No guessing.</div>
+        <div class="purpose-icon" style="color:var(--red);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64A9 9 0 115.64 18.36"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+        </div>
+        <div>
+          <div class="purpose-name" style="color: var(--red);">Debugging</div>
+          <div class="purpose-desc">Reproduces the issue, traces the root cause step by step, verifies the fix. No guessing.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -308,6 +333,31 @@
     entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
   }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // Hero typewriter
+  (function() {
+    const el = document.querySelector('.hero-typewriter');
+    if (!el) return;
+    const words = ['in parallel', 'side by side', 'without conflicts', 'your way'];
+    const colors = ['var(--blue)', 'var(--purple)', 'var(--green)', 'var(--yellow)'];
+    let wordIdx = 0, charIdx = 0, deleting = false;
+    function tick() {
+      const word = words[wordIdx];
+      if (!deleting) {
+        el.textContent = word.slice(0, charIdx);
+        el.style.color = colors[wordIdx];
+        charIdx++;
+        if (charIdx > word.length) { setTimeout(() => { deleting = true; tick(); }, 2000); return; }
+        setTimeout(tick, 60);
+      } else {
+        el.textContent = word.slice(0, charIdx);
+        charIdx--;
+        if (charIdx < 0) { deleting = false; charIdx = 0; wordIdx = (wordIdx + 1) % words.length; setTimeout(tick, 400); return; }
+        setTimeout(tick, 30);
+      }
+    }
+    setTimeout(tick, 800);
+  })();
 
   // Header scroll
   const header = document.getElementById('header');
