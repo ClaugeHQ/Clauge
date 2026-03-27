@@ -735,7 +735,7 @@
   .badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 10px; }
   .wt-badge { font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; background: rgba(210, 168, 255, 0.2); color: #d2a8ff; letter-spacing: 0.5px; }
   .time { font-size: 11px; color: var(--text-secondary); }
-  .bottom-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 5px 16px; background: var(--sidebar-bg); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .bottom-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 5px 16px; background: var(--sidebar-bg); border-top: 1px solid var(--border); flex-shrink: 0; position: relative; }
   .bottom-version { position: absolute; right: 16px; font-size: 9px; color: var(--text-secondary); font-family: monospace; opacity: 0.4; }
   .usage-chip { display: flex; align-items: center; gap: 5px; }
   .usage-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
