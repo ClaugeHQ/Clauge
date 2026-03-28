@@ -1,18 +1,17 @@
-# Temporarily disabled to save runner minutes
-# name: CI
-# on:
-#   push:
-#     branches: [main]
-#   pull_request:
-#     branches: [main]
-#
-# jobs:
-#   check:
-#     runs-on: macos-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: oven-sh/setup-bun@v2
-#       - uses: dtolnay/rust-toolchain@stable
-#       - run: bun install
-#       - run: cargo check --manifest-path src-tauri/Cargo.toml
-#       - run: bun run build
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - run: bun run build
