@@ -1,127 +1,51 @@
 name: Build Release
+
 on:
   release:
     types: [published]
   workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
+  publish-tauri:
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install dependencies
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
         run: bun install
 
-      # TODO: Uncomment when Apple Developer secrets are configured
-      # - name: Import Apple certificate
-      #   env:
-      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #   run: |
-      #     CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-      #     echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
-      #     security create-keychain -p "" $KEYCHAIN_PATH
-      #     security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-      #     security unlock-keychain -p "" $KEYCHAIN_PATH
-      #     security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-      #     security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
-      #     security list-keychain -d user -s $KEYCHAIN_PATH
-
-      - name: Build macOS (arm64)
+      - uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun run tauri build --target aarch64-apple-darwin
-
-      - name: Build macOS (x86_64)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun run tauri build --target x86_64-apple-darwin
-
-      - name: Get latest release tag
-        id: release
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          else
-            TAG=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
-            echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate latest.json for updater
-        if: steps.release.outputs.tag != ''
-        run: |
-          TAG="${{ steps.release.outputs.tag }}"
-          VERSION="${TAG#v}"
-          REPO="${{ github.repository }}"
-
-          ARM_TAR=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
-          X86_TAR=$(ls src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
-          ARM_SIG=$(cat "${ARM_TAR}.sig" 2>/dev/null || echo "")
-          X86_SIG=$(cat "${X86_TAR}.sig" 2>/dev/null || echo "")
-
-          ARM_TAR_NAME=$(basename "$ARM_TAR")
-          X86_TAR_NAME=$(basename "$X86_TAR")
-
-          cat > latest.json << EOF
-          {
-            "version": "${VERSION}",
-            "notes": "See https://github.com/${REPO}/releases/tag/${TAG}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "darwin-aarch64": {
-                "signature": "${ARM_SIG}",
-                "url": "https://github.com/${REPO}/releases/download/${TAG}/${ARM_TAR_NAME}"
-              },
-              "darwin-x86_64": {
-                "signature": "${X86_SIG}",
-                "url": "https://github.com/${REPO}/releases/download/${TAG}/${X86_TAR_NAME}"
-              }
-            }
-          }
-          EOF
-
-      - name: Upload to release
-        if: steps.release.outputs.tag != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.release.outputs.tag }}"
-          echo "Uploading to release $TAG"
-
-          for f in src-tauri/target/*/release/bundle/dmg/*.dmg; do
-            [ -f "$f" ] && echo "Uploading $f" && gh release upload "$TAG" "$f" --clobber
-          done
-
-          for f in src-tauri/target/*/release/bundle/macos/*.app.tar.gz; do
-            [ -f "$f" ] && echo "Uploading $f" && gh release upload "$TAG" "$f" --clobber
-          done
-
-          for f in src-tauri/target/*/release/bundle/macos/*.app.tar.gz.sig; do
-            [ -f "$f" ] && echo "Uploading $f" && gh release upload "$TAG" "$f" --clobber
-          done
-
-          [ -f latest.json ] && echo "Uploading latest.json" && gh release upload "$TAG" latest.json --clobber
-
-          echo "Done"
-
-      - name: Upload artifacts (fallback)
-        if: steps.release.outputs.tag == ''
-        uses: actions/upload-artifact@v4
         with:
-          name: macos-builds
-          path: |
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          tagName: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          releaseName: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          releaseBody: ''
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
