@@ -614,7 +614,7 @@ fn spawn_terminal(
     state: State<'_, TerminalState>,
     session_id: Option<String>,
     project_path: String,
-    _context_prompt: Option<String>,
+    context_prompt: Option<String>,
     on_output: Channel<TerminalOutputPayload>,
 ) -> Result<String, String> {
     let terminal_id = Uuid::new_v4().to_string();
@@ -632,6 +632,14 @@ fn spawn_terminal(
     let mut claude_cmd = String::from("claude");
     if let Some(ref sid) = session_id {
         claude_cmd.push_str(&format!(" --resume {}", sid));
+    }
+    // Inject purpose prompt via --append-system-prompt (persists every turn)
+    if let Some(ref prompt) = context_prompt {
+        if !prompt.is_empty() {
+            // Escape single quotes for shell
+            let escaped = prompt.replace('\'', "'\\''");
+            claude_cmd.push_str(&format!(" --append-system-prompt '{}'", escaped));
+        }
     }
 
     eprintln!("[Clauge] Spawning: /bin/zsh -l -c '{}'", claude_cmd);

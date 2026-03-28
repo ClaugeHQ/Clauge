@@ -25,15 +25,15 @@
 
 ## Session Purposes
 
-Each session runs with a specific purpose. Claude stays in that mode throughout the conversation.
+Each session stays focused on what you need right now. The purpose persists throughout the entire conversation.
 
-| Purpose | What happens |
+| Purpose | What you get |
 |---------|-------------|
-| **Brainstorming** | Explores ideas, asks questions, compares approaches. Won't jump to code until you say so. |
-| **Development** | Writes clean code, follows your codebase patterns, makes small focused changes. |
-| **Code Review** | Reviews your recent changes — finds bugs, security issues, missing edge cases. Gives specific, actionable feedback. |
-| **PR Review** | Asks for the branch, pulls the diff, and reviews the entire PR. Summarizes what changed and what needs fixing. |
-| **Debugging** | Reproduces the issue, traces the root cause step by step, verifies the fix. No guessing. |
+| **Brainstorming** | Think through architecture before writing a line of code. Get multiple approaches with tradeoffs so you pick the right one. |
+| **Development** | Ship features with clean, tested code that follows your existing patterns. Small changes, verified one at a time. |
+| **Code Review** | Catch bugs, security holes, and edge cases before they reach production. Specific feedback with file and line references. |
+| **PR Review** | Review pull requests end-to-end before merging. Clear summary of what changed, what's good, and what needs work. |
+| **Debugging** | Find the root cause, not a band-aid. Reproduces the issue, traces it methodically, and verifies the fix actually works. |
 
 ## Features
 
