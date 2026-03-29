@@ -661,7 +661,8 @@ fn spawn_terminal(
     eprintln!("[Clauge] Spawning command (truncated): {}", &claude_cmd[..claude_cmd.len().min(120)]);
     eprintln!("[Clauge] CWD: {}", project_path);
 
-    let mut cmd = CommandBuilder::new("/bin/zsh");
+    let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let mut cmd = CommandBuilder::new(&user_shell);
     cmd.arg("-l");
     cmd.arg("-c");
     cmd.arg(&claude_cmd);

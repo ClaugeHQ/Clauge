@@ -24,6 +24,7 @@
   let showWhatsNew = $state(false);
   let whatsNewBody = $state('');
   let sessionKeyConfigured = $state(false);
+  let usageError = $state('');
   let showKeyEdit = $state(false);
   let usageRefreshInterval = null;
   let sidebarCollapsed = $state(
@@ -65,7 +66,6 @@
   let deleteConfirm = $state(null); // profile to confirm delete
   let menuProfile = $state(null); // profile whose ellipsis menu is open
   let sessionActivity = $state({}); // profileId → 'active' | 'done' | null
-  let showUsageDetail = $state(false);
 
   // Theme state
   let currentTheme = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('clauge-theme') || 'dark') : 'dark');
@@ -603,12 +603,11 @@ Anti-patterns to avoid:
 
 
   async function loadUsageLimits() {
+    usageError = '';
     try {
-      // Load saved session key
       const key = await invoke("load_session_key");
       if (!key) return;
 
-      // Fetch via Rust (uses macOS native NSURLSession which bypasses Cloudflare)
       const usage = await invoke("fetch_usage_limits", { sessionKey: key });
 
       usageLimits = {
@@ -619,15 +618,25 @@ Anti-patterns to avoid:
         weeklySonnetPercent: usage.seven_day_sonnet?.utilization ?? null,
         weeklySonnetResets: usage.seven_day_sonnet?.resets_at ?? null,
       };
+      usageError = '';
 
-      // Update menu bar tray text
       const s = Math.round(usageLimits.sessionPercent);
       const w = Math.round(usageLimits.weeklyAllPercent);
       await invoke("update_tray_title", { title: `S:${s}% W:${w}%` }).catch(() => {});
     } catch(e) {
       console.error("Usage limits failed:", e);
+      const err = String(e).toLowerCase();
       usageLimits = null;
       await invoke("update_tray_title", { title: "" }).catch(() => {});
+
+      // Detect auth failures — session key expired or invalid
+      if (err.includes('permission') || err.includes('unauthorized') || err.includes('invalid') || err.includes('403') || err.includes('401')) {
+        sessionKeyConfigured = false;
+        usageError = 'Session key expired or invalid. Please reconnect.';
+        if (usageRefreshInterval) { clearInterval(usageRefreshInterval); usageRefreshInterval = null; }
+      } else {
+        usageError = 'Failed to fetch usage data. Try again.';
+      }
     }
   }
 
@@ -769,7 +778,7 @@ Anti-patterns to avoid:
       {@const sColor = usageLimits.sessionPercent > 80 ? '#f85149' : usageLimits.sessionPercent > 50 ? '#d29922' : 'var(--accent)'}
       {@const wColor = usageLimits.weeklyAllPercent > 80 ? '#f85149' : usageLimits.weeklyAllPercent > 50 ? '#d29922' : 'var(--accent)'}
       <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-      <div class="usage-chips-clickable" onclick={() => showUsageDetail = true}>
+      <div class="usage-chips-clickable" onclick={() => { showSettings = true; settingsTab = 'usage'; }}>
         <div class="usage-chip"><span class="usage-dot" style="background:{sColor};box-shadow:0 0 6px {sColor}44;"></span><span class="usage-lbl">Session</span><span class="usage-val" style="color:{sColor}">{usageLimits.sessionPercent.toFixed(0)}%</span></div>
         <div class="usage-sep"></div>
         <div class="usage-chip"><span class="usage-dot" style="background:{wColor};box-shadow:0 0 6px {wColor}44;"></span><span class="usage-lbl">Weekly</span><span class="usage-val" style="color:{wColor}">{usageLimits.weeklyAllPercent.toFixed(0)}%</span></div>
@@ -883,9 +892,11 @@ Anti-patterns to avoid:
           </div>
           {#if !showKeyEdit}
             <div style="display:flex;gap:8px;margin-top:8px;">
-              <button class="save-key-btn" onclick={() => loadUsageLimits()}>Refresh Now</button>
               <button class="save-key-btn" style="color:var(--text-secondary);border-color:var(--border);" onclick={() => showKeyEdit = true}>Edit Key</button>
             </div>
+            {#if usageError}
+              <p style="font-size:11px;color:#f85149;margin:6px 0 0;">{usageError}</p>
+            {/if}
           {:else}
             <div style="margin-top:8px;">
               <input type="password" bind:value={sessionKeyInput} placeholder="sk-ant-sid01-..." style="font-size:12px;margin-bottom:4px;" />
@@ -904,9 +915,56 @@ Anti-patterns to avoid:
             </div>
           {/if}
         </div>
+
+        {#if usageLimits}
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+            <div class="usage-detail-row">
+              <div class="usage-detail-label">Session</div>
+              <div class="usage-detail-bar">
+                <div class="usage-detail-fill" style="width:{usageLimits.sessionPercent}%;background:{usageLimits.sessionPercent > 80 ? '#f85149' : usageLimits.sessionPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
+              </div>
+              <div class="usage-detail-pct" style="color:{usageLimits.sessionPercent > 80 ? '#f85149' : usageLimits.sessionPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.sessionPercent.toFixed(1)}%</div>
+            </div>
+            {#if usageLimits.sessionResets}
+              <div class="usage-detail-resets">Resets {new Date(usageLimits.sessionResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+            {/if}
+
+            <div class="usage-detail-row" style="margin-top:14px;">
+              <div class="usage-detail-label">Weekly</div>
+              <div class="usage-detail-bar">
+                <div class="usage-detail-fill" style="width:{usageLimits.weeklyAllPercent}%;background:{usageLimits.weeklyAllPercent > 80 ? '#f85149' : usageLimits.weeklyAllPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
+              </div>
+              <div class="usage-detail-pct" style="color:{usageLimits.weeklyAllPercent > 80 ? '#f85149' : usageLimits.weeklyAllPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.weeklyAllPercent.toFixed(1)}%</div>
+            </div>
+            {#if usageLimits.weeklyAllResets}
+              <div class="usage-detail-resets">Resets {new Date(usageLimits.weeklyAllResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+            {/if}
+
+            {#if usageLimits.weeklySonnetPercent != null}
+              <div class="usage-detail-row" style="margin-top:14px;">
+                <div class="usage-detail-label">Sonnet</div>
+                <div class="usage-detail-bar">
+                  <div class="usage-detail-fill" style="width:{usageLimits.weeklySonnetPercent}%;background:{usageLimits.weeklySonnetPercent > 80 ? '#f85149' : usageLimits.weeklySonnetPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
+                </div>
+                <div class="usage-detail-pct" style="color:{usageLimits.weeklySonnetPercent > 80 ? '#f85149' : usageLimits.weeklySonnetPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.weeklySonnetPercent.toFixed(1)}%</div>
+              </div>
+              {#if usageLimits.weeklySonnetResets}
+                <div class="usage-detail-resets">Resets {new Date(usageLimits.weeklySonnetResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+              {/if}
+            {/if}
+
+            {#if claudePlan}
+              <div style="margin-top:14px;font-size:11px;color:var(--text-secondary);">Plan: <span style="text-transform:capitalize;color:var(--text-primary);">{claudePlan}</span></div>
+            {/if}
+          </div>
+        {/if}
       {:else}
         <div class="session-key-setup">
-          <p style="font-size:12px;color:var(--text-primary);margin:0 0 8px;">Connect to claude.ai to see live usage limits</p>
+          {#if usageError}
+            <p style="font-size:11px;color:#f85149;margin:0 0 8px;">{usageError}</p>
+          {:else}
+            <p style="font-size:12px;color:var(--text-primary);margin:0 0 8px;">Connect to claude.ai to see live usage limits</p>
+          {/if}
           <label style="margin-bottom:6px;">Session Key
             <input type="password" bind:value={sessionKeyInput} placeholder="sk-ant-sid01-..." style="margin-top:4px;font-size:12px;" />
           </label>
@@ -915,6 +973,7 @@ Anti-patterns to avoid:
             if (sessionKeyInput.trim()) {
               await invoke("save_session_key", { key: sessionKeyInput.trim() });
               sessionKeyConfigured = true;
+              usageError = '';
               await loadUsageLimits();
               usageRefreshInterval = setInterval(loadUsageLimits, 5 * 60 * 1000);
             }
@@ -986,59 +1045,6 @@ Anti-patterns to avoid:
 </div>
 {/if}
 
-{#if showUsageDetail && usageLimits}
-<div class="modal-backdrop" style="animation:fadeIn 0.1s ease-out;">
-  <div class="modal" style="max-width:380px;animation:slideIn 0.15s ease-out;padding:0;">
-    <div style="padding:20px 20px 16px;">
-      <h2 style="font-size:14px;margin:0 0 16px;">Usage</h2>
-
-      <div class="usage-detail-row">
-        <div class="usage-detail-label">Session</div>
-        <div class="usage-detail-bar">
-          <div class="usage-detail-fill" style="width:{usageLimits.sessionPercent}%;background:{usageLimits.sessionPercent > 80 ? '#f85149' : usageLimits.sessionPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
-        </div>
-        <div class="usage-detail-pct" style="color:{usageLimits.sessionPercent > 80 ? '#f85149' : usageLimits.sessionPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.sessionPercent.toFixed(1)}%</div>
-      </div>
-      {#if usageLimits.sessionResets}
-        <div class="usage-detail-resets">Resets {new Date(usageLimits.sessionResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-      {/if}
-
-      <div class="usage-detail-row" style="margin-top:14px;">
-        <div class="usage-detail-label">Weekly</div>
-        <div class="usage-detail-bar">
-          <div class="usage-detail-fill" style="width:{usageLimits.weeklyAllPercent}%;background:{usageLimits.weeklyAllPercent > 80 ? '#f85149' : usageLimits.weeklyAllPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
-        </div>
-        <div class="usage-detail-pct" style="color:{usageLimits.weeklyAllPercent > 80 ? '#f85149' : usageLimits.weeklyAllPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.weeklyAllPercent.toFixed(1)}%</div>
-      </div>
-      {#if usageLimits.weeklyAllResets}
-        <div class="usage-detail-resets">Resets {new Date(usageLimits.weeklyAllResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-      {/if}
-
-      {#if usageLimits.weeklySonnetPercent != null}
-        <div class="usage-detail-row" style="margin-top:14px;">
-          <div class="usage-detail-label">Sonnet</div>
-          <div class="usage-detail-bar">
-            <div class="usage-detail-fill" style="width:{usageLimits.weeklySonnetPercent}%;background:{usageLimits.weeklySonnetPercent > 80 ? '#f85149' : usageLimits.weeklySonnetPercent > 50 ? '#d29922' : 'var(--accent)'}"></div>
-          </div>
-          <div class="usage-detail-pct" style="color:{usageLimits.weeklySonnetPercent > 80 ? '#f85149' : usageLimits.weeklySonnetPercent > 50 ? '#d29922' : 'var(--accent)'}">{usageLimits.weeklySonnetPercent.toFixed(1)}%</div>
-        </div>
-        {#if usageLimits.weeklySonnetResets}
-          <div class="usage-detail-resets">Resets {new Date(usageLimits.weeklySonnetResets).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
-        {/if}
-      {/if}
-    </div>
-
-    {#if claudePlan}
-      <div style="padding:0 20px 12px;font-size:11px;color:var(--text-secondary);">Plan: <span style="text-transform:capitalize;color:var(--text-primary);">{claudePlan}</span></div>
-    {/if}
-
-    <div class="modal-actions" style="padding:12px 20px;border-top:1px solid var(--border);">
-      <button onclick={() => showUsageDetail = false}>Close</button>
-      <button class="create-btn" onclick={() => { showUsageDetail = false; loadUsageLimits(); }}>Refresh</button>
-    </div>
-  </div>
-</div>
-{/if}
 
 <style>
   :global(:root) {

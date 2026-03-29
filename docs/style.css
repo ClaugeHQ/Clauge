@@ -17,7 +17,7 @@
   --blue: #58a6ff;
   --yellow: #d29922;
   --red: #f85149;
-  --container: 1120px;
+  --container: 1280px;
   --font-display: 'Syne', sans-serif;
   --font-body: 'Inter', -apple-system, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
@@ -124,18 +124,34 @@ header .inner {
 
 /* ─── Hero ─── */
 .hero {
-  padding: 160px 0 100px;
-  text-align: center;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 80px 0 40px;
+}
+.hero > .container { max-width: 100%; padding: 0 40px; }
+.hero-split {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  width: 100%;
+}
+.hero-left {
+  flex: 0 0 38%;
+  min-width: 0;
+}
+.hero-right {
+  flex: 1;
+  min-width: 0;
 }
 .hero h1 {
   font-family: var(--font-display);
-  font-size: clamp(36px, 6vw, 64px);
+  font-size: clamp(36px, 5vw, 58px);
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: -1.5px;
   color: var(--white);
-  max-width: 800px;
-  margin: 0 auto 20px;
+  margin: 0 0 20px;
 }
 .hero-typewriter {
   border-right: 3px solid var(--blue);
@@ -144,19 +160,24 @@ header .inner {
 }
 @keyframes cursorBlink { 50% { border-color: transparent; } }
 .hero .subtitle {
-  font-size: clamp(15px, 2vw, 17px);
+  font-size: clamp(14px, 1.8vw, 16px);
   color: var(--text-muted);
   max-width: 520px;
-  margin: 0 auto 40px;
+  margin: 0 0 36px;
   line-height: 1.6;
   font-weight: 300;
 }
 .hero-buttons {
   display: flex;
   gap: 12px;
-  justify-content: center;
   flex-wrap: wrap;
   margin-bottom: 20px;
+}
+@media (max-width: 768px) {
+  .hero-split { flex-direction: column; gap: 40px; text-align: center; }
+  .hero-left { text-align: center; }
+  .hero-buttons { justify-content: center; }
+  .hero .subtitle { margin: 0 auto 36px; }
 }
 .btn-primary {
   display: inline-flex; align-items: center; gap: 8px;
@@ -364,6 +385,20 @@ section { padding: 100px 0; }
 }
 .section-header {
   margin-bottom: 56px;
+}
+
+/* ─── Hero Video ─── */
+.hero-video-wrap {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+.promo-video {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 /* ─── Purposes ─── */
@@ -603,6 +638,33 @@ footer {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* ─── Floating Coffee Button ─── */
+.bmc-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.bmc-float:hover {
+  border-color: #FFDD00;
+  background: rgba(255,221,0,0.08);
+  transform: translateY(-2px);
+}
+.bmc-float svg { color: #FFDD00; flex-shrink: 0; }
 
 /* ─── Demo: App with sidebar ─── */
 .demo-app {

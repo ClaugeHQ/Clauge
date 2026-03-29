@@ -23,6 +23,12 @@
 
 ---
 
+<p align="center">
+  <video src="docs/promo.mp4" autoplay loop muted playsinline width="800"></video>
+</p>
+
+---
+
 ## Session Purposes
 
 Each session stays focused on what you need right now. The purpose persists throughout the entire conversation.
@@ -41,7 +47,7 @@ Each session stays focused on what you need right now. The purpose persists thro
 
 **Embedded terminal** — Full interactive terminal built in. Colors, scrollback, resize. Switch between sessions instantly without re-spawning Claude.
 
-**~10MB, low resource usage** — Built with Rust and Tauri. No Electron, no bundled Chromium. Starts fast, stays light.
+**~7MB, low resource usage** — Built with Rust and Tauri. No Electron, no bundled Chromium. Starts fast, stays light.
 
 **Organized by project** — Sessions grouped by project folder with expand/collapse. Auto-discovers your existing Claude Code sessions.
 

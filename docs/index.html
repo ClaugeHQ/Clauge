@@ -1,490 +1,1024 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clauge — Run multiple Claude Code sessions in parallel</title>
-  <meta name="description" content="Organize, label, and resume Claude Code sessions from a lightweight macOS app. Purpose-driven workflows, embedded terminal, automatic session isolation.">
-  <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="icon.svg">
-</head>
-<body>
-
-<!-- Header -->
-<header id="header">
-  <div class="inner">
-    <a href="#" class="logo">Clauge</a>
-    <div class="header-right">
-      <a href="changelog.html" class="header-link">Changelog</a>
-      <a href="https://github.com/ansxuman/Clauge" class="gh-link">
-        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        GitHub
-      </a>
-    </div>
-  </div>
-</header>
-
-<!-- Hero -->
-<section class="hero">
-  <div class="container">
-    <h1 class="reveal">Run multiple Claude Code<br>sessions <span class="hero-typewriter"></span></h1>
-    <p class="subtitle reveal reveal-delay-1">Organized by project, each with its own purpose and terminal.<br>Built with Rust + Tauri.</p>
-    <div class="hero-buttons reveal reveal-delay-2">
-      <a id="hero-download" href="https://github.com/ansxuman/Clauge/releases/latest" class="btn-primary">
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
-        <span class="dl-text">Download for macOS</span>
-      </a>
-      <a href="https://github.com/ansxuman/Clauge" class="btn-secondary">View on GitHub</a>
-    </div>
-    <p class="hero-meta reveal reveal-delay-3">macOS only &middot; ~10MB &middot; Apache 2.0</p>
-  </div>
-</section>
-
-<!-- Purposes -->
-<section class="purposes-section">
-  <div class="container">
-    <div class="section-header reveal" style="text-align:center;max-width:600px;margin:0 auto 56px;">
-      <p class="section-tag">Purposes</p>
-      <h2 class="section-heading">One project, multiple workflows</h2>
-      <p class="section-sub" style="max-width:100%;">Each session stays focused on what you need right now. Start brainstorming, move to building, review before you ship.</p>
-    </div>
-    <div class="purposes-grid">
-      <div class="purpose-card reveal" style="border-left-color: var(--purple);">
-        <div class="purpose-icon" style="color:var(--purple);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </div>
-        <div>
-          <div class="purpose-name" style="color: var(--purple);">Brainstorming</div>
-          <div class="purpose-desc">Think through architecture before writing a line of code. Get multiple approaches with tradeoffs so you pick the right one.</div>
-        </div>
-      </div>
-      <div class="purpose-card reveal reveal-delay-1" style="border-left-color: var(--green);">
-        <div class="purpose-icon" style="color:var(--green);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        </div>
-        <div>
-          <div class="purpose-name" style="color: var(--green);">Development</div>
-          <div class="purpose-desc">Ship features with clean, tested code that follows your existing patterns. Small changes, verified one at a time.</div>
-        </div>
-      </div>
-      <div class="purpose-card reveal reveal-delay-2" style="border-left-color: var(--blue);">
-        <div class="purpose-icon" style="color:var(--blue);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        </div>
-        <div>
-          <div class="purpose-name" style="color: var(--blue);">Code Review</div>
-          <div class="purpose-desc">Catch bugs, security holes, and edge cases before they reach production. Get specific feedback with file and line references.</div>
-        </div>
-      </div>
-      <div class="purpose-card reveal reveal-delay-3" style="border-left-color: var(--yellow);">
-        <div class="purpose-icon" style="color:var(--yellow);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/></svg>
-        </div>
-        <div>
-          <div class="purpose-name" style="color: var(--yellow);">PR Review</div>
-          <div class="purpose-desc">Review pull requests end-to-end before merging. Get a clear summary of what changed, what's good, and what needs work.</div>
-        </div>
-      </div>
-      <div class="purpose-card reveal reveal-delay-4" style="border-left-color: var(--red);">
-        <div class="purpose-icon" style="color:var(--red);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64A9 9 0 115.64 18.36"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
-        </div>
-        <div>
-          <div class="purpose-name" style="color: var(--red);">Debugging</div>
-          <div class="purpose-desc">Find the root cause, not a band-aid. Reproduces the issue, traces it methodically, and verifies the fix actually works.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Features -->
-<section class="features-section">
-  <div class="container">
-    <div class="section-header reveal">
-      <p class="section-tag">Features</p>
-      <h2 class="section-heading">What you get</h2>
-    </div>
-
-    <!-- Feature 1: Sidebar + terminal with session switching -->
-    <div class="feature-row reveal">
-      <div class="feature-text">
-        <h3>Parallel sessions, zero conflicts</h3>
-        <p>Run multiple sessions on the same project. Each one is automatically isolated — edit files in one without breaking the other. Switch between them instantly.</p>
-      </div>
-      <div class="feature-visual">
-        <div class="demo-app">
-          <div class="demo-app-bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
-          <div class="demo-app-body">
-            <div class="demo-sidebar">
-              <div class="demo-side-hdr">Clauge <span class="demo-side-plus">+</span></div>
-              <div class="demo-side-group">
-                <div class="demo-side-grp-hdr"><span class="demo-chevron">&#9656;</span> MYAPP <span class="demo-grp-count">3</span></div>
-                <div class="demo-side-item active" data-idx="0">
-                  <span class="demo-status-dot on"></span>
-                  Auth refactor
-                  <span class="demo-side-badge dev">Dev</span>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Clauge — Run multiple Claude Code sessions in parallel</title>
+        <meta
+            name="description"
+            content="Organize, label, and resume Claude Code sessions from a lightweight macOS app. Purpose-driven workflows, embedded terminal, automatic session isolation."
+        />
+        <link rel="stylesheet" href="style.css" />
+        <link rel="icon" href="icon.svg" />
+    </head>
+    <body>
+        <!-- Header -->
+        <header id="header">
+            <div class="inner">
+                <a href="#" class="logo">Clauge</a>
+                <div class="header-right">
+                    <a href="changelog.html" class="header-link">Changelog</a>
+                    <a
+                        href="https://github.com/ansxuman/Clauge"
+                        class="gh-link"
+                    >
+                        <svg viewBox="0 0 16 16">
+                            <path
+                                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                            />
+                        </svg>
+                        GitHub
+                    </a>
                 </div>
-                <div class="demo-side-item" data-idx="1">
-                  <span class="demo-status-dot"></span>
-                  API endpoints
-                  <span class="demo-side-badge review">Review</span>
+            </div>
+        </header>
+
+        <!-- Hero -->
+        <section class="hero">
+            <div class="container hero-split">
+                <div class="hero-left">
+                    <h1 class="reveal">
+                        Run multiple Claude Code<br />sessions
+                        <span class="hero-typewriter"></span>
+                    </h1>
+                    <p class="subtitle reveal reveal-delay-1">
+                        Organized by project, each with its own purpose and
+                        terminal.<br />Built with Rust + Tauri.
+                    </p>
+                    <div class="hero-buttons reveal reveal-delay-2">
+                        <a
+                            id="hero-download"
+                            href="https://github.com/ansxuman/Clauge/releases/latest"
+                            class="btn-primary"
+                        >
+                            <svg viewBox="0 0 16 16" fill="currentColor">
+                                <path
+                                    d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"
+                                />
+                            </svg>
+                            <span class="dl-text">Download for macOS</span>
+                        </a>
+                        <a
+                            href="https://github.com/ansxuman/Clauge"
+                            class="btn-secondary"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 16 16"
+                                fill="currentColor"
+                            >
+                                <path
+                                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                                />
+                            </svg>
+                            View on GitHub
+                        </a>
+                    </div>
+                    <p class="hero-meta reveal reveal-delay-3">
+                        macOS only &middot; ~7MB &middot; Apache 2.0
+                    </p>
                 </div>
-                <div class="demo-side-item" data-idx="2">
-                  <span class="demo-status-dot"></span>
-                  Bug #42
-                  <span class="demo-side-badge debug">Debug</span>
-                  <span class="demo-side-wt">WT</span>
+                <div class="hero-right reveal reveal-delay-1">
+                    <div class="hero-video-wrap">
+                        <video
+                            class="promo-video"
+                            autoplay
+                            loop
+                            muted
+                            playsinline
+                        >
+                            <source src="promo.mp4" type="video/mp4" />
+                        </video>
+                    </div>
                 </div>
-              </div>
-              <div class="demo-side-group">
-                <div class="demo-side-grp-hdr"><span class="demo-chevron">&#9656;</span> BACKEND <span class="demo-grp-count">2</span></div>
-                <div class="demo-side-item" data-idx="3">
-                  <span class="demo-status-dot"></span>
-                  PR #87
-                  <span class="demo-side-badge pr">PR</span>
+            </div>
+        </section>
+
+        <!-- Purposes -->
+        <section class="purposes-section">
+            <div class="container">
+                <div
+                    class="section-header reveal"
+                    style="
+                        text-align: center;
+                        max-width: 600px;
+                        margin: 0 auto 56px;
+                    "
+                >
+                    <p class="section-tag">Purposes</p>
+                    <h2 class="section-heading">
+                        One project, multiple workflows
+                    </h2>
+                    <p class="section-sub" style="max-width: 100%">
+                        Each session stays focused on what you need right now.
+                        Start brainstorming, move to building, review before you
+                        ship.
+                    </p>
                 </div>
-                <div class="demo-side-item" data-idx="4">
-                  <span class="demo-status-dot"></span>
-                  Brainstorm DB
-                  <span class="demo-side-badge brain">Brain</span>
+                <div class="purposes-grid">
+                    <div
+                        class="purpose-card reveal"
+                        style="border-left-color: var(--purple)"
+                    >
+                        <div class="purpose-icon" style="color: var(--purple)">
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div
+                                class="purpose-name"
+                                style="color: var(--purple)"
+                            >
+                                Brainstorming
+                            </div>
+                            <div class="purpose-desc">
+                                Think through architecture before writing a line
+                                of code. Get multiple approaches with tradeoffs
+                                so you pick the right one.
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        class="purpose-card reveal reveal-delay-1"
+                        style="border-left-color: var(--green)"
+                    >
+                        <div class="purpose-icon" style="color: var(--green)">
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <polyline points="16 18 22 12 16 6" />
+                                <polyline points="8 6 2 12 8 18" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div
+                                class="purpose-name"
+                                style="color: var(--green)"
+                            >
+                                Development
+                            </div>
+                            <div class="purpose-desc">
+                                Ship features with clean, tested code that
+                                follows your existing patterns. Small changes,
+                                verified one at a time.
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        class="purpose-card reveal reveal-delay-2"
+                        style="border-left-color: var(--blue)"
+                    >
+                        <div class="purpose-icon" style="color: var(--blue)">
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path
+                                    d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                                />
+                                <circle cx="12" cy="12" r="3" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div
+                                class="purpose-name"
+                                style="color: var(--blue)"
+                            >
+                                Code Review
+                            </div>
+                            <div class="purpose-desc">
+                                Catch bugs, security holes, and edge cases
+                                before they reach production. Get specific
+                                feedback with file and line references.
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        class="purpose-card reveal reveal-delay-3"
+                        style="border-left-color: var(--yellow)"
+                    >
+                        <div class="purpose-icon" style="color: var(--yellow)">
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <circle cx="18" cy="18" r="3" />
+                                <circle cx="6" cy="6" r="3" />
+                                <path d="M13 6h3a2 2 0 012 2v7" />
+                                <path d="M11 18H8a2 2 0 01-2-2V9" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div
+                                class="purpose-name"
+                                style="color: var(--yellow)"
+                            >
+                                PR Review
+                            </div>
+                            <div class="purpose-desc">
+                                Review pull requests end-to-end before merging.
+                                Get a clear summary of what changed, what's
+                                good, and what needs work.
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        class="purpose-card reveal reveal-delay-4"
+                        style="border-left-color: var(--red)"
+                    >
+                        <div class="purpose-icon" style="color: var(--red)">
+                            <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M18.36 6.64A9 9 0 115.64 18.36" />
+                                <line x1="12" y1="2" x2="12" y2="6" />
+                                <line x1="12" y1="18" x2="12" y2="22" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="purpose-name" style="color: var(--red)">
+                                Debugging
+                            </div>
+                            <div class="purpose-desc">
+                                Find the root cause, not a band-aid. Reproduces
+                                the issue, traces it methodically, and verifies
+                                the fix actually works.
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
             </div>
-            <div class="demo-terminal-pane">
-              <div class="demo-term-content active" data-panel="0">
-                <span class="demo-prompt">&#10095;</span> Refactoring auth middleware to use JWT<br>
-                <span class="demo-dim">Reading src/middleware/auth.ts</span><br>
-                <span class="demo-dim">Reading src/utils/jwt.ts</span><br><br>
-                I'll update the middleware to validate tokens...<span class="demo-cursor"></span>
-              </div>
-              <div class="demo-term-content" data-panel="1">
-                <span class="demo-prompt">&#10095;</span> Review the API endpoints for security<br>
-                <span class="demo-dim">Found 2 issues in routes/users.ts</span><br><br>
-                Missing rate limiting on POST /api/auth/login...<span class="demo-cursor"></span>
-              </div>
-              <div class="demo-term-content" data-panel="2">
-                <span class="demo-prompt">&#10095;</span> Token expires after 5 minutes<br>
-                <span class="demo-dim">Checking refresh logic...</span><br><br>
-                Root cause: interval set to 300s not 3600s<span class="demo-cursor"></span>
-              </div>
-              <div class="demo-term-content" data-panel="3">
-                <span class="demo-prompt">&#10095;</span> Reviewing PR #87 — DB connection pooling<br>
-                <span class="demo-dim">git diff main...feat/db-pool</span><br><br>
-                Changes look good. One concern with max_connections...<span class="demo-cursor"></span>
-              </div>
-              <div class="demo-term-content" data-panel="4">
-                <span class="demo-prompt">&#10095;</span> Should we use Redis or Memcached?<br><br>
-                Let's compare both approaches...<span class="demo-cursor"></span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        </section>
 
-    <!-- Feature 2: Auto-typing terminal -->
-    <div class="feature-row reverse reveal">
-      <div class="feature-text">
-        <h3>Everything in one window</h3>
-        <p>Embedded interactive terminal with full color, scrollback, and resize. Sessions grouped by project with expand/collapse. No jumping between terminal tabs.</p>
-      </div>
-      <div class="feature-visual">
-        <div class="demo-terminal">
-          <div class="demo-term-bar"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span><span class="demo-term-title">Clauge — Development</span></div>
-          <div class="demo-term-body" id="typing-terminal"></div>
-        </div>
-      </div>
-    </div>
+        <!-- Features -->
+        <section class="features-section">
+            <div class="container">
+                <div class="section-header reveal">
+                    <p class="section-tag">Features</p>
+                    <h2 class="section-heading">What you get</h2>
+                </div>
 
-    <!-- Feature 3: Morphing theme window -->
-    <div class="feature-row reveal">
-      <div class="feature-text">
-        <h3>Make it yours</h3>
-        <p>Dark and light themes. Six accent colors. Translucent sidebar. Adapts to how you work — not the other way around.</p>
-      </div>
-      <div class="feature-visual">
-        <div class="demo-theme" id="theme-demo">
-          <div class="demo-theme-window">
-            <div class="demo-theme-sidebar">
-              <div class="demo-theme-item active">Auth refactor</div>
-              <div class="demo-theme-item">Bug #42</div>
-            </div>
-            <div class="demo-theme-content">
-              <div class="demo-theme-line w80"></div>
-              <div class="demo-theme-line w60"></div>
-              <div class="demo-theme-line w90"></div>
-              <div class="demo-theme-line w40"></div>
-            </div>
-          </div>
-          <div class="demo-theme-dots">
-            <span class="theme-dot" style="--c:#58a6ff" data-accent="#58a6ff"></span>
-            <span class="theme-dot" style="--c:#d2a8ff" data-accent="#d2a8ff"></span>
-            <span class="theme-dot" style="--c:#3fb950" data-accent="#3fb950"></span>
-            <span class="theme-dot" style="--c:#f85149" data-accent="#f85149"></span>
-            <span class="theme-dot" style="--c:#d29922" data-accent="#d29922"></span>
-            <span class="theme-dot" style="--c:#ff7b72" data-accent="#ff7b72"></span>
-          </div>
-        </div>
-      </div>
-    </div>
+                <!-- Feature 1: Sidebar + terminal with session switching -->
+                <div class="feature-row reveal">
+                    <div class="feature-text">
+                        <h3>Parallel sessions, zero conflicts</h3>
+                        <p>
+                            Run multiple sessions on the same project. Each one
+                            is automatically isolated — edit files in one
+                            without breaking the other. Switch between them
+                            instantly.
+                        </p>
+                    </div>
+                    <div class="feature-visual">
+                        <div class="demo-app">
+                            <div class="demo-app-bar">
+                                <span class="dot-r"></span
+                                ><span class="dot-y"></span
+                                ><span class="dot-g"></span>
+                            </div>
+                            <div class="demo-app-body">
+                                <div class="demo-sidebar">
+                                    <div class="demo-side-hdr">
+                                        Clauge
+                                        <span class="demo-side-plus">+</span>
+                                    </div>
+                                    <div class="demo-side-group">
+                                        <div class="demo-side-grp-hdr">
+                                            <span class="demo-chevron"
+                                                >&#9656;</span
+                                            >
+                                            MYAPP
+                                            <span class="demo-grp-count"
+                                                >3</span
+                                            >
+                                        </div>
+                                        <div
+                                            class="demo-side-item active"
+                                            data-idx="0"
+                                        >
+                                            <span
+                                                class="demo-status-dot on"
+                                            ></span>
+                                            Auth refactor
+                                            <span class="demo-side-badge dev"
+                                                >Dev</span
+                                            >
+                                        </div>
+                                        <div
+                                            class="demo-side-item"
+                                            data-idx="1"
+                                        >
+                                            <span
+                                                class="demo-status-dot"
+                                            ></span>
+                                            API endpoints
+                                            <span class="demo-side-badge review"
+                                                >Review</span
+                                            >
+                                        </div>
+                                        <div
+                                            class="demo-side-item"
+                                            data-idx="2"
+                                        >
+                                            <span
+                                                class="demo-status-dot"
+                                            ></span>
+                                            Bug #42
+                                            <span class="demo-side-badge debug"
+                                                >Debug</span
+                                            >
+                                            <span class="demo-side-wt">WT</span>
+                                        </div>
+                                    </div>
+                                    <div class="demo-side-group">
+                                        <div class="demo-side-grp-hdr">
+                                            <span class="demo-chevron"
+                                                >&#9656;</span
+                                            >
+                                            BACKEND
+                                            <span class="demo-grp-count"
+                                                >2</span
+                                            >
+                                        </div>
+                                        <div
+                                            class="demo-side-item"
+                                            data-idx="3"
+                                        >
+                                            <span
+                                                class="demo-status-dot"
+                                            ></span>
+                                            PR #87
+                                            <span class="demo-side-badge pr"
+                                                >PR</span
+                                            >
+                                        </div>
+                                        <div
+                                            class="demo-side-item"
+                                            data-idx="4"
+                                        >
+                                            <span
+                                                class="demo-status-dot"
+                                            ></span>
+                                            Brainstorm DB
+                                            <span class="demo-side-badge brain"
+                                                >Brain</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="demo-terminal-pane">
+                                    <div
+                                        class="demo-term-content active"
+                                        data-panel="0"
+                                    >
+                                        <span class="demo-prompt"
+                                            >&#10095;</span
+                                        >
+                                        Refactoring auth middleware to use
+                                        JWT<br />
+                                        <span class="demo-dim"
+                                            >Reading
+                                            src/middleware/auth.ts</span
+                                        ><br />
+                                        <span class="demo-dim"
+                                            >Reading src/utils/jwt.ts</span
+                                        ><br /><br />
+                                        I'll update the middleware to validate
+                                        tokens...<span
+                                            class="demo-cursor"
+                                        ></span>
+                                    </div>
+                                    <div
+                                        class="demo-term-content"
+                                        data-panel="1"
+                                    >
+                                        <span class="demo-prompt"
+                                            >&#10095;</span
+                                        >
+                                        Review the API endpoints for security<br />
+                                        <span class="demo-dim"
+                                            >Found 2 issues in
+                                            routes/users.ts</span
+                                        ><br /><br />
+                                        Missing rate limiting on POST
+                                        /api/auth/login...<span
+                                            class="demo-cursor"
+                                        ></span>
+                                    </div>
+                                    <div
+                                        class="demo-term-content"
+                                        data-panel="2"
+                                    >
+                                        <span class="demo-prompt"
+                                            >&#10095;</span
+                                        >
+                                        Token expires after 5 minutes<br />
+                                        <span class="demo-dim"
+                                            >Checking refresh logic...</span
+                                        ><br /><br />
+                                        Root cause: interval set to 300s not
+                                        3600s<span class="demo-cursor"></span>
+                                    </div>
+                                    <div
+                                        class="demo-term-content"
+                                        data-panel="3"
+                                    >
+                                        <span class="demo-prompt"
+                                            >&#10095;</span
+                                        >
+                                        Reviewing PR #87 — DB connection
+                                        pooling<br />
+                                        <span class="demo-dim"
+                                            >git diff main...feat/db-pool</span
+                                        ><br /><br />
+                                        Changes look good. One concern with
+                                        max_connections...<span
+                                            class="demo-cursor"
+                                        ></span>
+                                    </div>
+                                    <div
+                                        class="demo-term-content"
+                                        data-panel="4"
+                                    >
+                                        <span class="demo-prompt"
+                                            >&#10095;</span
+                                        >
+                                        Should we use Redis or Memcached?<br /><br />
+                                        Let's compare both approaches...<span
+                                            class="demo-cursor"
+                                        ></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-    <!-- Feature 4: Usage tracking — keep original clean design -->
-    <div class="feature-row reverse reveal">
-      <div class="feature-text">
-        <h3>Usage tracking</h3>
-        <p>Session and weekly usage limits visible right in the menu bar. Know how much headroom you have without opening a browser.</p>
-      </div>
-      <div class="feature-visual">
-        <div class="mockup glass-mockup">
-          <div class="mockup-titlebar">
-            <span class="mockup-dot" style="background:#ff5f57"></span><span class="mockup-dot" style="background:#febc2e"></span><span class="mockup-dot" style="background:#28c840"></span>
-          </div>
-          <div class="mockup-body mockup-usage">
-            <div class="usage-meter">
-              <span class="usage-label">Session</span>
-              <div class="usage-track"><div class="usage-fill" style="width:13%;background:var(--blue);"></div></div>
-              <span class="usage-pct">13%</span>
-            </div>
-            <div class="usage-meter">
-              <span class="usage-label">Weekly</span>
-              <div class="usage-track"><div class="usage-fill" style="width:6%;background:var(--blue);"></div></div>
-              <span class="usage-pct">6%</span>
-            </div>
-            <div class="usage-meter">
-              <span class="usage-label">Sonnet</span>
-              <div class="usage-track"><div class="usage-fill" style="width:29%;background:var(--yellow);"></div></div>
-              <span class="usage-pct">29%</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
+                <!-- Feature 2: Auto-typing terminal -->
+                <div class="feature-row reverse reveal">
+                    <div class="feature-text">
+                        <h3>Everything in one window</h3>
+                        <p>
+                            Embedded interactive terminal with full color,
+                            scrollback, and resize. Sessions grouped by project
+                            with expand/collapse. No jumping between terminal
+                            tabs.
+                        </p>
+                    </div>
+                    <div class="feature-visual">
+                        <div class="demo-terminal">
+                            <div class="demo-term-bar">
+                                <span class="dot-r"></span
+                                ><span class="dot-y"></span
+                                ><span class="dot-g"></span
+                                ><span class="demo-term-title"
+                                    >Clauge — Development</span
+                                >
+                            </div>
+                            <div
+                                class="demo-term-body"
+                                id="typing-terminal"
+                            ></div>
+                        </div>
+                    </div>
+                </div>
 
-<!-- Shortcuts -->
-<section class="shortcuts-section">
-  <div class="container">
-    <div class="section-header reveal">
-      <p class="section-tag">Shortcuts</p>
-      <h2 class="section-heading">Keyboard-first</h2>
-    </div>
-    <div class="shortcuts-grid">
-      <div class="shortcut-card reveal">
-        <div class="shortcut-keys"><kbd>&#8984;</kbd> <kbd>N</kbd></div>
-        <div class="shortcut-desc">New session</div>
-      </div>
-      <div class="shortcut-card reveal reveal-delay-1">
-        <div class="shortcut-keys"><kbd>&#8984;</kbd> <kbd>1-9</kbd></div>
-        <div class="shortcut-desc">Switch session</div>
-      </div>
-      <div class="shortcut-card reveal reveal-delay-2">
-        <div class="shortcut-keys"><kbd>&#8984;</kbd> <kbd>B</kbd></div>
-        <div class="shortcut-desc">Toggle sidebar</div>
-      </div>
-      <div class="shortcut-card reveal reveal-delay-3">
-        <div class="shortcut-keys"><kbd>Esc</kbd></div>
-        <div class="shortcut-desc">Close modal</div>
-      </div>
-    </div>
-  </div>
-</section>
+                <!-- Feature 3: Morphing theme window -->
+                <div class="feature-row reveal">
+                    <div class="feature-text">
+                        <h3>Make it yours</h3>
+                        <p>
+                            Dark and light themes. Six accent colors.
+                            Translucent sidebar. Adapts to how you work — not
+                            the other way around.
+                        </p>
+                    </div>
+                    <div class="feature-visual">
+                        <div class="demo-theme" id="theme-demo">
+                            <div class="demo-theme-window">
+                                <div class="demo-theme-sidebar">
+                                    <div class="demo-theme-item active">
+                                        Auth refactor
+                                    </div>
+                                    <div class="demo-theme-item">Bug #42</div>
+                                </div>
+                                <div class="demo-theme-content">
+                                    <div class="demo-theme-line w80"></div>
+                                    <div class="demo-theme-line w60"></div>
+                                    <div class="demo-theme-line w90"></div>
+                                    <div class="demo-theme-line w40"></div>
+                                </div>
+                            </div>
+                            <div class="demo-theme-dots">
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #58a6ff"
+                                    data-accent="#58a6ff"
+                                ></span>
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #d2a8ff"
+                                    data-accent="#d2a8ff"
+                                ></span>
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #3fb950"
+                                    data-accent="#3fb950"
+                                ></span>
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #f85149"
+                                    data-accent="#f85149"
+                                ></span>
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #d29922"
+                                    data-accent="#d29922"
+                                ></span>
+                                <span
+                                    class="theme-dot"
+                                    style="--c: #ff7b72"
+                                    data-accent="#ff7b72"
+                                ></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-<!-- Download -->
-<section class="download-section">
-  <div class="container reveal">
-    <h2>Get Clauge</h2>
-    <p class="sub">Free and open source.</p>
-    <a id="cta-download" href="https://github.com/ansxuman/Clauge/releases/latest" class="btn-primary">
-      <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
-      <span class="dl-text">Download for macOS</span>
-    </a>
-    <p class="below-btn"><a href="https://github.com/ansxuman/Clauge">View source on GitHub</a></p>
-  </div>
-</section>
+                <!-- Feature 4: Usage tracking — keep original clean design -->
+                <div class="feature-row reverse reveal">
+                    <div class="feature-text">
+                        <h3>Usage tracking</h3>
+                        <p>
+                            Session and weekly usage limits visible right in the
+                            menu bar. Know how much headroom you have without
+                            opening a browser.
+                        </p>
+                    </div>
+                    <div class="feature-visual">
+                        <div class="mockup glass-mockup">
+                            <div class="mockup-titlebar">
+                                <span
+                                    class="mockup-dot"
+                                    style="background: #ff5f57"
+                                ></span
+                                ><span
+                                    class="mockup-dot"
+                                    style="background: #febc2e"
+                                ></span
+                                ><span
+                                    class="mockup-dot"
+                                    style="background: #28c840"
+                                ></span>
+                            </div>
+                            <div class="mockup-body mockup-usage">
+                                <div class="usage-meter">
+                                    <span class="usage-label">Session</span>
+                                    <div class="usage-track">
+                                        <div
+                                            class="usage-fill"
+                                            style="
+                                                width: 13%;
+                                                background: var(--blue);
+                                            "
+                                        ></div>
+                                    </div>
+                                    <span class="usage-pct">13%</span>
+                                </div>
+                                <div class="usage-meter">
+                                    <span class="usage-label">Weekly</span>
+                                    <div class="usage-track">
+                                        <div
+                                            class="usage-fill"
+                                            style="
+                                                width: 6%;
+                                                background: var(--blue);
+                                            "
+                                        ></div>
+                                    </div>
+                                    <span class="usage-pct">6%</span>
+                                </div>
+                                <div class="usage-meter">
+                                    <span class="usage-label">Sonnet</span>
+                                    <div class="usage-track">
+                                        <div
+                                            class="usage-fill"
+                                            style="
+                                                width: 29%;
+                                                background: var(--yellow);
+                                            "
+                                        ></div>
+                                    </div>
+                                    <span class="usage-pct">29%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-<!-- Footer -->
-<footer>
-  <div class="container">
-    <div class="footer-inner">
-      <div class="footer-left">
-        <div class="logo">Clauge</div>
-        <div class="footer-links">
-          <a href="https://github.com/ansxuman/Clauge">GitHub</a>
-          <a href="https://github.com/ansxuman/Clauge/issues">Report Bug</a>
-          <a href="https://github.com/ansxuman/Clauge/issues">Request Feature</a>
-        </div>
-      </div>
-      <div class="footer-right">
-        <a href="https://buymeacoffee.com/ansxuman">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21.5c0 .28.22.5.5.5h15c.28 0 .5-.22.5-.5V18H2v3.5zM20 6h-1V4.5c0-.28-.22-.5-.5-.5h-15c-.28 0-.5.22-.5.5V6H2c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1.47c.41 1.74 1.7 3.15 3.37 3.72l-.34.78c-.12.28.04.5.34.5h6.32c.3 0 .46-.22.34-.5l-.34-.78c1.67-.57 2.96-1.98 3.37-3.72H18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2 4h-1V8h1v2z"/></svg>
-          Buy me a coffee
+        <!-- Shortcuts -->
+        <section class="shortcuts-section">
+            <div class="container">
+                <div class="section-header reveal">
+                    <p class="section-tag">Shortcuts</p>
+                    <h2 class="section-heading">Keyboard-first</h2>
+                </div>
+                <div class="shortcuts-grid">
+                    <div class="shortcut-card reveal">
+                        <div class="shortcut-keys">
+                            <kbd>&#8984;</kbd> <kbd>N</kbd>
+                        </div>
+                        <div class="shortcut-desc">New session</div>
+                    </div>
+                    <div class="shortcut-card reveal reveal-delay-1">
+                        <div class="shortcut-keys">
+                            <kbd>&#8984;</kbd> <kbd>1-9</kbd>
+                        </div>
+                        <div class="shortcut-desc">Switch session</div>
+                    </div>
+                    <div class="shortcut-card reveal reveal-delay-2">
+                        <div class="shortcut-keys">
+                            <kbd>&#8984;</kbd> <kbd>B</kbd>
+                        </div>
+                        <div class="shortcut-desc">Toggle sidebar</div>
+                    </div>
+                    <div class="shortcut-card reveal reveal-delay-3">
+                        <div class="shortcut-keys"><kbd>Esc</kbd></div>
+                        <div class="shortcut-desc">Close modal</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Download -->
+        <section class="download-section">
+            <div class="container reveal">
+                <h2>Get Clauge</h2>
+                <p class="sub">Free and open source.</p>
+                <a
+                    id="cta-download"
+                    href="https://github.com/ansxuman/Clauge/releases/latest"
+                    class="btn-primary"
+                >
+                    <svg
+                        viewBox="0 0 16 16"
+                        fill="currentColor"
+                        width="16"
+                        height="16"
+                    >
+                        <path
+                            d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"
+                        />
+                    </svg>
+                    <span class="dl-text">Download for macOS</span>
+                </a>
+                <p class="below-btn">
+                    <a href="https://github.com/ansxuman/Clauge"
+                        >View source on GitHub</a
+                    >
+                </p>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <div class="container">
+                <div class="footer-inner">
+                    <div class="footer-left">
+                        <div class="logo">Clauge</div>
+                        <div class="footer-links">
+                            <a href="https://github.com/ansxuman/Clauge"
+                                >GitHub</a
+                            >
+                            <a href="https://github.com/ansxuman/Clauge/issues"
+                                >Report Bug</a
+                            >
+                            <a href="https://github.com/ansxuman/Clauge/issues"
+                                >Request Feature</a
+                            >
+                        </div>
+                    </div>
+                    <div class="footer-right">
+                        <a href="https://buymeacoffee.com/ansxuman">
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                            >
+                                <path
+                                    d="M2 21.5c0 .28.22.5.5.5h15c.28 0 .5-.22.5-.5V18H2v3.5zM20 6h-1V4.5c0-.28-.22-.5-.5-.5h-15c-.28 0-.5.22-.5.5V6H2c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1.47c.41 1.74 1.7 3.15 3.37 3.72l-.34.78c-.12.28.04.5.34.5h6.32c.3 0 .46-.22.34-.5l-.34-.78c1.67-.57 2.96-1.98 3.37-3.72H18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2 4h-1V8h1v2z"
+                                />
+                            </svg>
+                            Buy me a coffee
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-bottom">Apache License 2.0</div>
+            </div>
+        </footer>
+
+        <script>
+            // Scroll reveal
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    entries.forEach((e) => {
+                        if (e.isIntersecting) {
+                            e.target.classList.add("visible");
+                        }
+                    });
+                },
+                { threshold: 0.1, rootMargin: "0px 0px -40px 0px" },
+            );
+            document
+                .querySelectorAll(".reveal")
+                .forEach((el) => observer.observe(el));
+
+            // Hero typewriter
+            (function () {
+                const el = document.querySelector(".hero-typewriter");
+                if (!el) return;
+                const words = [
+                    "in parallel",
+                    "side by side",
+                    "without conflicts",
+                    "your way",
+                ];
+                const colors = [
+                    "var(--blue)",
+                    "var(--purple)",
+                    "var(--green)",
+                    "var(--yellow)",
+                ];
+                let wordIdx = 0,
+                    charIdx = 0,
+                    deleting = false;
+                function tick() {
+                    const word = words[wordIdx];
+                    if (!deleting) {
+                        el.textContent = word.slice(0, charIdx);
+                        el.style.color = colors[wordIdx];
+                        charIdx++;
+                        if (charIdx > word.length) {
+                            setTimeout(() => {
+                                deleting = true;
+                                tick();
+                            }, 2000);
+                            return;
+                        }
+                        setTimeout(tick, 60);
+                    } else {
+                        el.textContent = word.slice(0, charIdx);
+                        charIdx--;
+                        if (charIdx < 0) {
+                            deleting = false;
+                            charIdx = 0;
+                            wordIdx = (wordIdx + 1) % words.length;
+                            setTimeout(tick, 400);
+                            return;
+                        }
+                        setTimeout(tick, 30);
+                    }
+                }
+                setTimeout(tick, 800);
+            })();
+
+            // Header scroll
+            const header = document.getElementById("header");
+            window.addEventListener(
+                "scroll",
+                () => {
+                    header.classList.toggle("scrolled", window.scrollY > 20);
+                },
+                { passive: true },
+            );
+
+            // Direct download — detect arch and link to the right DMG
+            (async function () {
+                try {
+                    const resp = await fetch(
+                        "https://api.github.com/repos/ansxuman/Clauge/releases/latest",
+                    );
+                    if (!resp.ok) return;
+                    const release = await resp.json();
+                    const isArm =
+                        navigator.userAgent.includes("ARM") ||
+                        (navigator.platform === "MacIntel" &&
+                            navigator.maxTouchPoints > 0);
+                    const dmg =
+                        (release.assets || []).find(
+                            (a) =>
+                                a.name.endsWith(".dmg") &&
+                                (isArm
+                                    ? a.name.includes("aarch64")
+                                    : a.name.includes("x64") ||
+                                      a.name.includes("x86_64")),
+                        ) ||
+                        (release.assets || []).find((a) =>
+                            a.name.endsWith(".dmg"),
+                        );
+
+                    if (dmg) {
+                        const url = dmg.browser_download_url;
+                        const version = release.tag_name;
+                        const arch = isArm ? "Apple Silicon" : "Intel";
+                        document
+                            .querySelectorAll("#hero-download, #cta-download")
+                            .forEach((el) => {
+                                el.href = url;
+                                el.querySelector(".dl-text").textContent =
+                                    `Download ${version} (${arch})`;
+                            });
+                    }
+                } catch (e) {}
+            })();
+
+            // Session switcher — sidebar click + auto-cycle
+            (function () {
+                const items = document.querySelectorAll(".demo-side-item");
+                const panels = document.querySelectorAll(".demo-term-content");
+                let current = 0;
+                function switchTo(idx) {
+                    items.forEach((t) => {
+                        t.classList.remove("active");
+                        t.querySelector(".demo-status-dot").classList.remove(
+                            "on",
+                        );
+                    });
+                    panels.forEach((p) => p.classList.remove("active"));
+                    items[idx].classList.add("active");
+                    items[idx]
+                        .querySelector(".demo-status-dot")
+                        .classList.add("on");
+                    panels[idx].classList.add("active");
+                    current = idx;
+                }
+                items.forEach((item, i) =>
+                    item.addEventListener("click", () => switchTo(i)),
+                );
+                setInterval(() => switchTo((current + 1) % items.length), 3000);
+            })();
+
+            // Typing terminal
+            (function () {
+                const el = document.getElementById("typing-terminal");
+                if (!el) return;
+                const lines = [
+                    { text: "$ claude", cls: "prompt" },
+                    { text: "", cls: "" },
+                    { text: "Welcome back! Resuming session...", cls: "dim" },
+                    { text: "", cls: "" },
+                    {
+                        text: "> Review the auth middleware for security issues",
+                        cls: "",
+                    },
+                    { text: "", cls: "" },
+                    { text: "Reading src/middleware/auth.ts", cls: "dim" },
+                    { text: "Reading src/middleware/rateLimit.ts", cls: "dim" },
+                    { text: "", cls: "" },
+                    { text: "Found 2 issues:", cls: "" },
+                    {
+                        text: "  1. Missing rate limiting on /api/login",
+                        cls: "warn",
+                    },
+                    {
+                        text: "  2. JWT secret loaded from env without fallback",
+                        cls: "warn",
+                    },
+                ];
+                let lineIdx = 0,
+                    charIdx = 0;
+                function type() {
+                    if (lineIdx >= lines.length) {
+                        lineIdx = 0;
+                        el.innerHTML = "";
+                    }
+                    const line = lines[lineIdx];
+                    if (line.text === "") {
+                        el.innerHTML += "<br>";
+                        lineIdx++;
+                        charIdx = 0;
+                        setTimeout(type, 200);
+                    } else if (charIdx === 0) {
+                        el.innerHTML += `<span class="t-${line.cls}">`;
+                        charIdx++;
+                        setTimeout(type, 30);
+                    } else if (charIdx <= line.text.length) {
+                        const spans = el.querySelectorAll("span");
+                        const last = spans[spans.length - 1];
+                        last.textContent = line.text.slice(0, charIdx);
+                        charIdx++;
+                        setTimeout(type, lineIdx === 0 ? 60 : 20);
+                    } else {
+                        el.innerHTML += "</span><br>";
+                        lineIdx++;
+                        charIdx = 0;
+                        setTimeout(
+                            type,
+                            lineIdx < lines.length && lines[lineIdx].text === ""
+                                ? 100
+                                : 300,
+                        );
+                    }
+                }
+                // Start when visible
+                const obs = new IntersectionObserver(
+                    (entries) => {
+                        if (entries[0].isIntersecting) {
+                            obs.disconnect();
+                            type();
+                        }
+                    },
+                    { threshold: 0.3 },
+                );
+                obs.observe(el.closest(".feature-row"));
+            })();
+
+            // Theme color morphing
+            (function () {
+                const demo = document.getElementById("theme-demo");
+                if (!demo) return;
+                const dots = demo.querySelectorAll(".theme-dot");
+                const window_ = demo.querySelector(".demo-theme-window");
+                const activeItem = demo.querySelector(
+                    ".demo-theme-item.active",
+                );
+                let autoIdx = 0;
+                function setAccent(color) {
+                    window_.style.setProperty("--demo-accent", color);
+                    activeItem.style.borderLeftColor = color;
+                    activeItem.style.background = color + "18";
+                    dots.forEach((d) => d.classList.remove("active"));
+                }
+                dots.forEach((dot, i) => {
+                    dot.addEventListener("click", () => {
+                        setAccent(dot.dataset.accent);
+                        dot.classList.add("active");
+                        autoIdx = i;
+                    });
+                });
+                // Auto-cycle
+                const colors = [
+                    "#58a6ff",
+                    "#d2a8ff",
+                    "#3fb950",
+                    "#f85149",
+                    "#d29922",
+                    "#ff7b72",
+                ];
+                setInterval(() => {
+                    autoIdx = (autoIdx + 1) % colors.length;
+                    setAccent(colors[autoIdx]);
+                    dots[autoIdx].classList.add("active");
+                }, 2000);
+                dots[0].classList.add("active");
+            })();
+        </script>
+
+        <!-- Floating Buy Me a Coffee -->
+        <a
+            href="https://buymeacoffee.com/ansxuman"
+            target="_blank"
+            class="bmc-float"
+            title="Buy me a coffee"
+        >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                    d="M2 21.5c0 .28.22.5.5.5h15c.28 0 .5-.22.5-.5V18H2v3.5zM20 6h-1V4.5c0-.28-.22-.5-.5-.5h-15c-.28 0-.5.22-.5.5V6H2c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1.47c.41 1.74 1.7 3.15 3.37 3.72l-.34.78c-.12.28.04.5.34.5h6.32c.3 0 .46-.22.34-.5l-.34-.78c1.67-.57 2.96-1.98 3.37-3.72H18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-2 4h-1V8h1v2z"
+                />
+            </svg>
+            <span>Buy me a coffee</span>
         </a>
-      </div>
-    </div>
-    <div class="footer-bottom">Apache License 2.0</div>
-  </div>
-</footer>
-
-<script>
-  // Scroll reveal
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
-  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-
-  // Hero typewriter
-  (function() {
-    const el = document.querySelector('.hero-typewriter');
-    if (!el) return;
-    const words = ['in parallel', 'side by side', 'without conflicts', 'your way'];
-    const colors = ['var(--blue)', 'var(--purple)', 'var(--green)', 'var(--yellow)'];
-    let wordIdx = 0, charIdx = 0, deleting = false;
-    function tick() {
-      const word = words[wordIdx];
-      if (!deleting) {
-        el.textContent = word.slice(0, charIdx);
-        el.style.color = colors[wordIdx];
-        charIdx++;
-        if (charIdx > word.length) { setTimeout(() => { deleting = true; tick(); }, 2000); return; }
-        setTimeout(tick, 60);
-      } else {
-        el.textContent = word.slice(0, charIdx);
-        charIdx--;
-        if (charIdx < 0) { deleting = false; charIdx = 0; wordIdx = (wordIdx + 1) % words.length; setTimeout(tick, 400); return; }
-        setTimeout(tick, 30);
-      }
-    }
-    setTimeout(tick, 800);
-  })();
-
-  // Header scroll
-  const header = document.getElementById('header');
-  window.addEventListener('scroll', () => {
-    header.classList.toggle('scrolled', window.scrollY > 20);
-  }, { passive: true });
-
-  // Direct download — detect arch and link to the right DMG
-  (async function() {
-    try {
-      const resp = await fetch('https://api.github.com/repos/ansxuman/Clauge/releases/latest');
-      if (!resp.ok) return;
-      const release = await resp.json();
-      const isArm = navigator.userAgent.includes('ARM') || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 0;
-      const dmg = (release.assets || []).find(a =>
-        a.name.endsWith('.dmg') && (isArm ? a.name.includes('aarch64') : a.name.includes('x64') || a.name.includes('x86_64'))
-      ) || (release.assets || []).find(a => a.name.endsWith('.dmg'));
-
-      if (dmg) {
-        const url = dmg.browser_download_url;
-        const version = release.tag_name;
-        const arch = isArm ? 'Apple Silicon' : 'Intel';
-        document.querySelectorAll('#hero-download, #cta-download').forEach(el => {
-          el.href = url;
-          el.querySelector('.dl-text').textContent = `Download ${version} (${arch})`;
-        });
-      }
-    } catch(e) {}
-  })();
-
-  // Session switcher — sidebar click + auto-cycle
-  (function() {
-    const items = document.querySelectorAll('.demo-side-item');
-    const panels = document.querySelectorAll('.demo-term-content');
-    let current = 0;
-    function switchTo(idx) {
-      items.forEach(t => { t.classList.remove('active'); t.querySelector('.demo-status-dot').classList.remove('on'); });
-      panels.forEach(p => p.classList.remove('active'));
-      items[idx].classList.add('active');
-      items[idx].querySelector('.demo-status-dot').classList.add('on');
-      panels[idx].classList.add('active');
-      current = idx;
-    }
-    items.forEach((item, i) => item.addEventListener('click', () => switchTo(i)));
-    setInterval(() => switchTo((current + 1) % items.length), 3000);
-  })();
-
-  // Typing terminal
-  (function() {
-    const el = document.getElementById('typing-terminal');
-    if (!el) return;
-    const lines = [
-      { text: '$ claude', cls: 'prompt' },
-      { text: '', cls: '' },
-      { text: 'Welcome back! Resuming session...', cls: 'dim' },
-      { text: '', cls: '' },
-      { text: '> Review the auth middleware for security issues', cls: '' },
-      { text: '', cls: '' },
-      { text: 'Reading src/middleware/auth.ts', cls: 'dim' },
-      { text: 'Reading src/middleware/rateLimit.ts', cls: 'dim' },
-      { text: '', cls: '' },
-      { text: 'Found 2 issues:', cls: '' },
-      { text: '  1. Missing rate limiting on /api/login', cls: 'warn' },
-      { text: '  2. JWT secret loaded from env without fallback', cls: 'warn' },
-    ];
-    let lineIdx = 0, charIdx = 0;
-    function type() {
-      if (lineIdx >= lines.length) { lineIdx = 0; el.innerHTML = ''; }
-      const line = lines[lineIdx];
-      if (line.text === '') {
-        el.innerHTML += '<br>';
-        lineIdx++; charIdx = 0;
-        setTimeout(type, 200);
-      } else if (charIdx === 0) {
-        el.innerHTML += `<span class="t-${line.cls}">`;
-        charIdx++;
-        setTimeout(type, 30);
-      } else if (charIdx <= line.text.length) {
-        const spans = el.querySelectorAll('span');
-        const last = spans[spans.length - 1];
-        last.textContent = line.text.slice(0, charIdx);
-        charIdx++;
-        setTimeout(type, lineIdx === 0 ? 60 : 20);
-      } else {
-        el.innerHTML += '</span><br>';
-        lineIdx++; charIdx = 0;
-        setTimeout(type, lineIdx < lines.length && lines[lineIdx].text === '' ? 100 : 300);
-      }
-    }
-    // Start when visible
-    const obs = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) { obs.disconnect(); type(); }
-    }, { threshold: 0.3 });
-    obs.observe(el.closest('.feature-row'));
-  })();
-
-  // Theme color morphing
-  (function() {
-    const demo = document.getElementById('theme-demo');
-    if (!demo) return;
-    const dots = demo.querySelectorAll('.theme-dot');
-    const window_ = demo.querySelector('.demo-theme-window');
-    const activeItem = demo.querySelector('.demo-theme-item.active');
-    let autoIdx = 0;
-    function setAccent(color) {
-      window_.style.setProperty('--demo-accent', color);
-      activeItem.style.borderLeftColor = color;
-      activeItem.style.background = color + '18';
-      dots.forEach(d => d.classList.remove('active'));
-    }
-    dots.forEach((dot, i) => {
-      dot.addEventListener('click', () => {
-        setAccent(dot.dataset.accent);
-        dot.classList.add('active');
-        autoIdx = i;
-      });
-    });
-    // Auto-cycle
-    const colors = ['#58a6ff','#d2a8ff','#3fb950','#f85149','#d29922','#ff7b72'];
-    setInterval(() => {
-      autoIdx = (autoIdx + 1) % colors.length;
-      setAccent(colors[autoIdx]);
-      dots[autoIdx].classList.add('active');
-    }, 2000);
-    dots[0].classList.add('active');
-  })();
-</script>
-
-</body>
+    </body>
 </html>
