@@ -539,37 +539,50 @@ fn get_session_tokens(
 }
 
 
-/// Fetch usage limits via precompiled Swift binary (NSURLSession bypasses Cloudflare, ~1.5s)
+/// Fetch usage limits via reqwest with native-tls (uses macOS SecureTransport to bypass Cloudflare)
 #[tauri::command]
 fn fetch_usage_limits(session_key: String) -> Result<serde_json::Value, String> {
-    // Find the precompiled binary — check next to the app binary first, then scripts/
-    let binary_candidates = vec![
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("fetch_usage"))),
-        Some(PathBuf::from("scripts/fetch_usage")),
-        Some(PathBuf::from("../scripts/fetch_usage")),
-        Some(PathBuf::from("src-tauri/scripts/fetch_usage")),
-    ];
+    let client = reqwest::blocking::Client::builder()
+        .use_native_tls()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
 
-    let binary = binary_candidates
-        .into_iter()
-        .flatten()
-        .find(|p| p.exists())
-        .ok_or("fetch_usage binary not found")?;
+    let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+    let cookie = format!("sessionKey={}", session_key);
 
-    let output = std::process::Command::new(&binary)
-        .arg(&session_key)
-        .output()
-        .map_err(|e| format!("fetch_usage exec failed: {}", e))?;
+    // Step 1: Get org ID
+    let orgs_resp = client
+        .get("https://claude.ai/api/organizations")
+        .header("Cookie", &cookie)
+        .header("User-Agent", ua)
+        .send()
+        .map_err(|e| format!("orgs request failed: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err("No response from API".to_string());
-    }
+    let orgs: Vec<serde_json::Value> = orgs_resp
+        .json()
+        .map_err(|e| format!("orgs parse failed: {}", e))?;
 
-    serde_json::from_str(&stdout)
-        .map_err(|e| format!("Parse error: {} (response: {})", e, &stdout[..stdout.len().min(200)]))
+    let org_id = orgs
+        .first()
+        .and_then(|o| o.get("uuid"))
+        .and_then(|v| v.as_str())
+        .ok_or("No organization found")?
+        .to_string();
+
+    // Step 2: Get usage
+    let usage_resp = client
+        .get(&format!("https://claude.ai/api/organizations/{}/usage", org_id))
+        .header("Cookie", &cookie)
+        .header("User-Agent", ua)
+        .send()
+        .map_err(|e| format!("usage request failed: {}", e))?;
+
+    let usage: serde_json::Value = usage_resp
+        .json()
+        .map_err(|e| format!("usage parse failed: {}", e))?;
+
+    Ok(usage)
 }
 
 /// Save session key to local storage
