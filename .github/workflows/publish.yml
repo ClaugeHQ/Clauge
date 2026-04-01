@@ -69,7 +69,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
-          releaseBody: 'See the assets to download and install.'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
