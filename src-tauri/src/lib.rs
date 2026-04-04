@@ -823,6 +823,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .manage(TerminalState::default())
         .invoke_handler(tauri::generate_handler![
             get_profiles,
@@ -896,8 +897,20 @@ pub fn run() {
                 .build(app)?;
 
             eprintln!("[TIMING] tray built: {:?}", setup_start.elapsed());
+
+            // Enable autostart on first run
+            use tauri_plugin_autostart::ManagerExt;
+            let _ = app.autolaunch().enable();
+
             eprintln!("[TIMING] setup complete: {:?}", setup_start.elapsed());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Hide instead of quit — user can quit from tray
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
