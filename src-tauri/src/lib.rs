@@ -780,6 +780,58 @@ fn spawn_terminal(
     Ok(terminal_id)
 }
 
+/// Spawn a plain shell terminal (no Claude) in the given project directory
+#[tauri::command]
+fn spawn_shell(
+    state: State<'_, TerminalState>,
+    project_path: String,
+    on_output: Channel<TerminalOutputPayload>,
+) -> Result<String, String> {
+    let terminal_id = Uuid::new_v4().to_string();
+    let pty_system = native_pty_system();
+    let pty_pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let mut cmd = CommandBuilder::new(&user_shell);
+    cmd.arg("-l");
+    cmd.cwd(&project_path);
+    if let Some(home) = dirs::home_dir() {
+        cmd.env("HOME", home.to_string_lossy().to_string());
+    }
+    cmd.env("TERM", "xterm-256color");
+
+    let child = pty_pair.slave.spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+
+    let writer = pty_pair.master.take_writer()
+        .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+    let reader = pty_pair.master.try_clone_reader()
+        .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+
+    let tid_clone = terminal_id.clone();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data }).is_err() { break; }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    state.terminals.lock().map_err(|e| format!("Lock error: {}", e))?
+        .insert(terminal_id.clone(), TerminalEntry { master: pty_pair.master, writer, child });
+
+    Ok(terminal_id)
+}
+
 #[tauri::command]
 fn write_to_terminal(
     state: State<'_, TerminalState>,
@@ -872,6 +924,7 @@ pub fn run() {
             save_session_key,
             load_session_key,
             spawn_terminal,
+            spawn_shell,
             write_to_terminal,
             resize_terminal
         ])

@@ -75,6 +75,14 @@
   const terminalMap = new Map();
   let activeTermEntry = null;
 
+  // Shell terminal management — one shell per profile
+  let shellOpen = $state(false);
+  let shellEl;
+  let wrapperEl;
+  const shellMap = new Map(); // profileId → { term, fitAddon, container, terminalId }
+  let activeShellEntry = null;
+  let shellWidthPercent = $state(50);
+
   // Modal state
   let modalPath = $state("");
   let modalTitle = $state("");
@@ -198,6 +206,148 @@
     requestAnimationFrame(() => { try { entry.fitAddon.fit(); } catch(_) {} });
   }
 
+  function createShellEntry(profileId) {
+    const t = new Terminal({
+      theme: { ...themes[currentTheme].termTheme, cursor: accentColor },
+      fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+      fontSize: 13, lineHeight: 1.4, cursorBlink: true, cursorStyle: "bar", scrollback: 5000,
+    });
+    const fa = new FitAddon();
+    t.loadAddon(fa);
+
+    const container = document.createElement("div");
+    container.style.cssText = "width:100%;height:100%;display:none;";
+    shellEl.appendChild(container);
+    t.open(container);
+
+    t.onData((data) => {
+      const sEntry = shellMap.get(profileId);
+      if (sEntry?.terminalId) {
+        invoke("write_to_terminal", { terminalId: sEntry.terminalId, data }).catch(() => {
+          // Shell process died — mark for respawn
+          sEntry.terminalId = null;
+          sEntry.term.write("\r\n\x1b[2m[shell exited — press Cmd+L to reopen]\x1b[0m\r\n");
+        });
+      }
+    });
+
+    new ResizeObserver(() => {
+      if (fa && container.offsetWidth > 0) requestAnimationFrame(() => { try { fa.fit(); } catch(_) {} });
+    }).observe(container);
+
+    const sEntry = { term: t, fitAddon: fa, container, terminalId: null };
+    shellMap.set(profileId, sEntry);
+    return sEntry;
+  }
+
+  function showShellEntry(sEntry) {
+    if (activeShellEntry && activeShellEntry !== sEntry) activeShellEntry.container.style.display = "none";
+    sEntry.container.style.display = "block";
+    activeShellEntry = sEntry;
+    requestAnimationFrame(() => { try { sEntry.fitAddon.fit(); } catch(_) {} });
+  }
+
+  async function spawnShellForProfile(profile) {
+    if (!shellEl) return;
+    let sEntry = shellMap.get(profile.id);
+    if (sEntry && sEntry.terminalId) {
+      showShellEntry(sEntry);
+      return;
+    }
+    if (!sEntry) {
+      sEntry = createShellEntry(profile.id);
+    } else {
+      // Respawning after exit — clear old content
+      sEntry.term.clear();
+    }
+    showShellEntry(sEntry);
+
+    const projectPath = profile.worktreePath || profile.projectPath;
+    const channel = new Channel();
+    channel.onmessage = (msg) => {
+      if (!msg.data) return;
+      const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
+      sEntry.term.write(bytes);
+    };
+
+    try {
+      sEntry.terminalId = await invoke("spawn_shell", { projectPath, onOutput: channel });
+    } catch(e) {
+      sEntry.term.write(`\r\nFailed to spawn shell: ${e}\r\n`);
+    }
+  }
+
+  function startDividerDrag(e) {
+    e.preventDefault();
+    const wrapper = wrapperEl;
+    if (!wrapper) return;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    let rafId = null;
+    function onMove(ev) {
+      const rect = wrapper.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const pct = (x / rect.width) * 100;
+      shellWidthPercent = Math.max(20, Math.min(80, 100 - pct));
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => handleWindowResize());
+    }
+
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      requestAnimationFrame(() => {
+        try { activeTermEntry?.fitAddon?.fit(); } catch(_) {}
+        try { activeShellEntry?.fitAddon?.fit(); } catch(_) {}
+      });
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  async function toggleShell() {
+    if (!activeProfile && !shellOpen) return;
+    shellOpen = !shellOpen;
+    if (shellOpen && activeProfile) {
+      // Wait for DOM to render the shell panel
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          spawnShellForProfile(activeProfile);
+          // Refit Claude terminal since width changed
+          if (activeTermEntry?.fitAddon) {
+            try {
+              activeTermEntry.fitAddon.fit();
+              if (activeTermEntry.terminalId) {
+                const dims = activeTermEntry.fitAddon.proposeDimensions();
+                if (dims) invoke("resize_terminal", { terminalId: activeTermEntry.terminalId, cols: dims.cols, rows: dims.rows }).catch(() => {});
+              }
+            } catch(_) {}
+          }
+        });
+      });
+    } else {
+      // Refit Claude terminal to take full width — double rAF to wait for layout
+      if (activeTermEntry?.fitAddon) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            try {
+              activeTermEntry.fitAddon.fit();
+              if (activeTermEntry.terminalId) {
+                const dims = activeTermEntry.fitAddon.proposeDimensions();
+                if (dims) invoke("resize_terminal", { terminalId: activeTermEntry.terminalId, cols: dims.cols, rows: dims.rows }).catch(() => {});
+              }
+            } catch(_) {}
+          });
+        });
+      }
+    }
+  }
+
   async function selectProfile(profile) {
     activeProfile = profile;
     // Clear activity indicator when switching to this session
@@ -209,6 +359,7 @@
 
     if (entry && entry.terminalId) {
       showTermEntry(entry);
+      if (shellOpen) spawnShellForProfile(profile);
       statusMsg = profile.title;
     } else {
       statusMsg = "Spawning...";
@@ -313,6 +464,7 @@
         currentTerminalId = tid;
         statusMsg = profile.title;
         showTermEntry(entry);
+        if (shellOpen) spawnShellForProfile(profile);
 
         entry.fitAddon.fit();
         const dims = entry.fitAddon.proposeDimensions();
@@ -383,9 +535,18 @@
       terminalMap.delete(deletedId);
     }
 
+    // Clean up shell
+    const sEntry = shellMap.get(deletedId);
+    if (sEntry) {
+      sEntry.container.style.display = "none";
+      if (sEntry.term) sEntry.term.dispose();
+      shellMap.delete(deletedId);
+    }
+
     if (activeProfile?.id === deletedId) {
       activeProfile = null;
       activeTermEntry = null;
+      activeShellEntry = null;
       currentTerminalId = null;
     }
 
@@ -444,23 +605,31 @@
       if (profiles[idx]) selectProfile(profiles[idx]);
     }
     if (e.metaKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
+    if (e.metaKey && e.key === 'l') { e.preventDefault(); toggleShell(); }
     if (e.key === 'Escape') { showModal = false; showSettings = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; }
   }
 
   function handleWindowResize() {
-    if (activeTermEntry?.fitAddon && activeTermEntry.container.offsetWidth > 0) {
-      requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (activeTermEntry?.fitAddon && activeTermEntry.container.offsetWidth > 0) {
         try {
           activeTermEntry.fitAddon.fit();
           if (activeTermEntry.terminalId) {
             const dims = activeTermEntry.fitAddon.proposeDimensions();
-            if (dims) {
-              invoke("resize_terminal", { terminalId: activeTermEntry.terminalId, cols: dims.cols, rows: dims.rows }).catch(() => {});
-            }
+            if (dims) invoke("resize_terminal", { terminalId: activeTermEntry.terminalId, cols: dims.cols, rows: dims.rows }).catch(() => {});
           }
         } catch(_) {}
-      });
-    }
+      }
+      if (activeShellEntry?.fitAddon && activeShellEntry.container.offsetWidth > 0) {
+        try {
+          activeShellEntry.fitAddon.fit();
+          if (activeShellEntry.terminalId) {
+            const dims = activeShellEntry.fitAddon.proposeDimensions();
+            if (dims) invoke("resize_terminal", { terminalId: activeShellEntry.terminalId, cols: dims.cols, rows: dims.rows }).catch(() => {});
+          }
+        } catch(_) {}
+      }
+    });
   }
 
   let pendingUpdate = null; // holds the downloaded update object
@@ -646,43 +815,49 @@ Anti-patterns to avoid:
   let bufferTimer = null;
 
   function checkForActionPrompt(base64Data, sessionTitle) {
-    try {
-      // Decode base64 to text, strip ANSI escape codes
-      const raw = atob(base64Data);
-      const text = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
-      outputBuffer += text;
+    // Decode base64 to text, strip ANSI escape codes
+    const raw = atob(base64Data);
+    const text = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+    outputBuffer += text;
 
-      // Debounce — wait for output to settle before checking
-      if (bufferTimer) clearTimeout(bufferTimer);
-      bufferTimer = setTimeout(() => {
-        const buf = outputBuffer;
-        outputBuffer = '';
+    // Check on every chunk if unfocused (timers may be throttled in background)
+    if (!document.hasFocus()) checkBuffer();
+    // Also debounce for when data arrives in small chunks
+    if (bufferTimer) clearTimeout(bufferTimer);
+    bufferTimer = setTimeout(checkBuffer, 300);
 
-        // Throttle — max one notification per 10 seconds
-        if (Date.now() - lastNotifyTime < 10000) return;
+    function checkBuffer() {
+      const buf = outputBuffer;
+      outputBuffer = '';
+      if (!buf) return;
 
-        // Only notify if window is not focused
-        if (document.hasFocus()) return;
+      // Throttle — max one notification per 10 seconds
+      if (Date.now() - lastNotifyTime < 10000) return;
 
-        // Detect common action-required patterns
-        const patterns = [
-          /Do you want to proceed/i,
-          /1\.\s*Yes/,                  // "1. Yes" selector
-          /\(y\/n\)/i,
-          /\[Y\/n\]/i,
-          /\[y\/N\]/i,
-          /Press Enter/i,
-          /Allow.*Deny/i,
-          /approve this/i,
-          /Yes, and don.t ask/i,
-        ];
+      // Only notify if window is not focused
+      if (document.hasFocus()) return;
 
-        if (patterns.some(p => p.test(buf))) {
-          lastNotifyTime = Date.now();
-          sendActionNotification(sessionTitle);
-        }
-      }, 500);
-    } catch(_) {}
+      const patterns = [
+        /Do you want to proceed/i,
+        /1\.\s*Yes/,
+        /\(y\/n\)/i,
+        /\[Y\/n\]/i,
+        /\[y\/N\]/i,
+        /Press Enter/i,
+        /Allow.*Deny/i,
+        /approve this/i,
+        /Yes, and don.t ask/i,
+      ];
+
+      if (patterns.some(p => p.test(buf))) {
+        lastNotifyTime = Date.now();
+        sendActionNotification(sessionTitle);
+        // Bounce Dock icon
+        import("@tauri-apps/api/window").then(({ getCurrentWindow, UserAttentionType }) => {
+          getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
+        }).catch(() => {});
+      }
+    }
   }
 
   async function sendActionNotification(sessionTitle) {
@@ -845,21 +1020,28 @@ Anti-patterns to avoid:
     </svg>
   </button>
 
-  <div class="terminal-area">
-    {#if !activeProfile}
-      <div class="empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5">
-          <polyline points="4 17 10 11 4 5"></polyline>
-          <line x1="12" y1="19" x2="20" y2="19"></line>
-        </svg>
-        <p class="empty-title">No active session</p>
-        <p class="empty-sub">Select a session from the sidebar or create a new one</p>
-      </div>
-    {/if}
-    {#if activeProfile}
-      <div class="purpose-glow" style="background: linear-gradient(180deg, {purposeColors[activeProfile.purpose] || accentColor}15 0%, transparent 100%);"></div>
-    {/if}
-    <div class="terminal-panel" bind:this={terminalEl}></div>
+  <div class="terminal-wrapper" bind:this={wrapperEl}>
+    <div class="terminal-area">
+      {#if !activeProfile}
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          <p class="empty-title">No active session</p>
+          <p class="empty-sub">Select a session from the sidebar or create a new one</p>
+        </div>
+      {/if}
+      {#if activeProfile}
+        <div class="purpose-glow" style="background: linear-gradient(180deg, {purposeColors[activeProfile.purpose] || accentColor}15 0%, transparent 100%);"></div>
+      {/if}
+      <div class="terminal-panel" bind:this={terminalEl}></div>
+    </div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="shell-divider" style="display:{shellOpen ? 'block' : 'none'}" onmousedown={startDividerDrag}></div>
+    <div class="shell-area" style="display:{shellOpen ? 'flex' : 'none'};width:{shellWidthPercent}%;flex:none;">
+      <div class="shell-panel" bind:this={shellEl}></div>
+    </div>
   </div>
 </div>
 <div class="bottom-bar">
@@ -894,6 +1076,12 @@ Anti-patterns to avoid:
     {/if}
   </div>
   <div class="bottom-right">
+    <button class="shell-toggle-btn" class:active={shellOpen} disabled={!activeProfile && !shellOpen} onclick={toggleShell} title="Toggle shell (Cmd+L)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="4 17 10 11 4 5"></polyline>
+        <line x1="12" y1="19" x2="20" y2="19"></line>
+      </svg>
+    </button>
     {#if appVersion}<span class="bottom-version">v{appVersion}</span>{/if}
   </div>
 </div>
@@ -1118,13 +1306,15 @@ Anti-patterns to avoid:
     {#if updateReady}
       <h2>v{updateReady.version}</h2>
       <div class="whats-new-body">{@html (updateReady.body || '')
+        .replace(/\r\n/g, '\n')
         .replace(/^### (.+)$/gm, '<h4>$1</h4>')
         .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^- (.+)$/gm, '<li>$1</li>')
-        .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\n\n/g, '<br>')
+        .replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>')
+        .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+        .replace(/\n\n+/g, '<br>')
+        .replace(/\n/g, '<br>')
       }</div>
       <div class="modal-actions">
         <button onclick={() => showWhatsNew = false}>Later</button>
@@ -1133,13 +1323,15 @@ Anti-patterns to avoid:
     {:else}
       <h2>What's New in v{appVersion}</h2>
       <div class="whats-new-body">{@html whatsNewBody
+        .replace(/\r\n/g, '\n')
         .replace(/^### (.+)$/gm, '<h4>$1</h4>')
         .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^- (.+)$/gm, '<li>$1</li>')
-        .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\n\n/g, '<br>')
+        .replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>')
+        .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+        .replace(/\n\n+/g, '<br>')
+        .replace(/\n/g, '<br>')
       }</div>
       <div class="modal-actions">
         <button onclick={() => showWhatsNew = false}>Got it</button>
@@ -1235,7 +1427,7 @@ Anti-patterns to avoid:
   .bottom-bar { display: flex; align-items: center; padding: 5px 16px; background: var(--sidebar-bg); border-top: 1px solid var(--border); flex-shrink: 0; }
   .bottom-left { width: 120px; flex-shrink: 0; }
   .bottom-center { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; }
-  .bottom-right { width: 120px; flex-shrink: 0; text-align: right; }
+  .bottom-right { width: 120px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; }
   .bottom-version { font-size: 9px; color: var(--text-secondary); font-family: monospace; opacity: 0.4; }
   .update-hint { display: flex; align-items: center; gap: 4px; border: none; background: none; color: var(--accent); font-size: 10px; font-family: inherit; cursor: pointer; padding: 0; transition: opacity 0.15s; }
   .update-hint:hover { opacity: 0.7; }
@@ -1285,8 +1477,22 @@ Anti-patterns to avoid:
   .slink.coffee:hover { color: #e3b341; }
 
 
-  .terminal-area { flex: 1; min-width: 0; height: 100vh; background: var(--term-bg); position: relative; overflow: hidden; -webkit-app-region: no-drag; }
+  .terminal-wrapper { flex: 1; min-width: 0; display: flex; height: 100%; overflow: hidden; }
+  .terminal-area { flex: 1; min-width: 0; height: 100%; background: var(--term-bg); position: relative; overflow: hidden; -webkit-app-region: no-drag; }
   .terminal-panel { width: 100%; height: 100%; padding: 4px; -webkit-app-region: no-drag; }
+  .shell-divider { width: 4px; background: transparent; flex-shrink: 0; cursor: col-resize; position: relative; }
+  .shell-divider::after { content: ''; position: absolute; left: 1px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+  .shell-divider:hover::after { background: var(--accent); width: 2px; left: 1px; }
+  .shell-area { min-width: 0; height: 100%; display: flex; flex-direction: column; background: var(--term-bg); overflow: hidden; }
+  .shell-panel { flex: 1; padding: 4px; min-width: 0; overflow: hidden; }
+  .shell-panel :global(.xterm) { height: 100%; }
+  .shell-panel :global(.xterm-viewport) { overflow-y: auto !important; }
+  .shell-panel :global(.xterm-viewport::-webkit-scrollbar) { width: 8px; }
+  .shell-panel :global(.xterm-viewport::-webkit-scrollbar-thumb) { background: var(--border); border-radius: 4px; }
+  .shell-toggle-btn { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 2px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; margin-right: 6px; }
+  .shell-toggle-btn:hover:not(:disabled) { color: var(--text-primary); }
+  .shell-toggle-btn.active { color: var(--accent); }
+  .shell-toggle-btn:disabled { opacity: 0.3; cursor: default; }
   .terminal-panel :global(.xterm) { height: 100%; }
   .terminal-panel :global(.xterm-viewport) { overflow-y: auto !important; }
   .terminal-panel :global(.xterm-viewport::-webkit-scrollbar) { width: 8px; }
