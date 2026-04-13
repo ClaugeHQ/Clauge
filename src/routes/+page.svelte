@@ -375,7 +375,8 @@
           try {
             const isGit = await invoke("is_git_repo", { path: profile.projectPath });
             if (isGit) {
-              const branchName = `clauge/${profile.purpose.toLowerCase().replace(/\s+/g, '-')}-${profile.title.toLowerCase().replace(/\s+/g, '-')}`;
+              const rawBranch = `clauge/${profile.purpose.toLowerCase().replace(/\s+/g, '-')}-${profile.title.toLowerCase().replace(/\s+/g, '-')}`;
+              const branchName = rawBranch.replace(/[^a-zA-Z0-9/_\-.]/g, '').replace(/\.{2,}/g, '.').replace(/\.lock/g, '');
               const worktreePath = await invoke("create_worktree", { projectPath: profile.projectPath, branchName });
               spawnPath = worktreePath;
               await invoke("update_profile_worktree", { id: profile.id, worktreePath, worktreeBranch: branchName });

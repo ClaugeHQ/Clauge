@@ -336,9 +336,44 @@ fn is_git_repo(path: String) -> Result<bool, String> {
     Ok(output.status.success())
 }
 
+/// Sanitize a branch name to comply with git naming rules.
+/// Removes dangerous characters, prevents flag injection (leading `-`),
+/// and enforces git's naming constraints.
+fn sanitize_branch_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '/' || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+
+    // Collapse consecutive dots/dashes, remove trailing dots/locks
+    let sanitized = sanitized
+        .replace("..", ".")
+        .replace(".lock", "")
+        .trim_matches(|c: char| c == '.' || c == '/' || c == '-')
+        .to_string();
+
+    if sanitized.is_empty() {
+        return "clauge/unnamed".to_string();
+    }
+
+    // Prevent flag injection: if any path segment starts with `-`, prefix it
+    sanitized
+        .split('/')
+        .map(|seg| {
+            if seg.starts_with('-') {
+                format!("x{}", seg)
+            } else {
+                seg.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Create a git worktree for session isolation
 #[tauri::command]
 fn create_worktree(project_path: String, branch_name: String) -> Result<String, String> {
+    let branch_name = sanitize_branch_name(&branch_name);
     let worktree_dir = PathBuf::from(&project_path)
         .join(".clauge-worktrees")
         .join(&branch_name);
