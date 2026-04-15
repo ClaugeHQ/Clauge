@@ -34,6 +34,8 @@ pub struct SessionProfile {
     pub worktree_branch: Option<String>,
     #[serde(default)]
     pub skip_permissions: bool,
+    #[serde(default)]
+    pub claude_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +191,37 @@ fn get_storage_path() -> PathBuf {
     get_storage_dir().join("sessions.json")
 }
 
+fn settings_path() -> PathBuf {
+    get_storage_dir().join("settings.json")
+}
+
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSettings {
+    #[serde(default)]
+    pub claude_path: Option<String>,
+    #[serde(default)]
+    pub default_skip_permissions: Option<bool>,
+}
+
+fn load_settings() -> GlobalSettings {
+    let path = settings_path();
+    if !path.exists() {
+        return GlobalSettings::default();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+        Err(_) => GlobalSettings::default(),
+    }
+}
+
+fn save_settings_to_disk(s: &GlobalSettings) -> Result<(), String> {
+    let path = settings_path();
+    let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn load_profiles() -> Vec<SessionProfile> {
     let path = get_storage_path();
     if !path.exists() {
@@ -248,7 +281,24 @@ fn get_profiles() -> Result<Vec<SessionProfile>, String> {
 }
 
 #[tauri::command]
-fn create_profile(title: String, purpose: String, project_path: String, skip_permissions: Option<bool>, custom_prompt: Option<String>) -> Result<SessionProfile, String> {
+fn get_settings() -> Result<GlobalSettings, String> {
+    Ok(load_settings())
+}
+
+#[tauri::command]
+fn save_settings(settings: GlobalSettings) -> Result<(), String> {
+    let normalized = GlobalSettings {
+        claude_path: settings.claude_path.and_then(|p| {
+            let t = p.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        }),
+        default_skip_permissions: settings.default_skip_permissions,
+    };
+    save_settings_to_disk(&normalized)
+}
+
+#[tauri::command]
+fn create_profile(title: String, purpose: String, project_path: String, skip_permissions: Option<bool>, custom_prompt: Option<String>, claude_path: Option<String>) -> Result<SessionProfile, String> {
     let mut profiles = load_profiles();
     let now = now_iso8601();
 
@@ -267,6 +317,10 @@ fn create_profile(title: String, purpose: String, project_path: String, skip_per
         worktree_path: None,
         worktree_branch: None,
         skip_permissions: skip_permissions.unwrap_or(false),
+        claude_path: claude_path.and_then(|p| {
+            let t = p.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        }),
     };
 
     profiles.push(profile.clone());
@@ -693,22 +747,84 @@ fn update_tray_title(app_handle: tauri::AppHandle, title: String) -> Result<(), 
 }
 
 
-/// Resolve the full path to the `claude` binary by asking the user's login shell.
-/// Falls back to just "claude" if resolution fails.
-fn resolve_claude_path() -> String {
+/// Strip ANSI/OSC escape sequences that shell-integration plugins
+/// (iTerm2, VS Code terminal, etc.) inject into interactive-shell output.
+fn strip_terminal_escapes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == 0x1b && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b']' => {
+                    // OSC: ESC ] ... (BEL | ESC \)
+                    i += 2;
+                    while i < bytes.len() {
+                        if bytes[i] == 0x07 { i += 1; break; }
+                        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' { i += 2; break; }
+                        i += 1;
+                    }
+                    continue;
+                }
+                b'[' => {
+                    // CSI: ESC [ ... final-byte in 0x40..=0x7E
+                    i += 2;
+                    while i < bytes.len() {
+                        let c = bytes[i];
+                        i += 1;
+                        if (0x40..=0x7e).contains(&c) { break; }
+                    }
+                    continue;
+                }
+                _ => { i += 2; continue; } // skip ESC + next byte
+            }
+        }
+        if b < 0x20 && b != b'\n' && b != b'\t' { i += 1; continue; }
+        out.push(b as char);
+        i += 1;
+    }
+    out
+}
+
+/// Ask the user's login shell for both `which claude` and `$PATH`.
+/// Returns `(claude_path, path_env)`. Either may be `None` if resolution fails.
+fn resolve_shell_env() -> (Option<String>, Option<String>) {
     let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     if let Ok(output) = std::process::Command::new(&user_shell)
-        .args(["-l", "-i", "-c", "which claude"])
+        .args(["-l", "-i", "-c", "printf '%s\\n%s\\n' \"$(which claude)\" \"$PATH\""])
         .output()
     {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return path;
-            }
+            let raw = String::from_utf8_lossy(&output.stdout);
+            let stdout = strip_terminal_escapes(&raw);
+            let mut lines = stdout.lines();
+            let claude = lines.next().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+            let path = lines.next().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+            return (claude, path);
         }
     }
-    "claude".to_string()
+    (None, None)
+}
+
+/// Build a PATH env value suitable for spawning claude.
+/// Prepends the parent directory of `claude_bin` (if absolute) and
+/// appends the user's login-shell PATH plus sensible defaults.
+fn build_spawn_path(claude_bin: &str, shell_path: Option<&str>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(parent) = std::path::Path::new(claude_bin).parent() {
+        let p = parent.to_string_lossy();
+        if !p.is_empty() { parts.push(p.to_string()); }
+    }
+    if let Some(sp) = shell_path {
+        for p in sp.split(':').filter(|s| !s.is_empty()) {
+            if !parts.iter().any(|x| x == p) { parts.push(p.to_string()); }
+        }
+    }
+    for p in ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        if !parts.iter().any(|x| x == p) { parts.push(p.to_string()); }
+    }
+    parts.join(":")
 }
 
 /// Spawn a terminal using Tauri's Channel API for streaming PTY output to the frontend.
@@ -720,6 +836,7 @@ fn spawn_terminal(
     project_path: String,
     context_prompt: Option<String>,
     skip_permissions: Option<bool>,
+    claude_path: Option<String>,
     on_output: Channel<TerminalOutputPayload>,
 ) -> Result<String, String> {
     let terminal_id = Uuid::new_v4().to_string();
@@ -734,11 +851,24 @@ fn spawn_terminal(
         })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    let claude_path = resolve_claude_path();
-    eprintln!("[Clauge] Resolved claude binary: {}", claude_path);
+    let (detected_claude, shell_path) = resolve_shell_env();
+    let global_claude = load_settings()
+        .claude_path
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let claude_bin = claude_path
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or(global_claude)
+        .or(detected_claude)
+        .unwrap_or_else(|| "claude".to_string());
+    let path_env = build_spawn_path(&claude_bin, shell_path.as_deref());
+    eprintln!("[Clauge] Resolved claude binary: {}", claude_bin);
     eprintln!("[Clauge] CWD: {}", project_path);
+    eprintln!("[Clauge] PATH: {}", path_env);
 
-    let mut cmd = CommandBuilder::new(&claude_path);
+    let mut cmd = CommandBuilder::new(&claude_bin);
 
     if let Some(ref sid) = session_id {
         cmd.arg("--resume");
@@ -760,6 +890,13 @@ fn spawn_terminal(
         cmd.env("HOME", home.to_string_lossy().to_string());
     }
     cmd.env("TERM", "xterm-256color");
+    cmd.env("PATH", &path_env);
+    if let Ok(shell) = std::env::var("SHELL") {
+        cmd.env("SHELL", shell);
+    }
+    if let Ok(lang) = std::env::var("LANG") {
+        cmd.env("LANG", lang);
+    }
 
     let child = pty_pair
         .slave
@@ -966,6 +1103,8 @@ pub fn run() {
         .manage(TerminalState::default())
         .invoke_handler(tauri::generate_handler![
             get_profiles,
+            get_settings,
+            save_settings,
             create_profile,
             delete_profile,
             rename_profile,

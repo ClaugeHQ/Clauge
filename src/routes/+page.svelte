@@ -91,6 +91,60 @@
   let modalExistingSessions = $state([]);
   let modalSelectedSession = $state("");
   let modalCustomPrompt = $state("");
+  let modalClaudePath = $state("");
+
+  // Global settings (disk-backed) + UI-only defaults (localStorage)
+  let globalSettings = $state({ claudePath: null, defaultSkipPermissions: false });
+  let defaultPurpose = $state(
+    typeof localStorage !== 'undefined' ? (localStorage.getItem('clauge.defaultPurpose') || '') : ''
+  );
+
+  async function loadGlobalSettings() {
+    try {
+      const s = await invoke('get_settings');
+      globalSettings = {
+        claudePath: s?.claudePath ?? null,
+        defaultSkipPermissions: s?.defaultSkipPermissions ?? false,
+      };
+    } catch(e) { /* keep defaults */ }
+  }
+
+  async function persistGlobalSettings() {
+    try {
+      await invoke('save_settings', { settings: {
+        claudePath: globalSettings.claudePath && globalSettings.claudePath.trim() ? globalSettings.claudePath.trim() : null,
+        defaultSkipPermissions: !!globalSettings.defaultSkipPermissions,
+      }});
+    } catch(e) { statusMsg = 'Settings save failed: ' + e; }
+  }
+
+  function setDefaultPurpose(value) {
+    defaultPurpose = value;
+    if (typeof localStorage !== 'undefined') {
+      if (value) localStorage.setItem('clauge.defaultPurpose', value);
+      else localStorage.removeItem('clauge.defaultPurpose');
+    }
+  }
+
+  function openNewSessionModal() {
+    modalSkipPermissions = !!globalSettings.defaultSkipPermissions;
+    if (!modalPurpose && defaultPurpose) {
+      modalPurpose = defaultPurpose;
+      if (defaultPurpose === 'Custom' && modalPath.trim()) loadExistingSessions(modalPath);
+    }
+    showModal = true;
+  }
+
+  async function browseSettingsClaudePath() {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({ directory: false, multiple: false, title: 'Select Claude Binary' });
+      if (selected) {
+        globalSettings.claudePath = selected;
+        await persistGlobalSettings();
+      }
+    } catch(e) { statusMsg = 'Browse failed: ' + e; }
+  }
 
   const purposes = [
     { label: "Brainstorming", color: "#d2a8ff" },
@@ -459,6 +513,7 @@
           projectPath: spawnPath,
           contextPrompt: purposePrompt || null,
           skipPermissions: profile.skipPermissions || false,
+          claudePath: profile.claudePath || null,
           onOutput: onOutput,
         });
         entry.terminalId = tid;
@@ -496,6 +551,7 @@
         projectPath: modalPath,
         skipPermissions: modalSkipPermissions,
         customPrompt: modalPurpose === 'Custom' && modalCustomPrompt.trim() ? modalCustomPrompt.trim() : null,
+        claudePath: modalClaudePath.trim() || null,
       });
       // Link existing session if selected (Custom purpose only)
       if (modalSelectedSession) {
@@ -504,7 +560,7 @@
       }
       showModal = false;
       modalPath = ""; modalTitle = ""; modalPurpose = ""; modalSkipPermissions = false;
-      modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = "";
+      modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; modalClaudePath = "";
       await loadProfiles();
       await selectProfile(profile);
     } catch (e) { statusMsg = "Create failed: " + e; }
@@ -604,8 +660,16 @@
     } catch(e) { statusMsg = "Browse failed: " + e; }
   }
 
+  async function browseClaudePath() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: false, multiple: false, title: "Select Claude Binary" });
+      if (selected) modalClaudePath = selected;
+    } catch(e) { statusMsg = "Browse failed: " + e; }
+  }
+
   function handleGlobalKeydown(e) {
-    if (e.metaKey && e.key === 'n') { e.preventDefault(); showModal = true; }
+    if (e.metaKey && e.key === 'n') { e.preventDefault(); openNewSessionModal(); }
     if (e.metaKey && e.key >= '1' && e.key <= '9') {
       e.preventDefault();
       const idx = parseInt(e.key) - 1;
@@ -613,7 +677,7 @@
     }
     if (e.metaKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
     if (e.metaKey && e.key === 'l') { e.preventDefault(); toggleShell(); }
-    if (e.key === 'Escape') { showModal = false; showSettings = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; }
+    if (e.key === 'Escape') { showModal = false; showSettings = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; modalClaudePath = ""; }
   }
 
   function handleWindowResize() {
@@ -932,6 +996,7 @@ Anti-patterns to avoid:
 
     // Priority 1: Load profiles (fast, <10ms)
     loadProfiles();
+    loadGlobalSettings();
 
     // Priority 2: Load session key + usage limits (fast key read, then ~1.5s API call)
     invoke("load_session_key").then(savedKey => {
@@ -961,7 +1026,7 @@ Anti-patterns to avoid:
             <path fill-rule="evenodd" d="M7.429 1.525a6.593 6.593 0 011.142 0c.036.003.108.036.137.146l.289 1.105c.147.56.55.967.997 1.189.174.086.341.183.501.29.417.278.97.423 1.53.27l1.102-.303c.11-.03.175.016.195.046.219.31.41.641.573.989.014.031.022.11-.059.19l-.815.806c-.411.406-.562.957-.53 1.456a4.588 4.588 0 010 .582c-.032.499.119 1.05.53 1.456l.815.806c.08.08.073.159.059.19a6.494 6.494 0 01-.573.99c-.02.029-.086.074-.195.045l-1.103-.303c-.559-.153-1.112-.008-1.529.27-.16.107-.327.204-.5.29-.449.222-.851.628-.998 1.189l-.289 1.105c-.029.11-.101.143-.137.146a6.613 6.613 0 01-1.142 0c-.036-.003-.108-.037-.137-.146l-.289-1.105c-.147-.56-.55-.967-.997-1.189a4.502 4.502 0 01-.501-.29c-.417-.278-.97-.423-1.53-.27l-1.102.303c-.11.03-.175-.016-.195-.046a6.492 6.492 0 01-.573-.989c-.014-.031-.022-.11.059-.19l.815-.806c.411-.406.562-.957.53-1.456a4.587 4.587 0 010-.582c.032-.499-.119-1.05-.53-1.456l-.815-.806c-.08-.08-.073-.159-.059-.19a6.44 6.44 0 01.573-.99c.02-.029.086-.074.195-.045l1.103.303c.559.153 1.112.008 1.529-.27.16-.107.327-.204.5-.29.449-.222.851-.628.998-1.189l.289-1.105c.029-.11.101-.143.137-.146zM8 0c-.236 0-.47.01-.701.03-.743.065-1.29.615-1.458 1.261l-.29 1.106c-.017.066-.078.158-.211.224a5.994 5.994 0 00-.668.386c-.123.082-.233.117-.3.117h-.013l-1.104-.303c-.659-.18-1.364.019-1.783.667a7.998 7.998 0 00-.747 1.305c-.31.649-.107 1.39.303 1.895l.815.806c.05.048.098.147.088.294a6.084 6.084 0 000 .772c.01.147-.038.246-.088.294l-.815.806c-.41.505-.613 1.246-.303 1.895.216.452.46.882.747 1.305.42.648 1.124.848 1.783.667l1.104-.303c.06-.017.145-.003.3.117.196.131.42.271.668.386.133.066.194.158.212.224l.289 1.106c.169.646.715 1.196 1.458 1.26a8.094 8.094 0 001.402 0c.743-.064 1.29-.614 1.458-1.26l.29-1.106c.017-.066.078-.158.211-.224a5.98 5.98 0 00.668-.386c.123-.082.233-.117.3-.117h.013l1.104.303c.659.18 1.364-.019 1.783-.667.287-.423.531-.853.747-1.305.31-.649.107-1.39-.303-1.895l-.815-.806c-.05-.048-.098-.147-.088-.294a6.1 6.1 0 000-.772c-.01-.147.039-.246.088-.294l.815-.806c.41-.505.613-1.246.303-1.895a7.998 7.998 0 00-.747-1.305c-.42-.648-1.124-.848-1.783-.667l-1.104.303c-.06.017-.145.003-.3-.117a5.994 5.994 0 00-.668-.386c-.133-.066-.194-.158-.212-.224L10.16 1.29C9.99.645 9.444.095 8.701.031A8.094 8.094 0 008 0zm0 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM6.5 8a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z"/>
           </svg>
         </button>
-        <button class="new-btn" onclick={() => showModal = true} title="New Session (Cmd+N)">+</button>
+        <button class="new-btn" onclick={openNewSessionModal} title="New Session (Cmd+N)">+</button>
       </div>
     </div>
     <div class="sidebar-content">
@@ -1096,7 +1161,7 @@ Anti-patterns to avoid:
 
 {#if showModal}
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) { showModal = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; } }}>
+<div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) { showModal = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; modalClaudePath = ""; } }}>
   <div class="modal">
     <h2>New Session</h2>
     <label>Project Folder
@@ -1138,6 +1203,12 @@ Anti-patterns to avoid:
         <textarea class="custom-prompt" bind:value={modalCustomPrompt} placeholder="e.g. Focus on performance optimization, avoid breaking changes..." rows="3"></textarea>
       </label>
     {/if}
+    <label>Claude Binary Path <span style="font-size:10px;color:var(--text-secondary);font-weight:normal;">(optional, overrides auto-detect)</span>
+      <div class="row">
+        <input bind:value={modalClaudePath} placeholder="/usr/local/bin/claude" />
+        <button onclick={browseClaudePath}>Browse</button>
+      </div>
+    </label>
     <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
     <div class="toggle-row">
       <span class="toggle-label">Skip permissions
@@ -1148,7 +1219,7 @@ Anti-patterns to avoid:
       </button>
     </div>
     <div class="modal-actions">
-      <button onclick={() => { showModal = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; }}>Cancel</button>
+      <button onclick={() => { showModal = false; modalExistingSessions = []; modalSelectedSession = ""; modalCustomPrompt = ""; modalClaudePath = ""; }}>Cancel</button>
       <button class="create-btn" disabled={!modalPath || !modalTitle || !modalPurpose} onclick={createSession}>Create</button>
     </div>
   </div>
@@ -1165,6 +1236,37 @@ Anti-patterns to avoid:
     </div>
 
     {#if settingsTab === 'settings'}
+      <label>Claude Binary Path <span style="font-size:10px;color:var(--text-secondary);font-weight:normal;">(global fallback, empty = auto-detect)</span>
+        <div class="row">
+          <input
+            bind:value={globalSettings.claudePath}
+            placeholder="auto-detect"
+            onblur={persistGlobalSettings}
+            onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); persistGlobalSettings(); } }}
+          />
+          <button onclick={browseSettingsClaudePath}>Browse</button>
+        </div>
+      </label>
+
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div class="toggle-row">
+        <span class="toggle-label">Skip permissions by default</span>
+        <button class="toggle-switch" class:on={globalSettings.defaultSkipPermissions} onclick={() => { globalSettings.defaultSkipPermissions = !globalSettings.defaultSkipPermissions; persistGlobalSettings(); }}>
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+
+      <label>Default Purpose
+        <div class="chips" style="margin-top:6px;">
+          <button class="chip" class:selected={defaultPurpose === ''} onclick={() => setDefaultPurpose('')}>None</button>
+          {#each purposes as p}
+            <button class="chip" class:selected={defaultPurpose === p.label}
+              style={defaultPurpose === p.label ? `background:${p.color}33;color:${p.color};border-color:${p.color}` : ''}
+              onclick={() => setDefaultPurpose(p.label)}>{p.label}</button>
+          {/each}
+        </div>
+      </label>
+
       <label>Theme
         <div class="chips" style="margin-top:6px;">
           <button class="chip" class:selected={currentTheme === 'dark'} onclick={() => applyTheme('dark')}>Dark</button>
