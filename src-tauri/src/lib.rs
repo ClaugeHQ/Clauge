@@ -780,9 +780,17 @@ fn strip_terminal_escapes(input: &str) -> String {
                 _ => { i += 2; continue; } // skip ESC + next byte
             }
         }
+        // Skip non-printable ASCII control chars (except newline/tab)
         if b < 0x20 && b != b'\n' && b != b'\t' { i += 1; continue; }
-        out.push(b as char);
-        i += 1;
+        // Preserve full UTF-8 characters (input is &str, so guaranteed valid)
+        if b < 0x80 {
+            out.push(b as char);
+            i += 1;
+        } else {
+            let ch = input[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
     }
     out
 }
