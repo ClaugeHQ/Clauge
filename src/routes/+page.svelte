@@ -1314,20 +1314,35 @@ Anti-patterns to avoid:
     const key = `${plugin.name}@${plugin.marketplace}`;
     try { await invoke("toggle_claude_plugin", { pluginKey: key, enabled: !plugin.enabled }); await loadClaudePlugins(); } catch(_) {}
   }
+  let pluginMsg = $state('');
   async function installPlugin(plugin) {
     installingPlugin = plugin.name;
+    pluginMsg = '';
     try {
       await invoke("install_plugin", { name: plugin.name, marketplace: plugin.marketplace });
       await invoke("toggle_claude_plugin", { pluginKey: `${plugin.name}@${plugin.marketplace}`, enabled: true });
       await loadClaudePlugins();
-    } catch(e) { console.error('Install failed:', e); }
+      pluginMsg = `${plugin.name} installed`;
+      setTimeout(() => { if (pluginMsg.includes('installed')) pluginMsg = ''; }, 3000);
+    } catch(e) {
+      pluginMsg = `Failed: ${String(e).slice(0, 60)}`;
+      setTimeout(() => { pluginMsg = ''; }, 5000);
+    }
     installingPlugin = '';
   }
+  let pluginUninstallConfirm = $state(null);
   async function uninstallPlugin(plugin) {
+    pluginMsg = '';
     try {
       await invoke("uninstall_plugin", { name: plugin.name, marketplace: plugin.marketplace });
       await loadClaudePlugins();
-    } catch(e) { console.error('Uninstall failed:', e); }
+      pluginMsg = `${plugin.name} uninstalled`;
+      setTimeout(() => { if (pluginMsg.includes('uninstalled')) pluginMsg = ''; }, 3000);
+    } catch(e) {
+      pluginMsg = `Uninstall failed: ${String(e).slice(0, 60)}`;
+      setTimeout(() => { pluginMsg = ''; }, 5000);
+    }
+    pluginUninstallConfirm = null;
   }
 
   async function loadUsageLimits() {
@@ -1940,6 +1955,9 @@ Anti-patterns to avoid:
         <button class="plugin-subtab" class:active={pluginTab === 'installed'} onclick={() => pluginTab = 'installed'}>Installed ({claudePlugins.length})</button>
         <button class="plugin-subtab" class:active={pluginTab === 'marketplace'} onclick={() => pluginTab = 'marketplace'}>Marketplace</button>
       </div>
+      {#if pluginMsg}
+        <div class="plugin-msg" class:error={pluginMsg.startsWith('Failed')}>{pluginMsg}</div>
+      {/if}
 
       {#if pluginTab === 'installed'}
         {#if claudePlugins.length === 0}
@@ -1961,7 +1979,7 @@ Anti-patterns to avoid:
                   <button class="toggle-switch plugin-toggle" class:on={plugin.enabled} onclick={() => togglePlugin(plugin)}>
                     <span class="toggle-knob"></span>
                   </button>
-                  <button class="plugin-uninstall" onclick={() => uninstallPlugin(plugin)} title="Uninstall">
+                  <button class="plugin-uninstall" onclick={() => pluginUninstallConfirm = plugin} title="Uninstall">
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zM11 3V1.75A1.75 1.75 0 009.25 0h-2.5A1.75 1.75 0 005 1.75V3H2.75a.75.75 0 000 1.5h.928l.747 10.218A1.75 1.75 0 006.172 16h3.656a1.75 1.75 0 001.747-1.282L12.322 4.5h.928a.75.75 0 000-1.5H11z"/></svg>
                   </button>
                 </div>
@@ -2109,25 +2127,43 @@ Anti-patterns to avoid:
 </div>
 {/if}
 
-{#if showWhatsNew && updateReady}
+{#if showWhatsNew}
 <div class="modal-backdrop">
   <div class="modal whats-new-modal">
-    <h2>v{updateReady.version}</h2>
-    <div class="whats-new-body">{@html (updateReady.body || '')
-      .replace(/\r\n/g, '\n')
-      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>')
-      .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
-      .replace(/\n\n+/g, '<br>')
-      .replace(/\n/g, '<br>')
-    }</div>
-    <div class="modal-actions">
-      <button onclick={() => showWhatsNew = false}>Later</button>
-      <button class="create-btn" onclick={() => { showWhatsNew = false; restartToUpdate(); }}>Restart</button>
-    </div>
+    {#if updateReady}
+      <h2>v{updateReady.version}</h2>
+      <div class="whats-new-body">{@html (updateReady.body || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>')
+        .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+        .replace(/\n\n+/g, '<br>')
+        .replace(/\n/g, '<br>')
+      }</div>
+      <div class="modal-actions">
+        <button onclick={() => showWhatsNew = false}>Later</button>
+        <button class="create-btn" onclick={() => { showWhatsNew = false; restartToUpdate(); }}>Restart</button>
+      </div>
+    {:else}
+      <h2>What's New in v{appVersion}</h2>
+      <div class="whats-new-body">{@html whatsNewBody
+        .replace(/\r\n/g, '\n')
+        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/^\s*[-*] (.+)$/gm, '<li>$1</li>')
+        .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+        .replace(/\n\n+/g, '<br>')
+        .replace(/\n/g, '<br>')
+      }</div>
+      <div class="modal-actions">
+        <button onclick={() => showWhatsNew = false}>Got it</button>
+      </div>
+    {/if}
   </div>
 </div>
 {/if}
@@ -2388,6 +2424,23 @@ Anti-patterns to avoid:
 </div>
 {/if}
 
+{#if pluginUninstallConfirm}
+<div class="modal-backdrop" style="z-index:1100;">
+  <div class="modal" style="max-width:360px;animation:slideIn 0.15s ease-out;">
+    <div style="text-align:center;padding:20px 20px 0;">
+      <svg width="32" height="32" viewBox="0 0 16 16" fill="#f85149" style="margin-bottom:12px;"><path d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zM11 3V1.75A1.75 1.75 0 009.25 0h-2.5A1.75 1.75 0 005 1.75V3H2.75a.75.75 0 000 1.5h.928l.747 10.218A1.75 1.75 0 006.172 16h3.656a1.75 1.75 0 001.747-1.282L12.322 4.5h.928a.75.75 0 000-1.5H11z"/></svg>
+      <h2 style="font-size:15px;margin-bottom:8px;">Uninstall plugin?</h2>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;">
+        Are you sure you want to uninstall <strong style="color:var(--text-primary);">{pluginUninstallConfirm.name}</strong>?
+      </p>
+    </div>
+    <div class="modal-actions" style="padding:16px 20px;">
+      <button onclick={() => pluginUninstallConfirm = null}>Cancel</button>
+      <button style="background:#f85149 !important;border-color:transparent !important;color:#fff !important;" onclick={() => uninstallPlugin(pluginUninstallConfirm)}>Uninstall</button>
+    </div>
+  </div>
+</div>
+{/if}
 
 <style>
   :global(:root) {
@@ -2548,6 +2601,8 @@ Anti-patterns to avoid:
   .plugin-install-btn:disabled { opacity: 0.5; cursor: wait; }
   .plugin-installs { font-size: 10px; color: var(--text-secondary); opacity: 0.5; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .plugin-subtabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .plugin-msg { font-size: 11px; color: #3fb950; padding: 4px 0 8px; animation: gitMsgIn 0.2s ease; }
+  .plugin-msg.error { color: #f85149; }
   .plugin-subtab { flex: 1; padding: 8px; border: none; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; border-bottom: 2px solid transparent; transition: all 0.15s; }
   .plugin-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .plugin-subtab:hover { color: var(--text-primary); }

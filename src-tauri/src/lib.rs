@@ -1718,9 +1718,9 @@ fn get_marketplace_plugins() -> Result<Vec<MarketplacePlugin>, String> {
 fn install_plugin(name: String, marketplace: String) -> Result<(), String> {
     let plugin_id = format!("{}@{}", name, marketplace);
     let output = std::process::Command::new("claude")
-        .args(["plugins", "add", &plugin_id])
+        .args(["plugins", "install", &plugin_id])
         .output()
-        .map_err(|e| format!("Failed to run claude plugins add: {}", e))?;
+        .map_err(|e| format!("Failed to run claude plugins install: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1734,9 +1734,9 @@ fn install_plugin(name: String, marketplace: String) -> Result<(), String> {
 fn uninstall_plugin(name: String, marketplace: String) -> Result<(), String> {
     let plugin_id = format!("{}@{}", name, marketplace);
     let output = std::process::Command::new("claude")
-        .args(["plugins", "remove", &plugin_id])
+        .args(["plugins", "uninstall", &plugin_id])
         .output()
-        .map_err(|e| format!("Failed to run claude plugins remove: {}", e))?;
+        .map_err(|e| format!("Failed to run claude plugins uninstall: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
