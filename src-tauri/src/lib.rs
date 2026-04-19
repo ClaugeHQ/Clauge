@@ -1318,26 +1318,31 @@ fn spawn_terminal(
         })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    let claude_path = resolve_claude_path();
-    eprintln!("[Clauge] Resolved claude binary: {}", claude_path);
-    eprintln!("[Clauge] CWD: {}", project_path);
-
-    let mut cmd = CommandBuilder::new(&claude_path);
-
+    // Build the claude command string
+    let mut claude_cmd = String::from("claude");
     if let Some(ref sid) = session_id {
-        cmd.arg("--resume");
-        cmd.arg(sid);
+        claude_cmd.push_str(&format!(" --resume \"{}\"", sid));
     }
     if skip_permissions.unwrap_or(false) {
-        cmd.arg("--dangerously-skip-permissions");
+        claude_cmd.push_str(" --dangerously-skip-permissions");
     }
     if let Some(ref prompt) = context_prompt {
         if !prompt.is_empty() {
-            cmd.arg("--append-system-prompt");
-            cmd.arg(prompt);
+            let escaped = prompt.replace('\\', "\\\\").replace('"', "\\\"");
+            claude_cmd.push_str(&format!(" --append-system-prompt \"{}\"", escaped));
         }
     }
 
+    eprintln!("[Clauge] Spawning command: {}", &claude_cmd[..claude_cmd.len().min(120)]);
+    eprintln!("[Clauge] CWD: {}", project_path);
+
+    // Spawn via login shell so full environment (nvm, node, etc.) is available
+    let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let mut cmd = CommandBuilder::new(&user_shell);
+    cmd.arg("-l");
+    cmd.arg("-i");
+    cmd.arg("-c");
+    cmd.arg(&claude_cmd);
     cmd.cwd(&project_path);
 
     if let Some(home) = dirs::home_dir() {
