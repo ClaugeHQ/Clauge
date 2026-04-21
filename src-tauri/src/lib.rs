@@ -11,8 +11,8 @@ pub mod terminal;
 pub mod plugins;
 pub mod usage;
 pub mod sessions;
+pub mod contexts;
 
-use std::path::PathBuf;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIconBuilder, TrayIconId};
 use tauri::Manager;
@@ -72,132 +72,6 @@ fn update_tray_title(app_handle: tauri::AppHandle, title: String) -> Result<(), 
     Ok(())
 }
 
-
-/// Get storage dir for context snippets
-fn get_contexts_dir() -> PathBuf {
-    let dir = get_storage_dir().join("contexts");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-/// List all saved context snippets
-#[tauri::command]
-fn get_context_snippets() -> Result<Vec<serde_json::Value>, String> {
-    let dir = get_contexts_dir();
-    let mut snippets = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
-                let preview = content.lines().next().unwrap_or("").chars().take(80).collect::<String>();
-                snippets.push(serde_json::json!({
-                    "name": name,
-                    "content": content,
-                    "preview": preview,
-                }));
-            }
-        }
-    }
-    snippets.sort_by(|a, b| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")));
-    Ok(snippets)
-}
-
-/// Save a context snippet
-#[tauri::command]
-fn save_context_snippet(name: String, content: String) -> Result<(), String> {
-    let path = get_contexts_dir().join(format!("{}.md", name));
-    std::fs::write(&path, &content).map_err(|e| e.to_string())
-}
-
-/// Delete a context snippet
-#[tauri::command]
-fn delete_context_snippet(name: String) -> Result<(), String> {
-    let path = get_contexts_dir().join(format!("{}.md", name));
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// Inject context snippets into CLAUDE.md for a session
-#[tauri::command]
-fn inject_session_context(project_path: String, context_names: Vec<String>) -> Result<(), String> {
-    let contexts_dir = get_contexts_dir();
-    let mut combined = String::new();
-
-    for name in &context_names {
-        let path = contexts_dir.join(format!("{}.md", name));
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if !combined.is_empty() { combined.push_str("\n\n---\n\n"); }
-            combined.push_str(&format!("## {}\n\n{}", name, content));
-        }
-    }
-
-    let claude_md_path = PathBuf::from(&project_path).join("CLAUDE.md");
-    let marker_start = "<!-- CLAUGE-CONTEXT-START -->";
-    let marker_end = "<!-- CLAUGE-CONTEXT-END -->";
-
-    // Read existing content (without old markers) to check for duplicates
-    let existing_content = if claude_md_path.exists() {
-        let raw = std::fs::read_to_string(&claude_md_path).map_err(|e| e.to_string())?;
-        if let (Some(start), Some(end)) = (raw.find(marker_start), raw.find(marker_end)) {
-            raw[..start].trim_end().to_string()
-        } else {
-            raw
-        }
-    } else {
-        String::new()
-    };
-
-    // Filter out snippets whose content already exists in the file
-    let mut filtered = String::new();
-    for name in &context_names {
-        let path = contexts_dir.join(format!("{}.md", name));
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if !existing_content.contains(content.trim()) {
-                if !filtered.is_empty() { filtered.push_str("\n\n---\n\n"); }
-                filtered.push_str(&format!("## {}\n\n{}", name, content));
-            }
-        }
-    }
-
-    if filtered.is_empty() { return Ok(()); }
-
-    let injected = format!("\n\n{}\n{}\n{}\n", marker_start, filtered, marker_end);
-
-    if !existing_content.is_empty() {
-        std::fs::write(&claude_md_path, format!("{}{}", existing_content.trim_end(), injected)).map_err(|e| e.to_string())?;
-    } else {
-        std::fs::write(&claude_md_path, filtered).map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
-
-/// Remove injected context from CLAUDE.md
-#[tauri::command]
-fn remove_injected_context(project_path: String) -> Result<(), String> {
-    let claude_md_path = PathBuf::from(&project_path).join("CLAUDE.md");
-    if !claude_md_path.exists() { return Ok(()); }
-
-    let content = std::fs::read_to_string(&claude_md_path).map_err(|e| e.to_string())?;
-    let marker_start = "<!-- CLAUGE-CONTEXT-START -->";
-    let marker_end = "<!-- CLAUGE-CONTEXT-END -->";
-
-    if let (Some(start), Some(end)) = (content.find(marker_start), content.find(marker_end)) {
-        let cleaned = format!("{}{}", &content[..start].trim_end(), &content[end + marker_end.len()..]);
-        if cleaned.trim().is_empty() {
-            // We created this file — delete it
-            let _ = std::fs::remove_file(&claude_md_path);
-        } else {
-            std::fs::write(&claude_md_path, cleaned.trim_end().to_string() + "\n").map_err(|e| e.to_string())?;
-        }
-    }
-
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -260,11 +134,11 @@ pub fn run() {
             plugins::get_marketplace_plugins,
             plugins::install_plugin,
             plugins::uninstall_plugin,
-            get_context_snippets,
-            save_context_snippet,
-            delete_context_snippet,
-            inject_session_context,
-            remove_injected_context,
+            contexts::get_context_snippets,
+            contexts::save_context_snippet,
+            contexts::delete_context_snippet,
+            contexts::inject_session_context,
+            contexts::remove_injected_context,
             sessions::update_session_contexts
         ])
         .setup(|app| {
