@@ -15,7 +15,14 @@
   let gitName = $state('');
   let gitEmail = $state('');
   let contextPrompt = $state('');
+  let selectedContexts = $state([]);
+  let showContextDropdown = $state(false);
   let saving = $state(false);
+
+  // Available contexts not yet selected
+  let availableContexts = $derived(
+    contextsStore.contextSnippets.filter(s => !selectedContexts.includes(s.name))
+  );
 
   $effect(() => {
     if (profile) {
@@ -25,9 +32,22 @@
       gitName = profile.gitName || '';
       gitEmail = profile.gitEmail || '';
       contextPrompt = profile.contextPrompt || '';
+      selectedContexts = [...(profile.contexts || [])];
+      showContextDropdown = false;
       contextsStore.loadContextSnippets();
     }
   });
+
+  function addContext(name) {
+    if (!selectedContexts.includes(name)) {
+      selectedContexts = [...selectedContexts, name];
+    }
+    showContextDropdown = false;
+  }
+
+  function removeContext(name) {
+    selectedContexts = selectedContexts.filter(c => c !== name);
+  }
 
   async function handleSave() {
     if (!profile || !title.trim()) return;
@@ -41,6 +61,18 @@
         gitEmail: gitEnabled ? gitEmail : null,
         contextPrompt: contextPrompt,
       });
+
+      // Sync contexts — compare with original to decide inject/remove
+      const original = profile.contexts || [];
+      const changed = JSON.stringify(original.sort()) !== JSON.stringify([...selectedContexts].sort());
+      if (changed) {
+        if (selectedContexts.length > 0) {
+          await contextsStore.attachContextsToSession(profile.id, profile.worktreePath || profile.projectPath, selectedContexts);
+        } else {
+          await contextsStore.detachContextsFromSession(profile.id, profile.worktreePath || profile.projectPath);
+        }
+      }
+
       onSave?.();
       onClose?.();
     } catch (e) {
@@ -122,21 +154,38 @@
       </div>
 
       <div class="field">
-        <label class="toggle-label">
-          <span>Contexts</span>
-          <button class="ctx-manage-btn" onclick={() => { contextsStore.showContextPicker = profile; }}>
-            Manage
-          </button>
-        </label>
-        {#if profile.contexts?.length > 0}
+        <label>Contexts</label>
+        {#if selectedContexts.length > 0}
           <div class="ctx-tags">
-            {#each profile.contexts as ctx}
-              <span class="ctx-tag">{ctx}</span>
+            {#each selectedContexts as ctx}
+              <span class="ctx-tag">
+                {ctx}
+                <button class="ctx-remove" onclick={() => removeContext(ctx)} title="Remove">
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg>
+                </button>
+              </span>
             {/each}
           </div>
-        {:else}
-          <div class="field-hint">No contexts attached.</div>
         {/if}
+        <div class="ctx-add-row">
+          {#if availableContexts.length > 0}
+            <button class="ctx-add-btn" onclick={(e) => { e.stopPropagation(); showContextDropdown = !showContextDropdown; }}>
+              + Add context
+            </button>
+            {#if showContextDropdown}
+              <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+              <div class="ctx-dropdown" onclick={(e) => e.stopPropagation()}>
+                {#each availableContexts as snippet}
+                  <button class="ctx-dropdown-item" onclick={() => addContext(snippet.name)}>
+                    {snippet.name}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          {:else if selectedContexts.length === 0}
+            <div class="field-hint">No context snippets available. Create them in Settings.</div>
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -278,26 +327,78 @@
     margin-top: 8px;
   }
 
-  .ctx-manage-btn {
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border, #30363d);
+  .ctx-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .ctx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: rgba(88,166,255,0.1);
+    color: var(--accent, #58a6ff);
+  }
+  .ctx-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #8b949e);
+    cursor: pointer;
+    padding: 1px;
+    border-radius: 3px;
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+  }
+  .ctx-remove:hover { opacity: 1; color: #f85149; }
+
+  .ctx-add-row { position: relative; }
+  .ctx-add-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px dashed var(--border, #30363d);
     background: transparent;
     color: var(--text-secondary, #8b949e);
     cursor: pointer;
     font-family: inherit;
+    transition: border-color 0.15s, color 0.15s;
   }
-  .ctx-manage-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+  .ctx-add-btn:hover { border-color: var(--accent, #58a6ff); color: var(--accent, #58a6ff); }
 
-  .ctx-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .ctx-tag {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: rgba(88,166,255,0.1);
-    color: var(--accent, #58a6ff);
+  .ctx-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background: #1c2128;
+    border: 1px solid var(--border, #30363d);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 180px;
+    max-height: 160px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 20;
+    animation: fadeIn 0.1s ease-out;
   }
+  .ctx-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #8b949e);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 5px;
+    text-align: left;
+    transition: background 0.12s;
+  }
+  .ctx-dropdown-item:hover { background: rgba(255,255,255,0.06); color: var(--text-primary, #e6edf3); }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
   .edit-footer {
     display: flex;
