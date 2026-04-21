@@ -35,6 +35,7 @@ pub fn run() {
             profiles::create_profile,
             profiles::delete_profile,
             profiles::rename_profile,
+            profiles::update_profile,
             profiles::update_last_used,
             sessions::refresh_session_ids,
             sessions::update_session_id,

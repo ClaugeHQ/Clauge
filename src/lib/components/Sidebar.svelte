@@ -1,9 +1,11 @@
 <script>
+  import { invoke } from "@tauri-apps/api/core";
   import { terminalStore } from "$lib/stores/terminal.svelte";
   import { contextsStore } from "$lib/stores/contexts.svelte";
+  import EditSessionModal from "./EditSessionModal.svelte";
 
   let {
-    profiles,
+    profiles = $bindable(),
     activeProfile,
     claudePlan = '',
     onSelect,
@@ -11,6 +13,8 @@
     onDeleteProfile,
     onRefitTerminals,
   } = $props();
+
+  let editingProfile = $state(null);
 
   let sidebarCollapsed = $state(
     typeof localStorage !== 'undefined' ? localStorage.getItem('clauge-sidebar-collapsed') === 'true' : false
@@ -71,9 +75,23 @@
     return Math.floor(sec/86400) + "d ago";
   }
 
+  function handleWindowClick() {
+    if (menuProfile) menuProfile = null;
+  }
+
+  async function handleEditSave() {
+    try {
+      profiles = await invoke("get_profiles");
+    } catch (_) {}
+  }
+
   // Expose toggleSidebar so parent can call it (e.g. keyboard shortcut Cmd+B)
   export { toggleSidebar };
 </script>
+
+<svelte:window onclick={handleWindowClick} />
+
+<EditSessionModal profile={editingProfile} onSave={handleEditSave} onClose={() => editingProfile = null} />
 
 <aside class="sidebar" class:collapsed={sidebarCollapsed}>
   <div class="sidebar-header">
@@ -120,9 +138,9 @@
                 {#if menuProfile?.id === profile.id}
                   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
                   <div class="session-menu" onclick={(e) => e.stopPropagation()}>
-                    <button class="session-menu-item" onclick={() => { menuProfile = null; contextsStore.showContextPicker = profile; contextsStore.loadContextSnippets(); }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      Add Contexts
+                    <button class="session-menu-item" onclick={() => { editingProfile = profile; menuProfile = null; }}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.1a.25.25 0 00-.064.108l-.563 1.97 1.971-.564a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.353L12.427 2.488z"/></svg>
+                      Edit
                     </button>
                     <button class="session-menu-item danger" onclick={() => { menuProfile = null; onDeleteProfile?.(null, profile); }}>
                       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zM11 3V1.75A1.75 1.75 0 009.25 0h-2.5A1.75 1.75 0 005 1.75V3H2.75a.75.75 0 000 1.5h.928l.747 10.218A1.75 1.75 0 006.172 16h3.656a1.75 1.75 0 001.747-1.282L12.322 4.5h.928a.75.75 0 000-1.5H11zm-5.522 1.5l.735 10.06a.25.25 0 00.249.19h3.076a.25.25 0 00.249-.19l.735-10.06H5.478z"/></svg>

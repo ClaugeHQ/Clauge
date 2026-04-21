@@ -137,6 +137,29 @@ pub fn rename_profile(id: String, new_title: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn update_profile(
+    id: String,
+    title: Option<String>,
+    skip_permissions: Option<bool>,
+    git_name: Option<String>,
+    git_email: Option<String>,
+    context_prompt: Option<String>,
+) -> Result<(), String> {
+    let mut profiles = load_profiles();
+    if let Some(profile) = profiles.iter_mut().find(|p| p.id == id) {
+        if let Some(t) = title { profile.title = t; }
+        if let Some(sp) = skip_permissions { profile.skip_permissions = sp; }
+        if let Some(ref name) = git_name { profile.git_name = Some(name.clone()); }
+        if let Some(ref email) = git_email { profile.git_email = Some(email.clone()); }
+        if let Some(ref prompt) = context_prompt { profile.context_prompt = prompt.clone(); }
+    } else {
+        return Err("Profile not found".to_string());
+    }
+    save_profiles(&profiles)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn update_last_used(id: String) -> Result<(), String> {
     let mut profiles = load_profiles();
     if let Some(profile) = profiles.iter_mut().find(|p| p.id == id) {
