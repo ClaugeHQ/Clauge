@@ -737,9 +737,6 @@
           <p class="empty-sub">Select a session from the sidebar or create a new one</p>
         </div>
       {/if}
-      {#if activeProfile}
-        <div class="purpose-glow" style="background: linear-gradient(180deg, {purposeColors[activeProfile.purpose] || theme.accentColor}15 0%, transparent 100%);"></div>
-      {/if}
       <div class="terminal-panel" bind:this={terminalEl}></div>
     </div>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -865,8 +862,6 @@
   .empty-title { font-size: 16px; font-weight: 500; color: var(--text-primary); }
   .empty-sub { font-size: 13px; color: var(--text-secondary); }
 
-  .purpose-glow { position: absolute; top: 0; left: 0; right: 0; height: 60px; z-index: 1; pointer-events: none; animation: glowFadeIn 0.5s ease-out; }
-  @keyframes glowFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
   /* Context picker modal — uses shared .modal-backdrop and .modal from app.css */
   .ctx-picker-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
