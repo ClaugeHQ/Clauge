@@ -83,11 +83,11 @@
   }
 
   onMount(() => {
-    window.addEventListener('qorix:sql-save', handleGlobalSave);
+    window.addEventListener('clauge:sql-save', handleGlobalSave);
   });
 
   onDestroy(() => {
-    window.removeEventListener('qorix:sql-save', handleGlobalSave);
+    window.removeEventListener('clauge:sql-save', handleGlobalSave);
   });
 
   function computeColumnWidth(colName: string, colIdx: number): number {

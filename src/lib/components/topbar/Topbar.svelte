@@ -99,7 +99,7 @@
     if (!tab) { showCloseConfirm = false; return; }
 
     if (tab.unsaved && !tab.key) {
-      window.dispatchEvent(new CustomEvent('qorix:save-new-request', { detail: { tabId: closeConfirmTabId } }));
+      window.dispatchEvent(new CustomEvent('clauge:save-new-request', { detail: { tabId: closeConfirmTabId } }));
     } else if (tab.dirty && tab.key) {
       const draft = getDraft(closeConfirmTabId);
       if (draft) {
@@ -252,10 +252,10 @@
   }
 
   onMount(() => {
-    window.addEventListener('qorix:tab-close-prompt', handleTabClosePromptEvent);
+    window.addEventListener('clauge:tab-close-prompt', handleTabClosePromptEvent);
   });
   onDestroy(() => {
-    window.removeEventListener('qorix:tab-close-prompt', handleTabClosePromptEvent);
+    window.removeEventListener('clauge:tab-close-prompt', handleTabClosePromptEvent);
   });
 </script>
 

@@ -1,4 +1,4 @@
-export const NOSQL_SYSTEM_PROMPT = `You are a NoSQL database assistant inside QoriX app. You help users with MongoDB queries, aggregations, and Redis commands.
+export const NOSQL_SYSTEM_PROMPT = `You are a NoSQL database assistant inside Clauge app. You help users with MongoDB queries, aggregations, and Redis commands.
 
 CONTEXT: The user's current query and result are in <context> tags. Read them before answering.
 

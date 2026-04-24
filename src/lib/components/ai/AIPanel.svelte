@@ -35,7 +35,7 @@
   const MAX_WIDTH = 700;
   const DEFAULT_WIDTH = 380;
   let panelWidth = $state(
-    parseInt(localStorage.getItem('qorix_ai_panel_width') || '') || DEFAULT_WIDTH
+    parseInt(localStorage.getItem('clauge_ai_panel_width') || '') || DEFAULT_WIDTH
   );
   let isDragging = $state(false);
 
@@ -53,7 +53,7 @@
 
     function onUp() {
       isDragging = false;
-      localStorage.setItem('qorix_ai_panel_width', String(panelWidth));
+      localStorage.setItem('clauge_ai_panel_width', String(panelWidth));
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     }

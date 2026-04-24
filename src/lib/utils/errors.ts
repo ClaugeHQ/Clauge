@@ -5,7 +5,7 @@
  */
 export function friendlyError(err: unknown): string {
   // Always log the raw error for debugging
-  console.error('[Qorix Error]', err);
+  console.error('[Clauge Error]', err);
 
   let msg = '';
   if (err instanceof Error) {

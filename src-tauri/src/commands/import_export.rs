@@ -167,7 +167,7 @@ struct PostmanAuthKV {
     value: serde_json::Value,
 }
 
-// ── Helper: insert a QorixCollection into DB ────────────────────────
+// ── Helper: insert a collection into DB ─────────────────────────────
 
 async fn insert_collection(
     pool: &SqlitePool,
@@ -346,7 +346,7 @@ pub async fn export_collection(
     let qorix_coll = load_collection_export(pool.inner(), &coll).await?;
 
     let export = QorixExport {
-        format: "qorix/collection/v1".to_string(),
+        format: "clauge/collection/v1".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         collection: Some(qorix_coll),
         collections: None,
@@ -374,7 +374,7 @@ pub async fn export_all_collections(
     }
 
     let export = QorixExport {
-        format: "qorix/collections/v1".to_string(),
+        format: "clauge/collections/v1".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         collection: None,
         collections: Some(qorix_colls),
@@ -383,7 +383,7 @@ pub async fn export_all_collections(
     serde_json::to_string_pretty(&export).map_err(|e| e.to_string())
 }
 
-// ── Import Qorix JSON ───────────────────────────────────────────────
+// ── Import Clauge JSON (also accepts legacy qorix/ format) ──────────
 
 #[tauri::command]
 pub async fn import_qorix(
@@ -391,10 +391,10 @@ pub async fn import_qorix(
     json: String,
 ) -> Result<ImportResult, String> {
     let export: QorixExport =
-        serde_json::from_str(&json).map_err(|e| format!("Invalid Qorix JSON: {}", e))?;
+        serde_json::from_str(&json).map_err(|e| format!("Invalid Clauge JSON: {}", e))?;
 
-    if !export.format.starts_with("qorix/") {
-        return Err("Not a valid Qorix export format".to_string());
+    if !export.format.starts_with("clauge/") && !export.format.starts_with("qorix/") {
+        return Err("Not a valid Clauge export format".to_string());
     }
 
     let mut total_collections = 0usize;

@@ -1023,7 +1023,7 @@
         <div class="stg-about">
           <!-- App identity -->
           <div class="about-header">
-            <span class="about-app-name">QoriX</span>
+            <span class="about-app-name">Clauge</span>
             <span class="about-version">v0.9.0</span>
           </div>
           <p class="about-desc">The world's first AI-powered developer toolkit with built-in REST client, SQL & NoSQL database management, environment variables, GitHub sync, and more — all in one beautiful desktop app.</p>
@@ -1060,11 +1060,11 @@
           <!-- Links -->
           <div class="about-section-label">LINKS</div>
           <div class="about-links">
-            <a class="about-link-btn" href="https://github.com/ansxuman/QoriX" target="_blank" rel="noopener" title="GitHub Repository">
+            <a class="about-link-btn" href="https://github.com/ansxuman/Clauge" target="_blank" rel="noopener" title="GitHub Repository">
               <svg viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg>
               <span>Project</span>
             </a>
-            <a class="about-link-btn" href="https://github.com/ansxuman/QoriX/issues/new" target="_blank" rel="noopener" title="Report an Issue">
+            <a class="about-link-btn" href="https://github.com/ansxuman/Clauge/issues/new" target="_blank" rel="noopener" title="Report an Issue">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
               <span>Report Issue</span>
             </a>
@@ -1072,7 +1072,7 @@
               <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               <span>Developer</span>
             </a>
-            <a class="about-link-btn" href="https://qorix.ssh-i.in" target="_blank" rel="noopener" title="Website">
+            <a class="about-link-btn" href="https://clauge.dev" target="_blank" rel="noopener" title="Website">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
               <span>Website</span>
             </a>

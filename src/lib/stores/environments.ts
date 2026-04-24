@@ -5,7 +5,7 @@ import * as cmd from '$lib/commands';
 export const environments = writable<Environment[]>([]);
 
 // Persist active env selection
-const savedEnvId = typeof localStorage !== 'undefined' ? localStorage.getItem('qorix_active_env_id') : null;
+const savedEnvId = typeof localStorage !== 'undefined' ? localStorage.getItem('clauge_active_env_id') : null;
 export const activeEnvId = writable<string | null>(savedEnvId);
 
 export async function loadEnvironments() {
@@ -13,7 +13,7 @@ export async function loadEnvironments() {
     const envs = await cmd.listEnvironments();
     environments.set(envs);
     // Read current activeEnvId from localStorage (not the stale module-level snapshot)
-    const current = typeof localStorage !== 'undefined' ? localStorage.getItem('qorix_active_env_id') : null;
+    const current = typeof localStorage !== 'undefined' ? localStorage.getItem('clauge_active_env_id') : null;
     const currentExists = current && envs.some(e => e.id === current);
     if (!currentExists && envs.length > 0) {
       const def = envs.find(e => e.isDefault === 1);
@@ -22,7 +22,7 @@ export async function loadEnvironments() {
     } else if (!currentExists && envs.length === 0) {
       activeEnvId.set(null);
       if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem('qorix_active_env_id');
+        localStorage.removeItem('clauge_active_env_id');
       }
     }
   } catch (err) {
@@ -49,16 +49,16 @@ export async function deleteEnvironment(id: string) {
   await cmd.deleteEnvironment(id);
   environments.update(e => e.filter(x => x.id !== id));
   // Clear activeEnvId if the deleted env was the active one
-  const currentActive = typeof localStorage !== 'undefined' ? localStorage.getItem('qorix_active_env_id') : null;
+  const currentActive = typeof localStorage !== 'undefined' ? localStorage.getItem('clauge_active_env_id') : null;
   if (currentActive === id) {
     activeEnvId.set(null);
     if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('qorix_active_env_id');
+      localStorage.removeItem('clauge_active_env_id');
     }
   }
   // Remove all per-request overrides pointing to the deleted env (revert to global)
   if (typeof localStorage !== 'undefined') {
-    const overridesRaw = localStorage.getItem('qorix_request_env_overrides');
+    const overridesRaw = localStorage.getItem('clauge_request_env_overrides');
     if (overridesRaw) {
       try {
         const overrides = JSON.parse(overridesRaw);
@@ -66,7 +66,7 @@ export async function deleteEnvironment(id: string) {
         for (const [key, val] of Object.entries(overrides)) {
           if (val !== id) cleaned[key] = val as string;
         }
-        localStorage.setItem('qorix_request_env_overrides', JSON.stringify(cleaned));
+        localStorage.setItem('clauge_request_env_overrides', JSON.stringify(cleaned));
         // Also need to import and update the store
         const { requestEnvOverrides } = await import('$lib/stores/collections');
         requestEnvOverrides.set(cleaned);
@@ -84,7 +84,7 @@ export async function setDefaultEnv(id: string) {
 export async function setActiveEnv(id: string) {
   activeEnvId.set(id);
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('qorix_active_env_id', id);
+    localStorage.setItem('clauge_active_env_id', id);
   }
 }
 

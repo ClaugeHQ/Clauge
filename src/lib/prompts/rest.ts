@@ -1,4 +1,4 @@
-export const REST_SYSTEM_PROMPT = `You are a REST API assistant inside QoriX app. You help users with HTTP requests.
+export const REST_SYSTEM_PROMPT = `You are a REST API assistant inside Clauge app. You help users with HTTP requests.
 
 CONTEXT: The user's current request and response are in <context> tags. Read them before answering.
 

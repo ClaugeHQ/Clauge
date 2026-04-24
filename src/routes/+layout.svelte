@@ -103,7 +103,7 @@
 
   onDestroy(() => {
     teardownGlobalShortcuts();
-    window.removeEventListener('qorix:save-new-request', handleSaveNewRequest);
+    window.removeEventListener('clauge:save-new-request', handleSaveNewRequest);
     window.removeEventListener('agent:new-session', handleAgentNewSession);
     window.removeEventListener('agent:edit-session', handleAgentEditSession);
     if (syncInterval) clearInterval(syncInterval);
@@ -123,7 +123,7 @@
 
   onMount(async () => {
     setupGlobalShortcuts();
-    window.addEventListener('qorix:save-new-request', handleSaveNewRequest);
+    window.addEventListener('clauge:save-new-request', handleSaveNewRequest);
     window.addEventListener('agent:new-session', handleAgentNewSession);
     window.addEventListener('agent:edit-session', handleAgentEditSession);
 
@@ -192,25 +192,25 @@
               markSynced();
             }
           } catch (e) {
-            console.warn('[Qorix Sync] Cloud check failed:', e);
+            console.warn('[Clauge Sync] Cloud check failed:', e);
             markSynced();
           }
         } else if (get(hasSyncedOnce)) {
           // Returning user with local data — auto-push
           gistSyncPush().then((msg) => {
-            console.info('[Qorix Sync]', msg);
+            console.info('[Clauge Sync]', msg);
             if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
           }).catch((e) => {
-            console.error('[Qorix Sync] Auto-push failed:', e);
+            console.error('[Clauge Sync] Auto-push failed:', e);
           });
         } else {
           // First time with data locally — mark synced and push
           markSynced();
           gistSyncPush().then((msg) => {
-            console.info('[Qorix Sync]', msg);
+            console.info('[Clauge Sync]', msg);
             if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
           }).catch((e) => {
-            console.error('[Qorix Sync] Auto-push failed:', e);
+            console.error('[Clauge Sync] Auto-push failed:', e);
           });
         }
 
@@ -221,7 +221,7 @@
             const msg = await gistSyncPush();
             if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
           } catch (e) {
-            console.error('[Qorix Sync] Periodic push failed:', e);
+            console.error('[Clauge Sync] Periodic push failed:', e);
           }
         }, 5 * 60 * 1000);
       }

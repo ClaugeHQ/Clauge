@@ -11,7 +11,7 @@ export const activeRequest = writable<RequestWithDetails | null>(null);
 export const currentRestResponse = writable<HttpResponse | null>(null);
 
 /** Per-request environment overrides (requestId/tabId -> envId) */
-const savedOverrides = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('qorix_request_env_overrides') || '{}') : {};
+const savedOverrides = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('clauge_request_env_overrides') || '{}') : {};
 export const requestEnvOverrides = writable<Record<string, string>>(savedOverrides);
 // Keep old name as alias for backward compatibility during migration
 export const collectionEnvOverrides = requestEnvOverrides;
@@ -110,7 +110,7 @@ export function setRequestEnv(requestOrTabId: string, envId: string | null) {
       next = { ...map, [requestOrTabId]: envId };
     }
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('qorix_request_env_overrides', JSON.stringify(next));
+      localStorage.setItem('clauge_request_env_overrides', JSON.stringify(next));
     }
     return next;
   });

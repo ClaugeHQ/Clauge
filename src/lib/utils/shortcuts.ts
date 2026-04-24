@@ -41,7 +41,7 @@ function handleKeydown(e: KeyboardEvent) {
     const tab = allTabs.find(t => t.id === tabId);
     if (!tab) return;
     if (tab.dirty || tab.unsaved) {
-      window.dispatchEvent(new CustomEvent('qorix:tab-close-prompt', { detail: { tabId } }));
+      window.dispatchEvent(new CustomEvent('clauge:tab-close-prompt', { detail: { tabId } }));
     } else {
       closeTab(tabId);
     }
@@ -58,10 +58,10 @@ function handleKeydown(e: KeyboardEvent) {
     if (!tab) return;
     if (tab.mode === 'sql') {
       // SQL: trigger save for pending result edits
-      window.dispatchEvent(new CustomEvent('qorix:sql-save'));
+      window.dispatchEvent(new CustomEvent('clauge:sql-save'));
     } else if (tab.unsaved && tab.key === null) {
       // New unsaved request — show save dialog
-      window.dispatchEvent(new CustomEvent('qorix:save-new-request', { detail: { tabId } }));
+      window.dispatchEvent(new CustomEvent('clauge:save-new-request', { detail: { tabId } }));
     } else if (tab.dirty && tab.key !== null) {
       // Existing dirty request — persist draft to backend
       const draft = getDraft(tabId);

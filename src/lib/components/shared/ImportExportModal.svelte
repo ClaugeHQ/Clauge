@@ -42,7 +42,7 @@
     }
     try {
       const obj = JSON.parse(trimmed);
-      if (obj.format && typeof obj.format === 'string' && obj.format.startsWith('qorix/')) {
+      if (obj.format && typeof obj.format === 'string' && (obj.format.startsWith('clauge/') || obj.format.startsWith('qorix/'))) {
         return 'qorix';
       }
       if (obj.info && obj.item) {
@@ -140,7 +140,7 @@
         } else {
           json = await cmd.exportCollection(exportCollectionId);
         }
-        downloadFile(json, exportCollectionId === '__all__' ? 'qorix-export' : getCollectionName(exportCollectionId), 'json', 'application/json');
+        downloadFile(json, exportCollectionId === '__all__' ? 'clauge-export' : getCollectionName(exportCollectionId), 'json', 'application/json');
         showToast('Export downloaded', 'success');
       }
     } catch (err: any) {
@@ -187,7 +187,7 @@
       <label class="ie-label">Format</label>
       <select class="ie-select" bind:value={importFormat}>
         <option value="auto">Auto-detect</option>
-        <option value="qorix">Qorix JSON</option>
+        <option value="qorix">Clauge JSON</option>
         <option value="postman">Postman Collection</option>
         <option value="curl">cURL Command</option>
       </select>
@@ -229,7 +229,7 @@
 
       <label class="ie-label">Format</label>
       <select class="ie-select" bind:value={exportFormat}>
-        <option value="qorix">Qorix JSON</option>
+        <option value="qorix">Clauge JSON</option>
         {#if exportCollectionId !== '__all__'}
           <option value="curl">cURL (.sh)</option>
         {/if}

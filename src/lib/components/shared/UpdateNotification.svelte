@@ -12,9 +12,9 @@
   async function handleWhatsNew() {
     try {
       const { openUrl } = await import('@tauri-apps/plugin-opener');
-      await openUrl('https://qorix.ssh-i.in/changelog.html');
+      await openUrl('https://clauge.dev/changelog.html');
     } catch {
-      window.open('https://qorix.ssh-i.in/changelog.html', '_blank');
+      window.open('https://clauge.dev/changelog.html', '_blank');
     }
   }
 
@@ -28,7 +28,7 @@
     <div class="un-header">
       <svg class="un-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
       <div class="un-text">
-        <span class="un-title">QoriX v{$updateAvailable.version} is available</span>
+        <span class="un-title">Clauge v{$updateAvailable.version} is available</span>
         <span class="un-desc">A new version has been downloaded. Restart to apply.</span>
       </div>
       <button class="un-close" onclick={dismiss}>&times;</button>

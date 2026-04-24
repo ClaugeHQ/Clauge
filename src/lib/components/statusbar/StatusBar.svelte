@@ -63,7 +63,7 @@
     </div>
   </div>
   <div class="sr">
-    {#if appVersion}<div class="si">Qorix v{appVersion}</div>{/if}
+    {#if appVersion}<div class="si">Clauge v{appVersion}</div>{/if}
   </div>
 </footer>
 {:else}
@@ -82,7 +82,7 @@
         <span>Update available · v{$updateAvailable.version}</span>
       </div>
     {/if}
-    {#if appVersion}<div class="si">Qorix v{appVersion}</div>{/if}
+    {#if appVersion}<div class="si">Clauge v{appVersion}</div>{/if}
   </div>
 </footer>
 {/if}

@@ -9,7 +9,8 @@ use crate::db::models::{
     Collection, EnvVariable, Environment, Request, RequestHeader, RequestParam,
 };
 
-const GIST_DESCRIPTION: &str = "qorix-data-v1";
+const GIST_DESCRIPTION: &str = "clauge-data-v1";
+const LEGACY_GIST_DESCRIPTION: &str = "qorix-data-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,8 +160,9 @@ async fn export_data(pool: &SqlitePool) -> Result<SyncData, String> {
     })
 }
 
-/// Find the Qorix gist by description (paginates through all gists).
-async fn find_qorix_gist(
+/// Find the Clauge gist by description (paginates through all gists).
+/// Also matches the legacy "qorix-data-v1" description for backward compatibility.
+async fn find_clauge_gist(
     client: &tauri_plugin_http::reqwest::Client,
     token: &str,
 ) -> Result<Option<String>, String> {
@@ -172,7 +174,7 @@ async fn find_qorix_gist(
                 page
             ))
             .header("Authorization", format!("Bearer {}", token))
-            .header("User-Agent", "Qorix/0.1")
+            .header("User-Agent", "Clauge/0.1")
             .send()
             .await
             .map_err(|e| format!("Failed to list gists: {}", e))?;
@@ -193,7 +195,8 @@ async fn find_qorix_gist(
         }
 
         for gist in &gists {
-            if gist.description.as_deref() == Some(GIST_DESCRIPTION) {
+            let desc = gist.description.as_deref();
+            if desc == Some(GIST_DESCRIPTION) || desc == Some(LEGACY_GIST_DESCRIPTION) {
                 if gist.public.unwrap_or(false) {
                     log::warn!("[Sync] Found PUBLIC gist {} — skipping, user should delete manually", gist.id);
                     continue; // Skip public gists, only use secret ones
@@ -217,7 +220,7 @@ async fn find_qorix_gist(
 pub async fn gist_check_exists(pool: State<'_, SqlitePool>) -> Result<bool, String> {
     let token = super::oauth::get_token(pool.inner()).await?;
     let client = tauri_plugin_http::reqwest::Client::new();
-    let gist_id = find_qorix_gist(&client, &token).await?;
+    let gist_id = find_clauge_gist(&client, &token).await?;
     Ok(gist_id.is_some())
 }
 
@@ -257,13 +260,13 @@ pub async fn gist_sync_push(pool: State<'_, SqlitePool>) -> Result<String, Strin
 
     // Build the files payload
     let files = serde_json::json!({
-        "qorix-data.json": {
+        "clauge-data.json": {
             "content": json_content
         }
     });
 
     // Check if gist already exists
-    let existing_gist_id = find_qorix_gist(&client, &token).await?;
+    let existing_gist_id = find_clauge_gist(&client, &token).await?;
 
     let result_msg = if let Some(gist_id) = existing_gist_id {
         // Update existing gist
@@ -277,7 +280,7 @@ pub async fn gist_sync_push(pool: State<'_, SqlitePool>) -> Result<String, Strin
         let resp = client
             .patch(format!("https://api.github.com/gists/{}", gist_id))
             .header("Authorization", format!("Bearer {}", token))
-            .header("User-Agent", "Qorix/0.1")
+            .header("User-Agent", "Clauge/0.1")
             .header("Content-Type", "application/json")
             .body(payload_str)
             .send()
@@ -304,7 +307,7 @@ pub async fn gist_sync_push(pool: State<'_, SqlitePool>) -> Result<String, Strin
         let resp = client
             .post("https://api.github.com/gists")
             .header("Authorization", format!("Bearer {}", token))
-            .header("User-Agent", "Qorix/0.1")
+            .header("User-Agent", "Clauge/0.1")
             .header("Content-Type", "application/json")
             .body(payload_str)
             .send()
@@ -344,17 +347,17 @@ pub async fn gist_sync_pull(pool: State<'_, SqlitePool>) -> Result<String, Strin
     log::info!("[Sync Pull] Token found, searching for gist...");
     let client = tauri_plugin_http::reqwest::Client::new();
 
-    // Find the qorix gist
-    let gist_id = find_qorix_gist(&client, &token)
+    // Find the Clauge gist
+    let gist_id = find_clauge_gist(&client, &token)
         .await?
-        .ok_or_else(|| "No Qorix sync gist found. Push first to create one.".to_string())?;
+        .ok_or_else(|| "No Clauge sync gist found. Push first to create one.".to_string())?;
     log::info!("[Sync Pull] Found gist: {}", gist_id);
 
     // Fetch the gist content
     let resp = client
         .get(format!("https://api.github.com/gists/{}", gist_id))
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "Qorix/0.1")
+        .header("User-Agent", "Clauge/0.1")
         .send()
         .await
         .map_err(|e| format!("Failed to fetch gist: {}", e))?;
@@ -370,8 +373,9 @@ pub async fn gist_sync_pull(pool: State<'_, SqlitePool>) -> Result<String, Strin
     let file_content = gist
         .files
         .get("qorix-data.json")
+        .or_else(|| gist.files.get("clauge-data.json"))
         .and_then(|f| f.content.as_deref())
-        .ok_or_else(|| "Gist does not contain qorix-data.json".to_string())?;
+        .ok_or_else(|| "Gist does not contain sync data file".to_string())?;
 
     let data: SyncData = serde_json::from_str(file_content)
         .map_err(|e| format!("Failed to parse sync data: {}", e))?;
@@ -384,7 +388,7 @@ pub async fn gist_sync_pull(pool: State<'_, SqlitePool>) -> Result<String, Strin
 
     if data.version != 1 {
         return Err(format!(
-            "Unsupported sync data version {}. This app supports version 1. Please update QoriX.",
+            "Unsupported sync data version {}. This app supports version 1. Please update Clauge.",
             data.version
         ));
     }

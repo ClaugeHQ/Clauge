@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Qorix",
+  "productName": "Clauge",
   "version": "0.24.0",
-  "identifier": "dev.qorix.app",
+  "identifier": "com.clauge.desktop",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Qorix",
+        "title": "Clauge",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
@@ -44,13 +44,13 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/ansxuman/QoriX/releases/latest/download/latest.json"
+        "https://github.com/ansxuman/Clauge/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBM0M5NUI5N0RENTExQ0YKUldUUEVkVjl1WlU4MnR0cXhrMHNtQVF1K3ZHMk9UVmQ3MHU0UWd0L2FWRTBFL0VyZWJnMlA2WVYK"
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["qorix"]
+        "schemes": ["clauge"]
       }
     }
   }

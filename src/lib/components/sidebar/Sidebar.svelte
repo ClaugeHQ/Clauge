@@ -101,7 +101,7 @@
     setSyncing(true);
     try {
       const msg = await gistSyncPush();
-      console.info('[Qorix Sync]', msg);
+      console.info('[Clauge Sync]', msg);
       if (!msg.includes('Skipped')) {
         markSynced();
         setLastSynced(new Date().toISOString());
@@ -122,7 +122,7 @@
     setSyncing(true);
     try {
       const msg = await gistSyncPull();
-      console.info('[Qorix Sync]', msg);
+      console.info('[Clauge Sync]', msg);
       await Promise.all([
         loadCollections(),
         loadEnvironments(),
@@ -134,7 +134,7 @@
       setLastSynced(new Date().toISOString());
       showToast('Restored from cloud', 'success');
     } catch (e: any) {
-      if (String(e).includes('empty') || String(e).includes('No Qorix sync gist')) {
+      if (String(e).includes('empty') || String(e).includes('No Clauge sync gist')) {
         showToast('Cloud backup is empty — nothing to restore', 'info');
       } else {
         showToast(friendlyError(e), 'error');
@@ -181,8 +181,8 @@
       case 'sync': activeModal.set('github'); break;
       case 'settings': activeModal.set('settings'); break;
       case 'check-updates': handleCheckForUpdates(); break;
-      case 'whats-new': openExternal('https://qorix.ssh-i.in/changelog.html'); break;
-      case 'report': openExternal('https://github.com/ansxuman/QoriX/issues/new'); break;
+      case 'whats-new': openExternal('https://clauge.dev/changelog.html'); break;
+      case 'report': openExternal('https://github.com/ansxuman/Clauge/issues/new'); break;
       case 'coffee': openExternal('https://buymeacoffee.com/ansxuman'); break;
       case 'about': activeModal.set('settings'); break;
     }
@@ -214,7 +214,7 @@
         </button>
       </div>
     {:else}
-      <img src="/qorix-animated-icon.svg" alt="Qorix" width="34" height="34" />
+      <img src="/qorix-animated-icon.svg" alt="Clauge" width="34" height="34" />
     {/if}
   </div>
 

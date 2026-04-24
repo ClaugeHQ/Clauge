@@ -170,9 +170,9 @@
         <div class="step">
           <div class="step-content welcome-step">
             <div class="bear-icon">
-              <img src="/qorix-animated-icon.svg" alt="Qorix" width="140" height="140" />
+              <img src="/qorix-animated-icon.svg" alt="Clauge" width="140" height="140" />
             </div>
-            <h1 class="ob-title">Welcome to QoriX</h1>
+            <h1 class="ob-title">Welcome to Clauge</h1>
             <p class="ob-subtitle">The world's first AI-powered developer toolkit — REST, SQL, NoSQL, all in one app.</p>
             <button class="ob-btn primary" onclick={next}>Get Started</button>
           </div>
@@ -181,7 +181,7 @@
         <!-- Step 2: Features -->
         <div class="step">
           <div class="step-content">
-            <h2 class="ob-title sm">What QoriX Can Do</h2>
+            <h2 class="ob-title sm">What Clauge Can Do</h2>
             <div class="feature-cards">
               <div class="feature-card" style="animation-delay: 0.05s;">
                 <div class="feature-icon" style="background: color-mix(in srgb, var(--rest) 12%, transparent);">

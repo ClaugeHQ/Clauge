@@ -8,17 +8,17 @@ export const syncing = writable<boolean>(false);
 export const showSyncRestorePrompt = writable<boolean>(false);
 // Track if first sync has been done (prevents auto-push before user decides)
 export const hasSyncedOnce = writable<boolean>(
-  typeof localStorage !== 'undefined' ? localStorage.getItem('qorix_has_synced') === 'true' : false
+  typeof localStorage !== 'undefined' ? localStorage.getItem('clauge_has_synced') === 'true' : false
 );
 
 export function markSynced() {
   hasSyncedOnce.set(true);
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('qorix_has_synced', 'true');
+    localStorage.setItem('clauge_has_synced', 'true');
   }
 }
 
-const savedLastSynced = typeof localStorage !== 'undefined' ? localStorage.getItem('qorix_last_synced_at') : null;
+const savedLastSynced = typeof localStorage !== 'undefined' ? localStorage.getItem('clauge_last_synced_at') : null;
 export const lastSyncedAt = writable<string | null>(savedLastSynced);
 
 export function setConnected(username: string, avatarUrl?: string) {
@@ -32,7 +32,7 @@ export function setConnected(username: string, avatarUrl?: string) {
   if (avatarUrl) {
     githubAvatarUrl.set(avatarUrl);
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('qorix_github_avatar', avatarUrl);
+      localStorage.setItem('clauge_github_avatar', avatarUrl);
     }
   }
 }
@@ -46,14 +46,14 @@ export function setDisconnected() {
   githubAvatarUrl.set(null);
   hasSyncedOnce.set(false);
   if (typeof localStorage !== 'undefined') {
-    localStorage.removeItem('qorix_github_avatar');
-    localStorage.removeItem('qorix_has_synced');
+    localStorage.removeItem('clauge_github_avatar');
+    localStorage.removeItem('clauge_has_synced');
   }
 }
 
 // Restore avatar from localStorage on load
 if (typeof localStorage !== 'undefined') {
-  const savedAvatar = localStorage.getItem('qorix_github_avatar');
+  const savedAvatar = localStorage.getItem('clauge_github_avatar');
   if (savedAvatar) githubAvatarUrl.set(savedAvatar);
 }
 
@@ -64,6 +64,6 @@ export function setSyncing(isSyncing: boolean) {
 export function setLastSynced(time: string) {
   lastSyncedAt.set(time);
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('qorix_last_synced_at', time);
+    localStorage.setItem('clauge_last_synced_at', time);
   }
 }

@@ -10,7 +10,7 @@ export const aiPanelOpenPerMode = writable<Record<string, boolean>>({});
 export const activeModal = writable<string | null>(null);
 
 // Per-mode AI chat history — persisted to localStorage
-const CHAT_STORAGE_KEY = 'qorix_ai_chat_history';
+const CHAT_STORAGE_KEY = 'clauge_ai_chat_history';
 
 function loadChatHistory(): Record<string, AIMessage[]> {
   try {

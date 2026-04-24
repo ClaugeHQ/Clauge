@@ -46,7 +46,7 @@ pub async fn github_connect(pool: State<'_, SqlitePool>, token: String) -> Resul
     let resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "Qorix/0.2")
+        .header("User-Agent", "Clauge/0.2")
         .send()
         .await
         .map_err(|e| format!("Network error: {}", e))?;
@@ -86,7 +86,7 @@ pub async fn github_get_status(pool: State<'_, SqlitePool>) -> Result<Option<Git
     let resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "Qorix/0.2")
+        .header("User-Agent", "Clauge/0.2")
         .send()
         .await;
 
@@ -113,7 +113,7 @@ pub fn github_get_oauth_url() -> String {
         "{}?client_id={}&redirect_uri={}&scope=gist",
         GITHUB_OAUTH_URL,
         GITHUB_CLIENT_ID,
-        "https://qorix.ssh-i.in/auth/callback"
+        "https://clauge.dev/auth/callback"
     )
 }
 
@@ -123,7 +123,7 @@ pub async fn github_connect_with_token(pool: State<'_, SqlitePool>, token: Strin
     let resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "Qorix/0.2")
+        .header("User-Agent", "Clauge/0.2")
         .send()
         .await
         .map_err(|e| format!("Network error: {}", e))?;

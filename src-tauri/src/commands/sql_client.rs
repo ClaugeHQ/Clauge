@@ -125,7 +125,7 @@ fn build_connection_url(config: &SqlConnectionConfig) -> Result<String, String> 
 
 pub async fn create_pool(config: &SqlConnectionConfig) -> Result<DatabasePool, String> {
     let url = build_connection_url(config)?;
-    eprintln!("[QoriX SQL] create_pool driver={} host={} port={} db={} ssl={} user={}",
+    eprintln!("[Clauge SQL] create_pool driver={} host={} port={} db={} ssl={} user={}",
         config.driver, config.host, config.port, config.database, config.ssl, config.username);
     match config.driver.as_str() {
         "postgresql" => {
@@ -136,21 +136,21 @@ pub async fn create_pool(config: &SqlConnectionConfig) -> Result<DatabasePool, S
                 config.username, config.password, config.host, config.port, config.database
             );
             let ssl_mode = if config.ssl { PgSslMode::Require } else { PgSslMode::Prefer };
-            eprintln!("[QoriX SQL] PG base_url={} ssl_mode={:?}", base_url.replace(&config.password, "***"), ssl_mode);
+            eprintln!("[Clauge SQL] PG base_url={} ssl_mode={:?}", base_url.replace(&config.password, "***"), ssl_mode);
             let mut opts = PgConnectOptions::from_str(&base_url)
                 .map_err(|e| {
-                    eprintln!("[QoriX SQL] PgConnectOptions parse error: {}", e);
+                    eprintln!("[Clauge SQL] PgConnectOptions parse error: {}", e);
                     format!("Invalid PostgreSQL URL: {}", e)
                 })?;
             opts = opts.ssl_mode(ssl_mode);
-            eprintln!("[QoriX SQL] Connecting to PostgreSQL...");
+            eprintln!("[Clauge SQL] Connecting to PostgreSQL...");
             let pool = sqlx::PgPool::connect_with(opts)
                 .await
                 .map_err(|e| {
-                    eprintln!("[QoriX SQL] PostgreSQL connection FAILED: {}", e);
+                    eprintln!("[Clauge SQL] PostgreSQL connection FAILED: {}", e);
                     format!("PostgreSQL connection failed: {}", e)
                 })?;
-            eprintln!("[QoriX SQL] PostgreSQL connected OK");
+            eprintln!("[Clauge SQL] PostgreSQL connected OK");
             Ok(DatabasePool::Postgres(pool))
         }
         "mysql" => {
