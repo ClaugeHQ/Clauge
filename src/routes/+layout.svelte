@@ -9,6 +9,8 @@
   import EnvManagerModal from '$lib/components/env/EnvManagerModal.svelte';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
   import GitHubConnect from '$lib/components/github/GitHubConnect.svelte';
+  import NewSessionModal from '$lib/components/agent/NewSessionModal.svelte';
+  import EditSessionModal from '$lib/components/agent/EditSessionModal.svelte';
   import favicon from '$lib/assets/favicon.svg';
 
   import { onMount, onDestroy } from 'svelte';
@@ -26,6 +28,7 @@
   import { activeModal, aiPanelOpen } from '$lib/stores/app';
   import AIPanel from '$lib/components/ai/AIPanel.svelte';
   import { tabs, addTab, activeTabId } from '$lib/stores/tabs';
+  import type { AgentSession } from '$lib/types/agent';
   import { setupGlobalShortcuts, teardownGlobalShortcuts } from '$lib/utils/shortcuts';
   import { applyTheme } from '$lib/utils/theme';
   import ShortcutsOverlay from '$lib/components/shared/ShortcutsOverlay.svelte';
@@ -41,6 +44,22 @@
   let showSaveDialog = $state(false);
   let saveDialogTabId = $state(-1);
   let syncInterval: ReturnType<typeof setInterval> | null = null;
+
+  let showNewSessionModal = $state(false);
+  let showEditSessionModal = $state(false);
+  let editSessionTarget = $state<AgentSession | null>(null);
+
+  function handleAgentNewSession() {
+    showNewSessionModal = true;
+  }
+
+  function handleAgentEditSession(e: Event) {
+    const detail = (e as CustomEvent<AgentSession>).detail;
+    if (detail) {
+      editSessionTarget = detail;
+      showEditSessionModal = true;
+    }
+  }
 
   async function handleDragStart(e: MouseEvent) {
     if (e.buttons !== 1) return;
@@ -85,6 +104,8 @@
   onDestroy(() => {
     teardownGlobalShortcuts();
     window.removeEventListener('qorix:save-new-request', handleSaveNewRequest);
+    window.removeEventListener('agent:new-session', handleAgentNewSession);
+    window.removeEventListener('agent:edit-session', handleAgentEditSession);
     if (syncInterval) clearInterval(syncInterval);
   });
 
@@ -103,6 +124,8 @@
   onMount(async () => {
     setupGlobalShortcuts();
     window.addEventListener('qorix:save-new-request', handleSaveNewRequest);
+    window.addEventListener('agent:new-session', handleAgentNewSession);
+    window.addEventListener('agent:edit-session', handleAgentEditSession);
 
     // Apply to existing and future inputs/textareas
     document.querySelectorAll('input, textarea').forEach(disableAutocorrect);
@@ -267,6 +290,8 @@
   onsave={handleNoSqlConnectionSave}
   onclose={() => editingNoSqlConnection.set(null)}
 />
+<NewSessionModal bind:show={showNewSessionModal} />
+<EditSessionModal bind:show={showEditSessionModal} bind:session={editSessionTarget} />
 
 <style>
   .app-shell {
