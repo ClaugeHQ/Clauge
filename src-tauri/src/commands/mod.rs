@@ -9,3 +9,5 @@ pub mod settings;
 pub mod sql_client;
 pub mod ai;
 pub mod agent_models;
+pub mod agent;
+pub mod agent_terminal;
