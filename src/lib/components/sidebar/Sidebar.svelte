@@ -19,7 +19,7 @@
   let profileMenuOpen = $state(false);
   let previousMode: AppMode = 'rest';
   let isFullscreen = $state(false);
-  let logoHovering = $state(false);
+
 
   onMount(() => {
     // Check fullscreen state periodically
@@ -194,27 +194,13 @@
 
 <aside class="sidebar glass-surface">
   <div class="sidebar-drag" data-drag-region></div>
-  <!-- Logo with window controls on hover -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="logo"
-    onmouseenter={() => logoHovering = true}
-    onmouseleave={() => logoHovering = false}
-  >
-    {#if logoHovering && !isFullscreen}
+  <div class="wc-area" data-drag-region>
+    {#if !isFullscreen}
       <div class="wc-dots">
-        <button class="wc-dot wc-close" onclick={wcClose}>
-          <svg viewBox="0 0 10 10"><line x1="2.5" y1="2.5" x2="7.5" y2="7.5"/><line x1="7.5" y1="2.5" x2="2.5" y2="7.5"/></svg>
-        </button>
-        <button class="wc-dot wc-min" onclick={wcMinimize}>
-          <svg viewBox="0 0 10 10"><line x1="2" y1="5" x2="8" y2="5"/></svg>
-        </button>
-        <button class="wc-dot wc-max" onclick={wcFullscreen}>
-          <svg viewBox="0 0 10 10"><polyline points="2,6 2,8 4,8"/><polyline points="8,4 8,2 6,2"/></svg>
-        </button>
+        <button class="wc-dot wc-close" onclick={wcClose}></button>
+        <button class="wc-dot wc-min" onclick={wcMinimize}></button>
+        <button class="wc-dot wc-max" onclick={wcFullscreen}></button>
       </div>
-    {:else}
-      <img src="/clauge-icon.svg" alt="Clauge" width="34" height="34" />
     {/if}
   </div>
 
@@ -449,22 +435,15 @@
     flex-shrink: 0;
     width: 100%;
   }
-  .logo {
-    width: 72px;
-    height: 46px;
+  .wc-area {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: default;
-    position: relative;
+    padding: 14px 0 8px;
     flex-shrink: 0;
-  }
-  .logo img {
-    border-radius: var(--radius-md);
   }
   .wc-dots {
     display: flex;
-    align-items: center;
     gap: 8px;
   }
   .wc-dot {
@@ -473,25 +452,16 @@
     border-radius: 50%;
     border: none;
     cursor: default;
-    transition: filter 0.1s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     padding: 0;
+    transition: opacity 0.15s;
   }
-  .wc-dot svg {
-    width: 7px;
-    height: 7px;
-    stroke: rgba(0,0,0,0.5);
-    fill: none;
-    stroke-width: 1.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .wc-dot:hover { filter: brightness(0.85); }
+  .wc-dot:hover { opacity: 0.8; }
   .wc-close { background: #ff5f57; }
   .wc-min { background: #febc2e; }
   .wc-max { background: #28c840; }
+  :global(body.window-blurred) .wc-dot {
+    background: var(--t4) !important;
+  }
   .sb-sep {
     width: 24px;
     height: 1px;
