@@ -40,7 +40,11 @@ function handleKeydown(e: KeyboardEvent) {
     const allTabs = get(tabs);
     const tab = allTabs.find(t => t.id === tabId);
     if (!tab) return;
-    if (tab.dirty || tab.unsaved) {
+    // SSH and Agent tabs need PTY/connection cleanup beyond a plain closeTab —
+    // route them through Topbar's prompt handler which calls doCloseTab and
+    // runs the proper teardown (kill terminal, switch active profile, reset
+    // spawning state). REST tabs only need the prompt when dirty.
+    if (tab.mode === 'agent' || tab.mode === 'ssh' || tab.dirty || tab.unsaved) {
       window.dispatchEvent(new CustomEvent('clauge:tab-close-prompt', { detail: { tabId } }));
     } else {
       closeTab(tabId);
@@ -76,12 +80,27 @@ function handleKeydown(e: KeyboardEvent) {
     return;
   }
 
-  // Cmd+1/2/3/4: switch modes (don't intercept if user is typing in input)
-  if (meta && !isInput) {
-    if (e.key === '1') { mode.set('agent'); e.preventDefault(); }
-    if (e.key === '2') { mode.set('rest'); e.preventDefault(); }
-    if (e.key === '3') { mode.set('sql'); e.preventDefault(); }
-    if (e.key === '4') { mode.set('nosql'); e.preventDefault(); }
+  // Cmd+1-9: switch tabs (like browser tabs)
+  if (meta && !isInput && e.key >= '1' && e.key <= '9') {
+    e.preventDefault();
+    const currentMode = get(mode);
+    const allTabs = get(tabs);
+    const modeTabs = allTabs.filter(t => t.mode === currentMode);
+    const idx = parseInt(e.key) - 1;
+    if (idx < modeTabs.length) {
+      const tab = modeTabs[idx];
+      import('$lib/stores/tabs').then(({ activateTab }) => {
+        activateTab(tab.id);
+        // For agent tabs, also set active session
+        if (tab.mode === 'agent' && tab.key) {
+          import('$lib/stores/agent').then(({ agentSessions, activeAgentSession }) => {
+            const sessions = get(agentSessions);
+            const session = sessions.find((s: any) => s.id === tab.key);
+            if (session) activeAgentSession.set(session);
+          });
+        }
+      });
+    }
   }
 
   // Cmd+B: toggle nav
@@ -116,5 +135,23 @@ function handleKeydown(e: KeyboardEvent) {
   if ((meta && e.key === '/') || (e.key === '?' && !isInput)) {
     activeModal.set(get(activeModal) === 'shortcuts' ? null : 'shortcuts');
     e.preventDefault();
+  }
+
+  // Ctrl+Cmd+F: toggle fullscreen
+  if (e.metaKey && e.ctrlKey && e.key === 'f') {
+    e.preventDefault();
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      win.isFullscreen().then(fs => win.setFullscreen(!fs));
+    });
+  }
+
+  // Cmd+M: minimize (only when not in fullscreen)
+  if (e.metaKey && !e.ctrlKey && e.key === 'm' && !isInput) {
+    e.preventDefault();
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      const win = getCurrentWindow();
+      win.isFullscreen().then(fs => { if (!fs) win.minimize(); });
+    });
   }
 }

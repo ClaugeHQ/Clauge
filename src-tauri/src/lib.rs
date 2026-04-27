@@ -21,7 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:qorix.db", db::migrations::get_migrations())
+                .add_migrations("sqlite:clauge.db", db::migrations::get_migrations())
                 .build(),
         )
         .setup(|app| {
@@ -40,7 +40,6 @@ pub fn run() {
                 use cocoa::base::{nil, id};
                 use cocoa::foundation::NSData;
 
-                // Round the window corners
                 if let Some(win) = app.get_webview_window("main") {
                     use objc::{runtime::Object, sel, sel_impl};
                     let ns_win: *mut Object = win.ns_window().unwrap() as *mut Object;
@@ -71,7 +70,8 @@ pub fn run() {
                 .app_data_dir()
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).ok();
-            let db_path = app_data_dir.join("qorix.db");
+
+            let db_path = app_data_dir.join("clauge.db");
             let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
             let pool = tauri::async_runtime::block_on(async {
@@ -105,6 +105,8 @@ pub fn run() {
             });
 
             // Migrate existing Clauge data (one-time)
+            // Old Clauge stored: ~/.clauge/sessions.json, ~/.clauge/contexts/*.md, ~/.clauge/session_key
+            // Sessions contain a `contexts: Vec<String>` field with attached context names
             tauri::async_runtime::block_on(async {
                 if let Some(home) = dirs::home_dir() {
                     let clauge_dir = home.join(".clauge");
@@ -113,14 +115,38 @@ pub fn run() {
                     let already_migrated: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
                         .bind(migrated_key).fetch_optional(&pool).await.ok().flatten();
                     if sessions_json.exists() && already_migrated.is_none() {
-                        // Import sessions
+                        // Step 1: Import context snippets from ~/.clauge/contexts/*.md
+                        // Do this FIRST so we have context IDs available for session-context linking
+                        let contexts_dir = clauge_dir.join("contexts");
+                        let mut context_name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                        if contexts_dir.exists() {
+                            if let Ok(entries) = std::fs::read_dir(&contexts_dir) {
+                                for entry in entries.flatten() {
+                                    let path = entry.path();
+                                    if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                                        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                                        let content = std::fs::read_to_string(&path).unwrap_or_default();
+                                        if name.is_empty() || content.is_empty() { continue; }
+                                        let ctx_id = uuid::Uuid::new_v4().to_string();
+                                        let now = chrono::Utc::now().to_rfc3339();
+                                        if sqlx::query("INSERT OR IGNORE INTO agent_contexts (id, name, content, created_at, updated_at) VALUES (?,?,?,?,?)")
+                                            .bind(&ctx_id).bind(&name).bind(&content).bind(&now).bind(&now)
+                                            .execute(&pool).await.is_ok() {
+                                            context_name_to_id.insert(name, ctx_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Step 2: Import sessions and link their attached contexts
                         if let Ok(content) = std::fs::read_to_string(&sessions_json) {
                             if let Ok(store) = serde_json::from_str::<serde_json::Value>(&content) {
                                 if let Some(profiles) = store.get("profiles").and_then(|v| v.as_array()) {
                                     for p in profiles {
                                         let id = p.get("id").and_then(|v| v.as_str()).unwrap_or_default();
                                         if id.is_empty() { continue; }
-                                        let _ = sqlx::query("INSERT OR IGNORE INTO agent_sessions (id, title, purpose, project_path, project_name, claude_session_id, context_prompt, worktree_path, worktree_branch, skip_permissions, git_name, git_email, created_at, last_used_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+                                        let inserted = sqlx::query("INSERT OR IGNORE INTO agent_sessions (id, title, purpose, project_path, project_name, claude_session_id, context_prompt, worktree_path, worktree_branch, skip_permissions, git_name, git_email, created_at, last_used_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                                             .bind(id)
                                             .bind(p.get("title").and_then(|v| v.as_str()).unwrap_or(""))
                                             .bind(p.get("purpose").and_then(|v| v.as_str()).unwrap_or("Custom"))
@@ -136,29 +162,27 @@ pub fn run() {
                                             .bind(p.get("createdAt").and_then(|v| v.as_str()).unwrap_or(""))
                                             .bind(p.get("lastUsedAt").and_then(|v| v.as_str()).unwrap_or(""))
                                             .execute(&pool).await;
+
+                                        // Link attached contexts via junction table
+                                        if inserted.is_ok() {
+                                            if let Some(ctx_names) = p.get("contexts").and_then(|v| v.as_array()) {
+                                                for ctx_name in ctx_names {
+                                                    if let Some(name_str) = ctx_name.as_str() {
+                                                        if let Some(ctx_id) = context_name_to_id.get(name_str) {
+                                                            let _ = sqlx::query("INSERT OR IGNORE INTO agent_session_contexts (session_id, context_id) VALUES (?,?)")
+                                                                .bind(id).bind(ctx_id)
+                                                                .execute(&pool).await;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                        // Import context snippets from ~/.clauge/contexts/*.md
-                        let contexts_dir = clauge_dir.join("contexts");
-                        if contexts_dir.exists() {
-                            if let Ok(entries) = std::fs::read_dir(&contexts_dir) {
-                                for entry in entries.flatten() {
-                                    let path = entry.path();
-                                    if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                                        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-                                        let content = std::fs::read_to_string(&path).unwrap_or_default();
-                                        let ctx_id = uuid::Uuid::new_v4().to_string();
-                                        let now = chrono::Utc::now().to_rfc3339();
-                                        let _ = sqlx::query("INSERT OR IGNORE INTO agent_contexts (id, name, content, created_at, updated_at) VALUES (?,?,?,?,?)")
-                                            .bind(&ctx_id).bind(&name).bind(&content).bind(&now).bind(&now)
-                                            .execute(&pool).await;
-                                    }
-                                }
-                            }
-                        }
-                        // Import session key
+
+                        // Step 3: Import session key
                         let key_path = clauge_dir.join("session_key");
                         if key_path.exists() {
                             if let Ok(key) = std::fs::read_to_string(&key_path) {
@@ -169,13 +193,21 @@ pub fn run() {
                                 }
                             }
                         }
-                        // Mark migration done
+
+                        // Step 4: Mark migration done
                         let _ = sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'true')")
                             .bind(migrated_key).execute(&pool).await;
-                        // Archive old files
+
+                        // Step 5: Archive old files to ~/.clauge/backup/
                         let backup = clauge_dir.join("backup");
                         let _ = std::fs::create_dir_all(&backup);
                         let _ = std::fs::rename(&sessions_json, backup.join("sessions.json"));
+                        if key_path.exists() {
+                            let _ = std::fs::rename(&key_path, backup.join("session_key"));
+                        }
+                        if contexts_dir.exists() {
+                            let _ = std::fs::rename(&contexts_dir, backup.join("contexts"));
+                        }
                     }
                 }
             });
@@ -197,10 +229,47 @@ pub fn run() {
             app.manage(Arc::new(commands::sql_client::SqlConnectionManager::new()));
             app.manage(commands::nosql_client::create_nosql_state());
             app.manage(commands::agent_models::TerminalState::default());
+            app.manage(commands::ssh_models::SshTerminalState::default());
+            app.manage(commands::ai::types::PendingFrontendTools::default());
 
             // Apply vibrancy on macOS — use Sidebar material (what native macOS apps use)
             if let Some(window) = app.get_webview_window("main") {
                 let _ = appearance::vibrancy::apply_vibrancy(&window, &saved_material);
+            }
+
+            // System tray with menu
+            {
+                use tauri::tray::TrayIconBuilder;
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+                let show_item = MenuItem::with_id(app, "show", "Back to App", true, None::<&str>)?;
+                let separator = PredefinedMenuItem::separator(app)?;
+                let quit_item = MenuItem::with_id(app, "quit", "Quit Clauge", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_item, &separator, &quit_item])?;
+
+                let icon_png = include_bytes!("../icons/tray-dark.png");
+                let img = image::load_from_memory(icon_png).expect("Failed to load tray icon");
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let tray_icon = tauri::image::Image::new_owned(rgba.into_raw(), w, h);
+
+                TrayIconBuilder::with_id("main-tray")
+                    .icon(tray_icon)
+                    .icon_as_template(true)
+                    .menu(&menu)
+                    .tooltip("Clauge")
+                    .on_menu_event(move |app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent| {
+                        let id = event.id().as_ref();
+                        if id == "quit" {
+                            app_handle.exit(0);
+                        } else if id == "show" {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
             }
 
             Ok(())
@@ -252,7 +321,7 @@ pub fn run() {
             github::gist::gist_sync_pull,
             commands::import_export::export_collection,
             commands::import_export::export_all_collections,
-            commands::import_export::import_qorix,
+            commands::import_export::import_clauge,
             commands::import_export::import_postman,
             commands::import_export::import_curl,
             commands::import_export::export_as_curl,
@@ -305,6 +374,7 @@ pub fn run() {
             commands::ai::reset_ai_usage,
             commands::ai::record_ai_usage,
             commands::ai::ai_chat,
+            commands::ai::ai_resolve_pending_tool,
             // Agent mode
             commands::agent::agent_list_sessions,
             commands::agent::agent_create_session,
@@ -355,6 +425,17 @@ pub fn run() {
             commands::agent_usage::agent_get_session_context_usage,
             commands::agent::agent_update_tray_title,
             commands::agent::agent_get_claude_plan,
+            // SSH mode
+            commands::ssh_profiles::ssh_list_profiles,
+            commands::ssh_profiles::ssh_create_profile,
+            commands::ssh_profiles::ssh_update_profile,
+            commands::ssh_profiles::ssh_delete_profile,
+            commands::ssh_profiles::ssh_touch_profile,
+            commands::ssh_profiles::ssh_get_credential,
+            commands::ssh_terminal::ssh_spawn_terminal,
+            commands::ssh_terminal::ssh_write_to_terminal,
+            commands::ssh_terminal::ssh_resize_terminal,
+            commands::ssh_terminal::ssh_kill_terminal,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -362,6 +443,15 @@ pub fn run() {
                 window.hide().ok();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS: clicking dock icon re-shows the hidden window
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

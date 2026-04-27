@@ -4,16 +4,71 @@
   import SqlNav from './SqlNav.svelte';
   import NoSqlNav from './NoSqlNav.svelte';
   import AgentNav from '$lib/components/agent/AgentNav.svelte';
+  import SshNav from '$lib/components/ssh/SshNav.svelte';
   import HistoryPanel from './HistoryPanel.svelte';
   import ImportExportModal from '$lib/components/shared/ImportExportModal.svelte';
 
-  let searchPerMode = $state<Record<string, string>>({ rest: '', sql: '', nosql: '', agent: '' });
+  let searchPerMode = $state<Record<string, string>>({ rest: '', sql: '', nosql: '', agent: '', ssh: '' });
   let searchQuery = $derived(searchPerMode[$mode] ?? '');
   let restNavRef: ReturnType<typeof RestNav> | undefined = $state();
   let sqlNavRef: ReturnType<typeof SqlNav> | undefined = $state();
   let nosqlNavRef: ReturnType<typeof NoSqlNav> | undefined = $state();
   let agentNavRef: ReturnType<typeof AgentNav> | undefined = $state();
+  let sshNavRef: ReturnType<typeof SshNav> | undefined = $state();
   let showImportExport = $state(false);
+
+  // Pin/unpin: pinned = always visible in layout, unpinned = overlay on hover (Arc browser style)
+  let navPinned = $state(localStorage.getItem('clauge_nav_pinned') !== 'false');
+  let hoverVisible = $state(false);
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function togglePin() {
+    navPinned = !navPinned;
+    localStorage.setItem('clauge_nav_pinned', String(navPinned));
+    if (navPinned) {
+      navOpen.set(true);
+      hoverVisible = false;
+    } else {
+      navOpen.set(false);
+    }
+  }
+
+  let navPanelEl: HTMLElement;
+
+  function handleMouseEnterZone() {
+    if (navPinned) return;
+    hoverVisible = true;
+  }
+
+  function handleMouseLeavePanel(e: MouseEvent) {
+    if (navPinned) return;
+    if (!navPanelEl) return;
+    const rect = navPanelEl.getBoundingClientRect();
+    // Only hide when mouse exits from the RIGHT edge (into content area)
+    if (e.clientX >= rect.right - 2) {
+      hoverVisible = false;
+    }
+    // Exiting left (toward sidebar) — keep visible
+  }
+
+  // Close overlay when any session action dispatches (edit/reset/relaunch opens modal or respawns terminal)
+  function handleOverlayDismiss() {
+    if (!navPinned) hoverVisible = false;
+  }
+
+  import { onMount, onDestroy } from 'svelte';
+  onMount(() => {
+    window.addEventListener('agent:edit-session', handleOverlayDismiss);
+    window.addEventListener('agent:reset-session', handleOverlayDismiss);
+    window.addEventListener('agent:relaunch-session', handleOverlayDismiss);
+    window.addEventListener('agent:new-session', handleOverlayDismiss);
+  });
+  onDestroy(() => {
+    window.removeEventListener('agent:edit-session', handleOverlayDismiss);
+    window.removeEventListener('agent:reset-session', handleOverlayDismiss);
+    window.removeEventListener('agent:relaunch-session', handleOverlayDismiss);
+    window.removeEventListener('agent:new-session', handleOverlayDismiss);
+  });
 
   function setSearch(val: string) {
     searchPerMode[$mode] = val;
@@ -24,6 +79,7 @@
     sql: 'SQL Connections',
     nosql: 'NoSQL Connections',
     agent: 'Agent Sessions',
+    ssh: 'SSH Connections',
   } as const;
 
   const modeColors = {
@@ -31,6 +87,7 @@
     sql: 'var(--sql)',
     nosql: 'var(--nosql)',
     agent: 'var(--agent, var(--acc))',
+    ssh: 'var(--ssh)',
   } as const;
 
   const searchPlaceholders = {
@@ -38,6 +95,7 @@
     sql: 'Search tables...',
     nosql: 'Search collections...',
     agent: 'Search sessions...',
+    ssh: 'Search SSH profiles...',
   } as const;
 
   function handleAddClick() {
@@ -49,14 +107,32 @@
       nosqlNavRef?.showAddConnection();
     } else if ($mode === 'agent') {
       window.dispatchEvent(new CustomEvent('agent:new-session'));
+    } else if ($mode === 'ssh') {
+      sshNavRef?.showAddProfile();
     }
   }
 </script>
 
-<nav class="nav-panel glass-surface-light" class:shut={!$navOpen}>
+<!-- Hover trigger zone: thin strip on left edge when unpinned -->
+{#if !navPinned && !hoverVisible}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="nav-hover-zone" onmouseenter={handleMouseEnterZone}></div>
+{/if}
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<nav
+  bind:this={navPanelEl}
+  class="nav-panel glass-surface-light"
+  class:shut={navPinned ? !$navOpen : !hoverVisible}
+  class:overlay={!navPinned && hoverVisible}
+  onmouseleave={handleMouseLeavePanel}
+>
   {#if $mode === 'history'}
     <div class="nav-top" data-drag-region>
       <span class="nav-mode-label" style="color:var(--t2)">HISTORY</span>
+      <button class="nav-btn" class:pin-active={navPinned} title={navPinned ? 'Unpin sidebar' : 'Pin sidebar'} onclick={togglePin}>
+        <svg viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M9 3v18"/><path d="M13 8h4M13 12h4"/></svg>
+      </button>
     </div>
     <div class="nav-body">
       <HistoryPanel />
@@ -77,6 +153,9 @@
             <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
           {/if}
         </button>
+        <button class="nav-btn" class:pin-active={navPinned} title={navPinned ? 'Unpin sidebar' : 'Pin sidebar'} onclick={togglePin}>
+          <svg viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M9 3v18"/><path d="M13 8h4M13 12h4"/></svg>
+        </button>
       </div>
     </div>
     <div class="nav-search">
@@ -89,6 +168,8 @@
         <SqlNav bind:this={sqlNavRef} {searchQuery} />
       {:else if $mode === 'agent'}
         <AgentNav bind:this={agentNavRef} {searchQuery} />
+      {:else if $mode === 'ssh'}
+        <SshNav bind:this={sshNavRef} {searchQuery} />
       {:else}
         <NoSqlNav bind:this={nosqlNavRef} {searchQuery} />
       {/if}
@@ -99,6 +180,16 @@
 <ImportExportModal bind:show={showImportExport} />
 
 <style>
+  /* Hover trigger zone — invisible strip at sidebar right edge */
+  .nav-hover-zone {
+    position: fixed;
+    top: 0;
+    left: 72px;
+    width: 8px;
+    height: 100%;
+    z-index: 90;
+  }
+
   .nav-panel {
     width: 240px;
     min-width: 240px;
@@ -108,13 +199,32 @@
     flex-direction: column;
     flex-shrink: 0;
     transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                min-width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                min-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.15s ease,
+                transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .nav-panel.shut {
     width: 0;
     min-width: 0;
     border-right-width: 0;
+    overflow: hidden;
   }
+
+  /* Overlay mode: floats on top of content, doesn't take layout space */
+  .nav-panel.overlay {
+    position: absolute;
+    top: 0;
+    left: 72px; /* after sidebar */
+    bottom: 0;
+    z-index: 100;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.3);
+    animation: navSlideIn 0.15s ease;
+  }
+  @keyframes navSlideIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
   .nav-body {
     flex: 1;
     overflow-y: auto;
@@ -157,6 +267,13 @@
   .nav-btn:hover {
     background: var(--c);
     border-color: var(--b2);
+  }
+  .nav-btn.pin-active {
+    border-color: var(--acc);
+    background: color-mix(in srgb, var(--acc) 10%, transparent);
+  }
+  .nav-btn.pin-active svg {
+    stroke: var(--acc);
   }
   .nav-btn svg {
     width: 12px;

@@ -4,6 +4,14 @@
   import { activeModal } from '$lib/stores/app';
   import { get } from 'svelte/store';
   import { testAiKey } from '$lib/commands/ai';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
+
+  async function wcClose() { await getCurrentWindow().close(); }
+  async function wcMinimize() { await getCurrentWindow().minimize(); }
+  async function wcFullscreen() {
+    const win = getCurrentWindow();
+    await win.setFullscreen(!(await win.isFullscreen()));
+  }
 
   let show = $state(false);
   let step = $state(0);
@@ -162,6 +170,14 @@
 
 {#if show}
 <div class="onboarding-overlay" class:visible={mounted}>
+  <!-- Custom traffic-light controls (window has decorations:false) -->
+  <div class="onb-wc-area" data-drag-region>
+    <div class="onb-wc-dots">
+      <button class="onb-wc-dot onb-wc-close" onclick={wcClose} aria-label="Close"></button>
+      <button class="onb-wc-dot onb-wc-min" onclick={wcMinimize} aria-label="Minimize"></button>
+      <button class="onb-wc-dot onb-wc-max" onclick={wcFullscreen} aria-label="Fullscreen"></button>
+    </div>
+  </div>
   <div class="onboarding-container">
     <div class="steps-viewport">
       <div class="steps-track" style="transform: translateX({-step * 100}%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
@@ -170,7 +186,7 @@
         <div class="step">
           <div class="step-content welcome-step">
             <div class="bear-icon">
-              <img src="/clauge-icon.svg" alt="Clauge" width="140" height="140" />
+              <img src="/clauge-icon-animated.svg" alt="Clauge" width="140" height="140" />
             </div>
             <h1 class="ob-title">Welcome to Clauge</h1>
             <p class="ob-subtitle">Your developer super-app. Four powerful modes in one place — Agent, REST, SQL, and NoSQL — backed by AI to supercharge your workflow.</p>
@@ -397,6 +413,24 @@
     opacity: 0; transition: opacity 0.4s ease;
   }
   .onboarding-overlay.visible { opacity: 1; }
+  /* Custom traffic-light controls — top-left, mirrors sidebar's wc-area */
+  .onb-wc-area {
+    position: absolute; top: 0; left: 0;
+    width: 72px; height: 46px;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1;
+  }
+  .onb-wc-dots { display: flex; align-items: center; gap: 8px; }
+  .onb-wc-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: none; cursor: default; padding: 0;
+    transition: filter 0.1s;
+  }
+  .onb-wc-dot:hover { filter: brightness(0.85); }
+  .onb-wc-close { background: #ff5f57; }
+  .onb-wc-min { background: #febc2e; }
+  .onb-wc-max { background: #28c840; }
+  :global(body.window-blurred) .onb-wc-dot { background: var(--t4) !important; }
   .onboarding-container {
     width: 100%; max-width: 640px;
     display: flex; flex-direction: column; align-items: center; gap: 32px;

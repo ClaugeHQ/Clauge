@@ -2,9 +2,21 @@
   import Modal from '$lib/components/shared/Modal.svelte';
   import { agentCreateSession, agentDiscoverSessions, agentListContexts, agentAttachContext, agentUpdateSessionId } from '$lib/commands/agent';
   import type { AgentContext, DiscoveredSession } from '$lib/types/agent';
-  import { loadAgentSessions, agentSessions } from '$lib/stores/agent';
+  import { loadAgentSessions, agentSessions, activeAgentSession } from '$lib/stores/agent';
+  import { tabs as tabsStore, addTab, activateTab } from '$lib/stores/tabs';
   import { showToast } from '$lib/components/shared/toast';
   import { get } from 'svelte/store';
+
+  // Mirror PURPOSE_COLORS used in +layout.svelte's session picker so the new
+  // tab gets the right dot color matching the rest of Agent UI.
+  const PURPOSE_COLORS: Record<string, string> = {
+    Brainstorming: '#d2a8ff',
+    Development: '#3fb950',
+    'Code Review': '#58a6ff',
+    'PR Review': '#d29922',
+    Debugging: '#f85149',
+    Custom: '#8b949e',
+  };
 
   let { show = $bindable(false) } = $props();
 
@@ -108,6 +120,18 @@
       }
 
       await loadAgentSessions();
+
+      // Auto-open: open the new session in a tab and activate it. Mirrors the
+      // session-picker open flow in +layout.svelte so behavior is identical.
+      const allTabs = get(tabsStore);
+      const existing = allTabs.find((t) => t.mode === 'agent' && t.key === session.id);
+      if (existing) {
+        activateTab(existing.id);
+      } else {
+        addTab(session.title, 'agent', session.id, PURPOSE_COLORS[session.purpose] ?? PURPOSE_COLORS.Custom);
+      }
+      activeAgentSession.set(session);
+
       show = false;
       resetForm();
     } catch (e: any) {
@@ -205,7 +229,10 @@
 
     <!-- Skip Permissions toggle -->
     <div class="ns-toggle-row">
-      <span class="ns-toggle-text">Skip permissions</span>
+      <div class="ns-toggle-info">
+        <span class="ns-toggle-text">Skip permissions</span>
+        <span class="ns-toggle-hint">Auto-approve all tool calls without confirmation</span>
+      </div>
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <button class="ns-toggle" class:on={skipPermissions} onclick={() => skipPermissions = !skipPermissions}>
         <span class="ns-toggle-knob"></span>
@@ -214,7 +241,10 @@
 
     <!-- Git Identity toggle -->
     <div class="ns-toggle-row">
-      <span class="ns-toggle-text">Git Identity</span>
+      <div class="ns-toggle-info">
+        <span class="ns-toggle-text">Git Identity</span>
+        <span class="ns-toggle-hint">Override git author name and email for this session</span>
+      </div>
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <button class="ns-toggle" class:on={gitEnabled} onclick={() => gitEnabled = !gitEnabled}>
         <span class="ns-toggle-knob"></span>
@@ -237,7 +267,10 @@
 
     <!-- Attach Contexts toggle -->
     <div class="ns-toggle-row">
-      <span class="ns-toggle-text">Attach Contexts</span>
+      <div class="ns-toggle-info">
+        <span class="ns-toggle-text">Attach Contexts</span>
+        <span class="ns-toggle-hint">Inject context snippets into CLAUDE.md before each spawn</span>
+      </div>
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <button class="ns-toggle" class:on={contextEnabled} onclick={() => { contextEnabled = !contextEnabled; if (contextEnabled) loadContexts(); }}>
         <span class="ns-toggle-knob"></span>
@@ -263,6 +296,8 @@
             Add
           </button>
           {#if showContextDropdown}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <div class="ns-ctx-backdrop" onclick={() => showContextDropdown = false}></div>
             <div class="ns-ctx-dropdown">
               {#each availableContexts.filter(c => !attachedContextNames.includes(c.name)) as ctx}
                 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -345,7 +380,9 @@
   .ns-toggle-row {
     display: flex; align-items: center; justify-content: space-between; margin-top: 4px;
   }
+  .ns-toggle-info { display: flex; flex-direction: column; gap: 2px; }
   .ns-toggle-text { font-size: 12px; color: var(--t2); font-family: var(--ui); }
+  .ns-toggle-hint { font-size: 10px; color: var(--t4); font-family: var(--ui); }
   .ns-toggle {
     width: 36px; height: 20px; border-radius: 10px; border: 1px solid var(--b1);
     background: rgba(255,255,255,0.06); cursor: pointer; position: relative;
@@ -375,6 +412,7 @@
   }
   .ns-ctx-x { cursor: pointer; font-size: 14px; line-height: 1; opacity: 0.6; transition: opacity 0.1s; }
   .ns-ctx-x:hover { opacity: 1; }
+  .ns-ctx-backdrop { position: fixed; inset: 0; z-index: 99; }
   .ns-ctx-add-wrap { position: relative; }
   .ns-ctx-add-btn {
     display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 4px;

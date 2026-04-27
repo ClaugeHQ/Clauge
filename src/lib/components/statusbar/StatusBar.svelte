@@ -34,29 +34,37 @@
   interface UsageChip { label: string; pct: number; color: string; }
 
   function usageColor(pct: number): string {
-    if (pct >= 85) return 'var(--err, #f44)';
-    if (pct >= 70) return 'var(--warn, #fa0)';
-    return 'var(--ok, #4c8)';
+    if (pct > 80) return '#f85149';
+    if (pct > 50) return '#d29922';
+    return 'var(--acc)';
   }
 
   let usageChips = $derived.by((): UsageChip[] => {
     const limits = $agentUsageLimits;
     if (!limits) return [];
     const chips: UsageChip[] = [];
-    // Claude API returns { standard: { percentUsed }, extended: { percentUsed } }
-    if (limits.standard?.percentUsed != null) {
-      const pct = Math.round(limits.standard.percentUsed);
+    // Claude API returns { five_hour: { utilization }, seven_day: { utilization }, seven_day_sonnet: { utilization } }
+    // Also handle alternate shape: { standard: { percentUsed }, extended: { percentUsed } }
+    const sessionPct = limits.five_hour?.utilization ?? limits.standard?.percentUsed;
+    const weeklyPct = limits.seven_day?.utilization ?? limits.extended?.percentUsed;
+    const sonnetPct = limits.seven_day_sonnet?.utilization ?? null;
+    if (sessionPct != null) {
+      const pct = Math.round(sessionPct);
       chips.push({ label: 'Session', pct, color: usageColor(pct) });
     }
-    if (limits.extended?.percentUsed != null) {
-      const pct = Math.round(limits.extended.percentUsed);
-      chips.push({ label: 'Extended', pct, color: usageColor(pct) });
+    if (weeklyPct != null) {
+      const pct = Math.round(weeklyPct);
+      chips.push({ label: 'Weekly', pct, color: usageColor(pct) });
+    }
+    if (sonnetPct != null) {
+      const pct = Math.round(sonnetPct);
+      chips.push({ label: 'Sonnet', pct, color: usageColor(pct) });
     }
     return chips;
   });
 
   function showUsageDashboard() {
-    window.dispatchEvent(new CustomEvent('agent:show-usage-dashboard'));
+    activeModal.set('settings:agent:usage');
   }
 
   function openUpdateModal() {
@@ -81,13 +89,17 @@
   {/if}
   <div class="sc">
     {#if usageChips.length > 0}
-      {#each usageChips as chip}
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="si usage-chip" style="color:{chip.color}" onclick={showUsageDashboard}>
-          <span class="sled" style="background:{chip.color}"></span>
-          <span>{chip.label} {chip.pct}%</span>
-        </div>
-      {/each}
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="usage-chips-clickable" onclick={showUsageDashboard}>
+        {#each usageChips as chip, i}
+          {#if i > 0}<div class="usage-sep"></div>{/if}
+          <div class="usage-chip-item">
+            <span class="usage-dot" style="background:{chip.color};box-shadow:0 0 6px {chip.color}44;"></span>
+            <span class="usage-lbl">{chip.label}</span>
+            <span class="usage-val" style="color:{chip.color}">{chip.pct}%</span>
+          </div>
+        {/each}
+      </div>
     {:else if !$agentSessionKey}
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <div class="si setup-usage" onclick={() => activeModal.set('settings:agent')}>
@@ -209,14 +221,46 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
   }
-  .usage-chip {
+  .usage-chips-clickable {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     cursor: pointer;
-    padding: 1px 6px;
-    border-radius: 4px;
-    transition: background 0.1s;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: background 0.15s;
   }
-  .usage-chip:hover {
-    background: rgba(255,255,255,0.06);
+  .usage-chips-clickable:hover {
+    background: rgba(255,255,255,0.04);
+  }
+  .usage-chip-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .usage-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .usage-lbl {
+    font-size: 10px;
+    color: var(--t3);
+    font-weight: 500;
+    font-family: var(--mono);
+  }
+  .usage-val {
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--mono);
+  }
+  .usage-sep {
+    width: 1px;
+    height: 10px;
+    background: var(--b1);
+    opacity: 0.5;
   }
   .setup-usage {
     cursor: pointer;

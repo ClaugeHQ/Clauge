@@ -9,6 +9,10 @@
   import { get } from 'svelte/store';
   import { onMount, onDestroy } from 'svelte';
   import EnvPill from './EnvPill.svelte';
+  import { agentSessions, activeAgentSession, agentShellOpen, agentTerminalIds, agentShellIds } from '$lib/stores/agent';
+  import { agentKillTerminal } from '$lib/commands/agent';
+  import { sshProfiles, activeSshProfile, sshTerminalIds } from '$lib/stores/ssh';
+  import { sshKillTerminal } from '$lib/commands/ssh';
 
   // SQL disconnect
   async function handleSqlDisconnect() {
@@ -37,6 +41,16 @@
       if (tab.key) loadRequest(tab.key);
       else clearActiveRequest();
     }
+    if (tab?.mode === 'agent' && tab.key) {
+      const sessions = get(agentSessions);
+      const session = sessions.find((s: any) => s.id === tab.key);
+      if (session) activeAgentSession.set(session);
+    }
+    if (tab?.mode === 'ssh' && tab.key) {
+      const profiles = get(sshProfiles);
+      const profile = profiles.find((p) => p.id === tab.key);
+      if (profile) activeSshProfile.set(profile);
+    }
     // SQL/NoSQL tabs manage their own state via stores
   }
 
@@ -45,6 +59,18 @@
     const allTabs = get(tabs);
     const tab = allTabs.find(t => t.id === tabId);
     if (!tab) return;
+
+    if (tab.mode === 'agent') {
+      closeConfirmTabId = tabId;
+      showCloseConfirm = true;
+      return;
+    }
+
+    if (tab.mode === 'ssh') {
+      closeConfirmTabId = tabId;
+      showCloseConfirm = true;
+      return;
+    }
 
     if (tab.mode === 'rest' && (tab.dirty || tab.unsaved)) {
       // REST: prompt save to collection
@@ -77,6 +103,51 @@
     if (closingTab?.mode === 'sql') clearSqlTabData(tabId);
     if (closingTab?.mode === 'rest') clearDraft(tabId);
     if (closingTab?.mode === 'nosql') clearNoSqlTabData(tabId);
+
+    if (closingTab?.mode === 'ssh' && closingTab.key) {
+      // Kill SSH terminal (fire-and-forget)
+      const sIds = get(sshTerminalIds);
+      const termId = sIds.get(closingTab.key);
+      if (termId) sshKillTerminal(termId).catch(() => {});
+
+      // Let SshPanel clean up its xterm + maps via window event
+      window.dispatchEvent(new CustomEvent('ssh:close-tab', { detail: { tabKey: closingTab.key } }));
+
+      // Promote next SSH tab if any, else clear active profile
+      const remaining = get(tabs).filter((t) => t.id !== tabId);
+      const nextSshTab = remaining.find((t) => t.mode === 'ssh');
+      if (nextSshTab?.key) {
+        const profiles = get(sshProfiles);
+        const profile = profiles.find((p) => p.id === nextSshTab.key);
+        if (profile) activeSshProfile.set(profile);
+      } else {
+        activeSshProfile.set(null);
+      }
+    }
+
+    if (closingTab?.mode === 'agent' && closingTab.key) {
+      // Kill terminal + shell PTYs (fire-and-forget)
+      const tIds = get(agentTerminalIds);
+      const termId = tIds.get(closingTab.key);
+      if (termId) agentKillTerminal(termId).catch(() => {});
+      const sIds = get(agentShellIds);
+      const shellId = sIds.get(closingTab.key);
+      if (shellId) agentKillTerminal(shellId).catch(() => {});
+
+      // Let AgentPanel clean up terminal entries
+      window.dispatchEvent(new CustomEvent('agent:close-tab-session', { detail: { sessionId: closingTab.key } }));
+
+      const remaining = get(tabs).filter(t => t.id !== tabId);
+      const nextAgentTab = remaining.find(t => t.mode === 'agent');
+      if (nextAgentTab?.key) {
+        const sessions = get(agentSessions);
+        const session = sessions.find((s: any) => s.id === nextAgentTab.key);
+        if (session) activeAgentSession.set(session);
+      } else {
+        agentShellOpen.set(false);
+        activeAgentSession.set(null);
+      }
+    }
 
     closeTab(tabId);
 
@@ -126,8 +197,20 @@
   let sqlScriptName = $state('');
 
   // "+" button
-  function handleAddTab() {
-    const m = get(mode) as 'rest' | 'sql' | 'nosql';
+  function handleAddTab(btn?: HTMLElement) {
+    const m = get(mode) as 'rest' | 'sql' | 'nosql' | 'agent' | 'ssh';
+    if (m === 'ssh') {
+      // Mirrors agent: no profiles → open create modal; otherwise show picker.
+      // The +layout.svelte handler decides which based on profiles count.
+      const rect = btn?.getBoundingClientRect();
+      window.dispatchEvent(new CustomEvent('ssh:add-tab', { detail: { x: rect?.left ?? 290, y: rect?.bottom ?? 48 } }));
+      return;
+    }
+    if (m === 'agent') {
+      const rect = btn?.getBoundingClientRect();
+      window.dispatchEvent(new CustomEvent('agent:add-tab', { detail: { x: rect?.left ?? 290, y: rect?.bottom ?? 48 } }));
+      return;
+    }
     if (m === 'sql') {
       sqlScriptName = '';
       showSqlScriptModal = true;
@@ -243,7 +326,13 @@
     if (tabId === undefined) return;
     const allTabs = get(tabs);
     const tab = allTabs.find(t => t.id === tabId);
-    if (tab?.mode === 'rest' && (tab.dirty || tab.unsaved)) {
+    if (tab?.mode === 'agent') {
+      closeConfirmTabId = tabId;
+      showCloseConfirm = true;
+    } else if (tab?.mode === 'ssh') {
+      closeConfirmTabId = tabId;
+      showCloseConfirm = true;
+    } else if (tab?.mode === 'rest' && (tab.dirty || tab.unsaved)) {
       closeConfirmTabId = tabId;
       showCloseConfirm = true;
     } else {
@@ -271,11 +360,14 @@
           {#if tab.mode === 'rest' && (tab.dirty || tab.unsaved)}
             <span class="dirty-dot"></span>
           {/if}
+          {#if tab.mode === 'agent'}
+            <img src="/code-no-action.svg" alt="" class="tab-agent-icon" />
+          {/if}
           <span class="td" style="background:{tab.dot}"></span>
           <span class="tab-label">{tab.label}</span>
           <span
             class="tab-close"
-            onclick={(e: MouseEvent) => handleTabClose(e, tab.id)}
+            onclick={(e: MouseEvent) => { if (e.detail < 2) handleTabClose(e, tab.id); }}
             role="button"
             tabindex="-1"
           >&times;</span>
@@ -283,7 +375,7 @@
       {/each}
     </div>
 
-    <button class="tab-add" title="New tab" onclick={handleAddTab}>+</button>
+    <button class="tab-add" title="New tab" onclick={(e) => { handleAddTab(e.currentTarget as HTMLElement); }}>+</button>
   {/if}
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -354,12 +446,28 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="confirm-overlay" onclick={() => showCloseConfirm = false}>
     <div class="confirm-dialog" onclick={(e: MouseEvent) => e.stopPropagation()}>
-      <div class="confirm-title">Unsaved Changes</div>
-      <div class="confirm-body">Do you want to save changes before closing?</div>
-      <div class="confirm-actions">
-        <button class="confirm-btn discard" onclick={handleDiscardAndClose}>Don't Save</button>
-        <button class="confirm-btn save" onclick={handleSaveAndClose}>Save</button>
-      </div>
+      {#if $tabs.find(t => t.id === closeConfirmTabId)?.mode === 'agent'}
+        <div class="confirm-title">Close this tab?</div>
+        <div class="confirm-body">This agent session tab will be closed.</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn discard" onclick={() => showCloseConfirm = false}>Cancel</button>
+          <button class="confirm-btn save" onclick={handleDiscardAndClose}>Close</button>
+        </div>
+      {:else if $tabs.find(t => t.id === closeConfirmTabId)?.mode === 'ssh'}
+        <div class="confirm-title">Disconnect SSH session?</div>
+        <div class="confirm-body">This will close the connection and the tab.</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn discard" onclick={() => showCloseConfirm = false}>Cancel</button>
+          <button class="confirm-btn save" onclick={handleDiscardAndClose}>Disconnect</button>
+        </div>
+      {:else}
+        <div class="confirm-title">Unsaved Changes</div>
+        <div class="confirm-body">Do you want to save changes before closing?</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn discard" onclick={handleDiscardAndClose}>Don't Save</button>
+          <button class="confirm-btn save" onclick={handleSaveAndClose}>Save</button>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -415,6 +523,12 @@
     height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+  .tab-agent-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    opacity: 0.7;
   }
   .dirty-dot {
     width: 5px;

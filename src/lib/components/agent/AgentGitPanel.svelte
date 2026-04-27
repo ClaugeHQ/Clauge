@@ -11,6 +11,12 @@
 
   let { open = $bindable(false) } = $props();
 
+  // Teleport to body to escape stacking context
+  function teleport(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy() { if (node.parentElement === document.body) node.remove(); } };
+  }
+
   function getProjectPath(): string {
     const session = get(activeAgentSession);
     return session?.worktreePath || session?.projectPath || '';
@@ -206,6 +212,7 @@
 </script>
 
 {#if open}
+<div use:teleport>
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 <div class="gp-overlay" onclick={() => open = false}>
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
@@ -334,14 +341,18 @@
     </div>
   </div>
 {/if}
+</div>
 {/if}
 
 <style>
-  /* Overlay positioned above status bar */
+  /* Overlay positioned above status bar — blocks clicks and scroll to terminal behind */
   .gp-overlay {
     position: fixed;
     inset: 0;
-    z-index: 400;
+    z-index: 9000;
+    background: rgba(0,0,0,0.25);
+    overscroll-behavior: contain;
+    cursor: default;
   }
   .gp-panel {
     position: absolute;
@@ -359,6 +370,7 @@
     animation: gpIn 0.15s ease;
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    cursor: default;
   }
   @keyframes gpIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -369,6 +381,9 @@
     border-bottom: 1px solid var(--b1, #30363d);
     padding: 0 4px;
     flex-shrink: 0;
+    overflow: visible;
+    position: relative;
+    z-index: 1;
   }
   .gp-tab {
     padding: 8px 10px;
@@ -410,7 +425,7 @@
   .gp-tooltip {
     display: none;
     position: absolute;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%);
     background: var(--n, #1c2128);
@@ -464,6 +479,7 @@
     font-family: var(--mono, monospace);
     font-size: 11px;
     line-height: 1.5;
+    overscroll-behavior: contain;
   }
   .gp-diff-line { padding: 0 12px; white-space: pre; }
   .gp-diff-line.diff-add { background: rgba(63,185,80,0.12); color: #3fb950; }
@@ -492,7 +508,7 @@
   .gp-stage-btn:hover { background: rgba(255,255,255,0.06); color: var(--t1, #e6edf3); }
 
   /* File list */
-  .gp-file-list { max-height: 220px; overflow-y: auto; padding: 4px 0; }
+  .gp-file-list { max-height: 220px; overflow-y: auto; padding: 4px 0; overscroll-behavior: contain; }
   .gp-file-item {
     display: flex;
     align-items: center;
@@ -576,7 +592,7 @@
   .gp-empty { padding: 24px; text-align: center; font-size: 11px; color: var(--t3, #8b949e); }
 
   /* History list */
-  .gp-history-list { max-height: 340px; overflow-y: auto; }
+  .gp-history-list { max-height: 340px; overflow-y: auto; overscroll-behavior: contain; }
   .gp-commit-item {
     display: flex;
     align-items: baseline;
@@ -608,7 +624,7 @@
   }
 
   /* Branches list */
-  .gp-branch-list { max-height: 340px; overflow-y: auto; }
+  .gp-branch-list { max-height: 340px; overflow-y: auto; overscroll-behavior: contain; }
   .gp-branch-item {
     display: flex;
     align-items: center;

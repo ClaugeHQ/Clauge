@@ -5,7 +5,7 @@
 {#if $toasts.length > 0}
   <div class="toast-container">
     {#each $toasts as toast (toast.id)}
-      <div class="qorix-toast {toast.type}">
+      <div class="clauge-toast {toast.type}">
         <span class="toast-icon">
           {#if toast.type === 'success'}
             &#10003;
@@ -33,7 +33,7 @@
     pointer-events: none;
   }
 
-  .qorix-toast {
+  .clauge-toast {
     padding: 8px 16px;
     border-radius: var(--radius-lg);
     font-family: var(--mono);
@@ -62,19 +62,19 @@
     }
   }
 
-  .qorix-toast.success {
+  .clauge-toast.success {
     background: rgba(29,200,128,0.9);
     color: #061a10;
     border-color: rgba(29,200,128,0.3);
   }
 
-  .qorix-toast.error {
+  .clauge-toast.error {
     background: rgba(240,68,68,0.9);
     color: #fff;
     border-color: rgba(240,68,68,0.3);
   }
 
-  .qorix-toast.info {
+  .clauge-toast.info {
     background: rgba(79,148,212,0.9);
     color: #fff;
     border-color: rgba(79,148,212,0.3);

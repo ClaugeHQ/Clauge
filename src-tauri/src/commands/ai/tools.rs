@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-use super::types::ChatContext;
+use super::types::{ChatContext, PendingFrontendTools};
 use crate::commands::sql_client::SqlConnectionManager;
 use crate::commands::nosql_client::NoSqlConnections;
 
@@ -29,6 +30,7 @@ async fn resolve_request_id(pool: &SqlitePool, input: &str) -> String {
 
 pub async fn execute_tool(
     tool_name: &str,
+    tool_use_id: &str,
     input: &serde_json::Value,
     context: &ChatContext,
     pool: &SqlitePool,
@@ -41,14 +43,15 @@ pub async fn execute_tool(
     let safe_keys: Vec<String> = input.as_object()
         .map(|o| o.keys().map(|k| k.to_string()).collect())
         .unwrap_or_default();
-    log::info!("[AI Tool] name={} params=[{}]", tool_name, safe_keys.join(", "));
-    let result = execute_tool_inner(tool_name, input, context, pool, app, session_id, sql_manager, nosql_conns).await;
+    log::info!("[AI Tool] name={} id={} params=[{}]", tool_name, tool_use_id, safe_keys.join(", "));
+    let result = execute_tool_inner(tool_name, tool_use_id, input, context, pool, app, session_id, sql_manager, nosql_conns).await;
     log::info!("[AI Tool] name={} result_len={} result_preview={}", tool_name, result.len(), super::context::truncate_str(&result, 300));
     result
 }
 
 async fn execute_tool_inner(
     tool_name: &str,
+    tool_use_id: &str,
     input: &serde_json::Value,
     context: &ChatContext,
     pool: &SqlitePool,
@@ -57,6 +60,38 @@ async fn execute_tool_inner(
     sql_manager: &Arc<SqlConnectionManager>,
     nosql_conns: &NoSqlConnections,
 ) -> String {
+    // Frontend-handled tools: SSH execute_shell. Insert a oneshot sender,
+    // emit pending event, await user approval + captured output. 120s timeout
+    // is generous enough for slow commands but stops runaway hangs.
+    if tool_name == "execute_shell" {
+        let command = input.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let reason = input.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if command.is_empty() {
+            return "Tool error: 'command' field is required".to_string();
+        }
+        let pending = app.state::<PendingFrontendTools>();
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        pending.map.lock().insert(tool_use_id.to_string(), tx);
+        let _ = app.emit(
+            &format!("ai:tool_pending:{}", session_id),
+            serde_json::json!({
+                "toolUseId": tool_use_id,
+                "tool": "execute_shell",
+                "command": command,
+                "reason": reason,
+            }),
+        );
+        return match tokio::time::timeout(Duration::from_secs(120), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => "Tool result channel closed unexpectedly.".to_string(),
+            Err(_) => {
+                // Cleanup the orphan sender on timeout
+                app.state::<PendingFrontendTools>().map.lock().remove(tool_use_id);
+                "User did not respond to the approval prompt within 2 minutes.".to_string()
+            }
+        };
+    }
+
     match tool_name {
         "execute_current_request" => {
             match &context.current_request {

@@ -266,3 +266,22 @@ pub async fn ai_chat(
         }
     }
 }
+
+/// Resolve a pending frontend-handled tool (e.g. SSH `execute_shell`).
+/// Frontend calls this with the captured + redacted command output (or an
+/// error/cancellation message). The Rust AI chat loop unblocks and feeds
+/// the result back to the model as a tool_result.
+#[tauri::command]
+pub fn ai_resolve_pending_tool(
+    pending: State<'_, PendingFrontendTools>,
+    tool_use_id: String,
+    output: String,
+) -> Result<(), String> {
+    let sender = pending.map.lock().remove(&tool_use_id);
+    match sender {
+        Some(tx) => {
+            tx.send(output).map_err(|_| "Receiver dropped".to_string())
+        }
+        None => Err(format!("No pending tool with id {}", tool_use_id)),
+    }
+}

@@ -55,7 +55,7 @@ pub fn agent_spawn_terminal(
 
     let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(&user_shell);
-    cmd.arg("-l"); cmd.arg("-i"); cmd.arg("-c"); cmd.arg(&claude_cmd);
+    cmd.arg("-l"); cmd.arg("-c"); cmd.arg(&claude_cmd);
     cmd.cwd(&project_path);
     if let Some(home) = dirs::home_dir() { cmd.env("HOME", home.to_string_lossy().to_string()); }
     cmd.env("TERM", "xterm-256color");
@@ -75,11 +75,13 @@ pub fn agent_spawn_terminal(
                 Ok(0) => break,
                 Ok(n) => {
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                    if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data }).is_err() { break; }
+                    if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data, exit: None }).is_err() { break; }
                 }
                 Err(_) => break,
             }
         }
+        // PTY closed — signal the frontend so it can clean up without waiting for a stray write.
+        let _ = on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
     });
 
     state.terminals.lock().insert(terminal_id.clone(), TerminalEntry { master: pty_pair.master, writer, child });
@@ -117,11 +119,12 @@ pub fn agent_spawn_shell(
                 Ok(0) => break,
                 Ok(n) => {
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                    if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data }).is_err() { break; }
+                    if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data, exit: None }).is_err() { break; }
                 }
                 Err(_) => break,
             }
         }
+        let _ = on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
     });
 
     state.terminals.lock().insert(terminal_id.clone(), TerminalEntry { master: pty_pair.master, writer, child });

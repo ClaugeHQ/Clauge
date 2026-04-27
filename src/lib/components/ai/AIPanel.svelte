@@ -7,13 +7,20 @@
   import { REST_SYSTEM_PROMPT, REST_TOOLS } from '$lib/prompts/rest';
   import { SQL_SYSTEM_PROMPT, SQL_TOOLS } from '$lib/prompts/sql';
   import { NOSQL_SYSTEM_PROMPT, NOSQL_TOOLS } from '$lib/prompts/nosql';
+  import { buildSshSystemPrompt, SSH_TOOLS } from '$lib/prompts/ssh';
+  import { activeSshProfile } from '$lib/stores/ssh';
+  import { redactSecrets } from '$lib/utils/ssh-safety';
   import { showToast } from '$lib/components/shared/toast';
+  import { invoke } from '@tauri-apps/api/core';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import type { AIMessage, ChatMessage, ChatContext, AIActionBlock } from '$lib/types/ai';
   import { get } from 'svelte/store';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { highlightJSON } from '$lib/utils/json-highlight';
+  import SshExecuteConfirmModal from '$lib/components/ssh/SshExecuteConfirmModal.svelte';
+  import { executeAndCaptureOnSsh } from '$lib/services/ssh-execute';
 
   marked.setOptions({ breaks: true, gfm: true });
 
@@ -23,12 +30,164 @@
     return DOMPurify.sanitize(html);
   }
 
+  // Adds a small "Copy" button to the top-right of every <pre> block rendered
+  // in the chat. Mode-agnostic — works for SSH commands, SQL queries, JSON, etc.
+  // Re-runs on mutation so it covers blocks streamed in mid-message.
+  function copyCodeBlockDecorator(node: HTMLElement) {
+    const ICON_COPY = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    const ICON_CHECK = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 13 10 18 19 7"></polyline></svg>';
+
+    function decorate() {
+      const blocks = node.querySelectorAll('pre');
+      blocks.forEach((pre) => {
+        if ((pre as HTMLElement).dataset.copyDecorated === '1') return;
+        (pre as HTMLElement).dataset.copyDecorated = '1';
+        const preEl = pre as HTMLElement;
+        if (getComputedStyle(preEl).position === 'static') {
+          preEl.style.position = 'relative';
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ai-copy-btn';
+        btn.innerHTML = ICON_COPY;
+        btn.title = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const code = pre.querySelector('code');
+          const text = (code?.textContent ?? pre.textContent ?? '').replace(/\n$/, '');
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.innerHTML = ICON_CHECK;
+            btn.classList.add('copied');
+            setTimeout(() => {
+              btn.innerHTML = ICON_COPY;
+              btn.classList.remove('copied');
+            }, 1500);
+          } catch { /* clipboard denied — silent */ }
+        });
+        preEl.appendChild(btn);
+      });
+    }
+
+    decorate();
+    const observer = new MutationObserver(() => decorate());
+    observer.observe(node, { childList: true, subtree: true, characterData: true });
+    return {
+      destroy() { observer.disconnect(); },
+    };
+  }
+
   let messages = $state<AIMessage[]>([]);
   let inputText = $state('');
   let isStreaming = $state(false);
   let chatContainer: HTMLDivElement;
   let cleanup: (() => void) | null = null;
   let currentChatMode = $state('');
+
+  // SSH confirmation modal state — driven by ai:tool_pending events from Rust.
+  let sshModalShow = $state(false);
+  let sshModalCommand = $state('');
+  let sshModalReason = $state('');
+  let sshModalTarget = $state('');
+  let sshModalToolUseId = $state('');
+  let sshModalDecision: ((approved: boolean) => void) | null = null;
+
+  function openSshConfirmModal(command: string, reason: string, target: string, toolUseId: string): Promise<boolean> {
+    sshModalCommand = command;
+    sshModalReason = reason;
+    sshModalTarget = target;
+    sshModalToolUseId = toolUseId;
+    sshModalShow = true;
+    return new Promise<boolean>((resolve) => {
+      sshModalDecision = resolve;
+    });
+  }
+
+  function handleSshApprove() {
+    sshModalShow = false;
+    const r = sshModalDecision; sshModalDecision = null;
+    r?.(true);
+  }
+
+  function handleSshCancel() {
+    sshModalShow = false;
+    const r = sshModalDecision; sshModalDecision = null;
+    r?.(false);
+  }
+
+  // Per-chat-session tool_pending listener. Installed in sendMessage when SSH
+  // mode is active; lives until that chat session's stream completes.
+  let activeChatSessionId: string | null = null;
+
+  // ── SSH auto-execute (power-user mode) ─────────────────────────────────────
+  // Skips the confirmation modal — AI-invoked execute_shell calls run immediately.
+  // Output still streams into the terminal so the user sees what happened.
+  // Persisted in localStorage; first-time enable shows a one-time warning.
+  let sshAutoRun = $state(false);
+  let sshAutoRunWarnShow = $state(false);
+
+  onMount(() => {
+    sshAutoRun = localStorage.getItem('clauge_ssh_auto_run') === 'true';
+  });
+
+  function toggleSshAutoRun() {
+    if (sshAutoRun) {
+      // Turning off — silent
+      sshAutoRun = false;
+      localStorage.setItem('clauge_ssh_auto_run', 'false');
+    } else {
+      // Turning on — confirm first so the user is unambiguous about what they're enabling
+      sshAutoRunWarnShow = true;
+    }
+  }
+
+  function confirmEnableAutoRun() {
+    sshAutoRun = true;
+    localStorage.setItem('clauge_ssh_auto_run', 'true');
+    sshAutoRunWarnShow = false;
+  }
+
+  async function handleSshToolPending(payload: { toolUseId: string; tool: string; command: string; reason: string }) {
+    if (payload.tool !== 'execute_shell') return;
+    const profile = get(activeSshProfile);
+    if (!profile) {
+      await invoke('ai_resolve_pending_tool', {
+        toolUseId: payload.toolUseId,
+        output: '[ERROR] No active SSH profile.',
+      });
+      return;
+    }
+    // Auto-run mode: skip the modal, execute immediately. User opted in via the
+    // header toggle and saw the warning. Output still streams to the visible terminal.
+    if (!sshAutoRun) {
+      const target = `${profile.username}@${profile.host}`;
+      const approved = await openSshConfirmModal(payload.command, payload.reason, target, payload.toolUseId);
+      if (!approved) {
+        try {
+          await invoke('ai_resolve_pending_tool', {
+            toolUseId: payload.toolUseId,
+            output: '[USER CANCELLED] User declined to run this command.',
+          });
+        } catch (_) { /* swallow — chat may have ended */ }
+        return;
+      }
+    }
+    let captured = '';
+    try {
+      const raw = await executeAndCaptureOnSsh(profile.id, payload.command);
+      captured = redactSecrets(raw);
+    } catch (e) {
+      captured = `[ERROR] ${e instanceof Error ? e.message : String(e)}`;
+    }
+    try {
+      await invoke('ai_resolve_pending_tool', {
+        toolUseId: payload.toolUseId,
+        output: captured || '[INFO] Command produced no output.',
+      });
+    } catch (_) { /* swallow */ }
+  }
 
   // Resizable panel width
   const MIN_WIDTH = 300;
@@ -101,6 +260,8 @@
     rest: 'var(--acc)',
     sql: 'var(--acc)',
     nosql: 'var(--acc)',
+    agent: 'var(--acc)',
+    ssh: 'var(--ssh)',
     history: 'var(--t2)',
   };
 
@@ -108,6 +269,8 @@
     rest: 'REST',
     sql: 'SQL',
     nosql: 'NoSQL',
+    agent: 'Agent',
+    ssh: 'SSH',
     history: 'History',
   };
 
@@ -115,6 +278,8 @@
     rest: 'e.g. POST create user with email and role',
     sql: 'e.g. top 10 users by spend last 30 days',
     nosql: 'e.g. find pro users inactive 7 days',
+    agent: 'Ask about your agent sessions',
+    ssh: 'e.g. show disk usage on this server',
     history: 'Ask about your request history',
   };
 
@@ -122,6 +287,8 @@
     rest: 'Describe the API request you need — method, endpoint, headers, body — and I\'ll generate it for you.',
     sql: 'Describe the data you need and I\'ll write the SQL query. Works with your connected databases.',
     nosql: 'Describe what you\'re looking for and I\'ll generate the MongoDB query, filter, or aggregation pipeline.',
+    agent: 'Agent mode has its own built-in AI assistance via Claude Code sessions.',
+    ssh: 'Ask for shell commands to run on the connected server. Suggested commands appear as code blocks with an Insert button — destructive ones are blocked.',
     history: 'Ask about your request history and I\'ll help you find what you need.',
   };
 
@@ -274,7 +441,18 @@
       .map(m => ({ role: m.role, content: m.content }));
 
     const sessionId = generateSessionId();
+    activeChatSessionId = sessionId;
     const lastIdx = messages.length - 1;
+
+    // Listen for SSH execute_shell tool_pending events for THIS chat session.
+    // Cleaned up in onDestroy below + when a new chat starts (cleanup chain).
+    let _toolPendingOff: UnlistenFn | null = null;
+    if (currentChatMode === 'ssh' || get(mode) === 'ssh') {
+      _toolPendingOff = await listen<{ toolUseId: string; tool: string; command: string; reason: string }>(
+        `ai:tool_pending:${sessionId}`,
+        (e) => { handleSshToolPending(e.payload); },
+      );
+    }
 
     const MODEL_MAP: Record<string, string> = {
       claude: 'claude-haiku-4-5-20251001',
@@ -290,10 +468,27 @@
 
     cleanup?.();
     const currentMode = get(mode);
-    const systemPrompt = currentMode === 'sql' ? SQL_SYSTEM_PROMPT : currentMode === 'nosql' ? NOSQL_SYSTEM_PROMPT : REST_SYSTEM_PROMPT;
-    const tools = currentMode === 'sql' ? SQL_TOOLS : currentMode === 'nosql' ? NOSQL_TOOLS : REST_TOOLS;
+    let systemPrompt: string;
+    let tools: any[];
+    if (currentMode === 'sql') {
+      systemPrompt = SQL_SYSTEM_PROMPT;
+      tools = SQL_TOOLS;
+    } else if (currentMode === 'nosql') {
+      systemPrompt = NOSQL_SYSTEM_PROMPT;
+      tools = NOSQL_TOOLS;
+    } else if (currentMode === 'ssh') {
+      // SSH mode: prompt declares safety rules; execute_shell tool is bidirectional
+      // (Rust blocks on user approval modal + captures terminal output before
+      // returning the result). Output is redacted before reaching the model.
+      const profile = get(activeSshProfile);
+      systemPrompt = buildSshSystemPrompt(profile ? { username: profile.username, host: profile.host } : null);
+      tools = SSH_TOOLS;
+    } else {
+      systemPrompt = REST_SYSTEM_PROMPT;
+      tools = REST_TOOLS;
+    }
 
-    cleanup = await sendChatMessage(
+    const streamCleanup = await sendChatMessage(
       apiKey,
       chatHistory,
       context,
@@ -409,6 +604,12 @@
       modelId,
       currentMode,
     );
+
+    // Combine the chat-stream cleanup with the per-session SSH listener cleanup.
+    cleanup = () => {
+      try { streamCleanup(); } catch (_) {}
+      if (_toolPendingOff) { try { _toolPendingOff(); } catch (_) {} }
+    };
   }
 
   function applyRequest(action: AIActionBlock) {
@@ -492,6 +693,22 @@
         </span>
       </div>
       <div class="ai-header-right">
+        {#if $mode === 'ssh'}
+          <button
+            class="header-icon-btn ssh-auto-run-btn"
+            class:active={sshAutoRun}
+            title={sshAutoRun
+              ? 'Auto-execute: ON — AI runs commands without asking. Click to disable.'
+              : 'Auto-execute: OFF — AI commands require your approval. Click to enable.'}
+            aria-label="Toggle AI auto-execute"
+            onclick={toggleSshAutoRun}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill={sshAutoRun ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            {#if sshAutoRun}<span class="auto-run-dot" aria-hidden="true"></span>{/if}
+          </button>
+        {/if}
         {#if messages.length > 0}
           <button class="header-icon-btn" title="Clear chat" onclick={clearChat}>
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
@@ -531,7 +748,7 @@
         {:else}
           <div class="ai-response">
             {#if msg.content}
-              <div class="ai-text">{@html renderMarkdown(msg.content)}</div>
+              <div class="ai-text" use:copyCodeBlockDecorator>{@html renderMarkdown(msg.content)}</div>
             {/if}
 
             {#if msg.toolIndicator}
@@ -778,6 +995,47 @@
   </div>
 </aside>
 
+<SshExecuteConfirmModal
+  show={sshModalShow}
+  command={sshModalCommand}
+  reason={sshModalReason}
+  target={sshModalTarget}
+  onApprove={handleSshApprove}
+  onCancel={handleSshCancel}
+/>
+
+{#if sshAutoRunWarnShow}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="auto-run-backdrop" onclick={() => (sshAutoRunWarnShow = false)}>
+    <div class="auto-run-modal" role="dialog" aria-modal="true" aria-labelledby="auto-run-title" onclick={(e) => e.stopPropagation()}>
+      <header class="auto-run-header">
+        <span class="auto-run-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </span>
+        <h3 id="auto-run-title">Enable auto-execute?</h3>
+      </header>
+      <div class="auto-run-body">
+        <p>AI-suggested shell commands will run on the connected SSH server <strong>immediately, without asking you to approve each one</strong>.</p>
+        <ul class="auto-run-list">
+          <li>You'll still see every command in the terminal as it runs</li>
+          <li>AI is told to refuse destructive ops, but mistakes can happen</li>
+          <li>Use only on servers you trust to recover from a bad command</li>
+          <li>You can turn this off any time from the same button</li>
+        </ul>
+      </div>
+      <footer class="auto-run-footer">
+        <button type="button" class="auto-run-btn auto-run-cancel" onclick={() => (sshAutoRunWarnShow = false)}>Cancel</button>
+        <button type="button" class="auto-run-btn auto-run-enable" onclick={confirmEnableAutoRun}>Enable auto-execute</button>
+      </footer>
+    </div>
+  </div>
+{/if}
+
 <style>
   .ai-panel {
     width: 0;
@@ -874,6 +1132,120 @@
     color: var(--err);
     border-color: var(--err);
     background: rgba(239,68,68,0.08);
+  }
+
+  /* SSH auto-execute toggle — green-accent semantic, distinct from "destructive" hover */
+  .ssh-auto-run-btn {
+    position: relative;
+  }
+  .ssh-auto-run-btn:hover {
+    color: var(--ssh, #10b981);
+    border-color: var(--ssh, #10b981);
+    background: color-mix(in srgb, var(--ssh, #10b981) 10%, transparent);
+  }
+  .ssh-auto-run-btn.active {
+    color: var(--ssh, #10b981);
+    border-color: var(--ssh, #10b981);
+    background: color-mix(in srgb, var(--ssh, #10b981) 14%, transparent);
+  }
+  .ssh-auto-run-btn .auto-run-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ssh, #10b981);
+    box-shadow: 0 0 0 1.5px var(--n);
+    animation: auto-run-pulse 2s ease-in-out infinite;
+  }
+  @keyframes auto-run-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* First-time warning modal for enabling auto-execute */
+  .auto-run-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10000;
+    animation: ar-fade 0.12s ease;
+  }
+  @keyframes ar-fade { from { opacity: 0; } to { opacity: 1; } }
+  .auto-run-modal {
+    width: 100%;
+    max-width: 460px;
+    background: var(--n);
+    border: 1px solid var(--b1);
+    border-radius: var(--radius-lg, 10px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    color: var(--t1);
+    font-family: var(--ui);
+    overflow: hidden;
+  }
+  .auto-run-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 18px 8px;
+  }
+  .auto-run-icon {
+    color: var(--warn, #f59e0b);
+    display: flex;
+  }
+  .auto-run-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .auto-run-body {
+    padding: 4px 18px 14px;
+    color: var(--t2);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .auto-run-body p { margin: 0 0 10px; }
+  .auto-run-body strong { color: var(--t1); }
+  .auto-run-list {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: var(--t3);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .auto-run-list li { margin-bottom: 3px; }
+  .auto-run-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 18px 14px;
+    border-top: 1px solid var(--b1);
+    background: var(--n2);
+  }
+  .auto-run-btn {
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--b1);
+    background: transparent;
+    color: var(--t2);
+    font-family: var(--ui);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .auto-run-btn:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: var(--b2);
+    color: var(--t1);
+  }
+  .auto-run-enable {
+    background: var(--ssh, #10b981);
+    border-color: var(--ssh, #10b981);
+    color: #042817;
+    font-weight: 600;
+  }
+  .auto-run-enable:hover {
+    background: color-mix(in srgb, var(--ssh, #10b981) 90%, white);
+    color: #042817;
   }
   .stop-btn {
     background: var(--err) !important;
@@ -1098,6 +1470,39 @@
     padding: 0;
     font-size: 11.5px;
     line-height: 1.5;
+  }
+  .ai-text :global(pre) { padding-right: 36px; }
+  .ai-text :global(.ai-copy-btn) {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--b1);
+    border-radius: 5px;
+    background: rgba(255,255,255,0.04);
+    color: var(--t3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .ai-text :global(pre:hover .ai-copy-btn),
+  .ai-text :global(.ai-copy-btn:focus-visible) {
+    opacity: 1;
+  }
+  .ai-text :global(.ai-copy-btn:hover) {
+    background: rgba(255,255,255,0.08);
+    color: var(--t1);
+    border-color: var(--b2);
+  }
+  .ai-text :global(.ai-copy-btn.copied) {
+    color: var(--ok, #1dc880);
+    border-color: var(--ok, #1dc880);
+    opacity: 1;
   }
   .ai-text :global(strong) {
     color: var(--t1);

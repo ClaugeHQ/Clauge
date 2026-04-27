@@ -16,22 +16,22 @@ pub struct ImportResult {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct QorixExport {
+struct ClaugeExport {
     format: String,
     exported_at: String,
-    collection: Option<QorixCollection>,
-    collections: Option<Vec<QorixCollection>>,
+    collection: Option<ClaugeCollection>,
+    collections: Option<Vec<ClaugeCollection>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct QorixCollection {
+struct ClaugeCollection {
     name: String,
     description: String,
-    requests: Vec<QorixRequest>,
+    requests: Vec<ClaugeRequest>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct QorixRequest {
+struct ClaugeRequest {
     name: String,
     method: String,
     url: String,
@@ -41,12 +41,12 @@ struct QorixRequest {
     auth_data: String,
     #[serde(default)]
     pre_script: String,
-    headers: Vec<QorixKV>,
-    params: Vec<QorixKV>,
+    headers: Vec<ClaugeKV>,
+    params: Vec<ClaugeKV>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct QorixKV {
+struct ClaugeKV {
     key: String,
     value: String,
     enabled: i32,
@@ -171,7 +171,7 @@ struct PostmanAuthKV {
 
 async fn insert_collection(
     pool: &SqlitePool,
-    coll: &QorixCollection,
+    coll: &ClaugeCollection,
 ) -> Result<(String, usize), String> {
     let coll_id = Uuid::new_v4().to_string();
     let max_order: (i32,) =
@@ -203,7 +203,7 @@ async fn insert_collection(
 async fn insert_request(
     pool: &SqlitePool,
     collection_id: &str,
-    req: &QorixRequest,
+    req: &ClaugeRequest,
     sort_order: i32,
 ) -> Result<String, String> {
     let req_id = Uuid::new_v4().to_string();
@@ -268,7 +268,7 @@ async fn insert_request(
 async fn load_collection_export(
     pool: &SqlitePool,
     coll: &Collection,
-) -> Result<QorixCollection, String> {
+) -> Result<ClaugeCollection, String> {
     let requests = sqlx::query_as::<_, Request>(
         "SELECT * FROM requests WHERE collection_id = ? ORDER BY sort_order ASC",
     )
@@ -277,7 +277,7 @@ async fn load_collection_export(
     .await
     .map_err(|e| e.to_string())?;
 
-    let mut qorix_requests = Vec::new();
+    let mut clauge_requests = Vec::new();
     for req in &requests {
         let headers = sqlx::query_as::<_, RequestHeader>(
             "SELECT * FROM request_headers WHERE request_id = ? ORDER BY sort_order ASC",
@@ -295,7 +295,7 @@ async fn load_collection_export(
         .await
         .map_err(|e| e.to_string())?;
 
-        qorix_requests.push(QorixRequest {
+        clauge_requests.push(ClaugeRequest {
             name: req.name.clone(),
             method: req.method.clone(),
             url: req.url.clone(),
@@ -306,7 +306,7 @@ async fn load_collection_export(
             pre_script: req.pre_script.clone(),
             headers: headers
                 .iter()
-                .map(|h| QorixKV {
+                .map(|h| ClaugeKV {
                     key: h.key.clone(),
                     value: h.value.clone(),
                     enabled: h.enabled,
@@ -314,7 +314,7 @@ async fn load_collection_export(
                 .collect(),
             params: params
                 .iter()
-                .map(|p| QorixKV {
+                .map(|p| ClaugeKV {
                     key: p.key.clone(),
                     value: p.value.clone(),
                     enabled: p.enabled,
@@ -323,10 +323,10 @@ async fn load_collection_export(
         });
     }
 
-    Ok(QorixCollection {
+    Ok(ClaugeCollection {
         name: coll.name.clone(),
         description: coll.description.clone(),
-        requests: qorix_requests,
+        requests: clauge_requests,
     })
 }
 
@@ -343,12 +343,12 @@ pub async fn export_collection(
         .await
         .map_err(|e| format!("Collection not found: {}", e))?;
 
-    let qorix_coll = load_collection_export(pool.inner(), &coll).await?;
+    let clauge_coll = load_collection_export(pool.inner(), &coll).await?;
 
-    let export = QorixExport {
+    let export = ClaugeExport {
         format: "clauge/collection/v1".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
-        collection: Some(qorix_coll),
+        collection: Some(clauge_coll),
         collections: None,
     };
 
@@ -368,32 +368,32 @@ pub async fn export_all_collections(
     .await
     .map_err(|e| e.to_string())?;
 
-    let mut qorix_colls = Vec::new();
+    let mut clauge_colls = Vec::new();
     for coll in &colls {
-        qorix_colls.push(load_collection_export(pool.inner(), coll).await?);
+        clauge_colls.push(load_collection_export(pool.inner(), coll).await?);
     }
 
-    let export = QorixExport {
+    let export = ClaugeExport {
         format: "clauge/collections/v1".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         collection: None,
-        collections: Some(qorix_colls),
+        collections: Some(clauge_colls),
     };
 
     serde_json::to_string_pretty(&export).map_err(|e| e.to_string())
 }
 
-// ── Import Clauge JSON (also accepts legacy qorix/ format) ──────────
+// ── Import Clauge JSON ──────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn import_qorix(
+pub async fn import_clauge(
     pool: State<'_, SqlitePool>,
     json: String,
 ) -> Result<ImportResult, String> {
-    let export: QorixExport =
+    let export: ClaugeExport =
         serde_json::from_str(&json).map_err(|e| format!("Invalid Clauge JSON: {}", e))?;
 
-    if !export.format.starts_with("clauge/") && !export.format.starts_with("qorix/") {
+    if !export.format.starts_with("clauge/") {
         return Err("Not a valid Clauge export format".to_string());
     }
 
@@ -456,14 +456,14 @@ fn extract_postman_url(url: &Option<PostmanUrl>) -> String {
     }
 }
 
-fn extract_postman_params(url: &Option<PostmanUrl>) -> Vec<QorixKV> {
+fn extract_postman_params(url: &Option<PostmanUrl>) -> Vec<ClaugeKV> {
     match url {
         Some(PostmanUrl::Structured(s)) => s
             .query
             .as_ref()
             .map(|qs| {
                 qs.iter()
-                    .map(|q| QorixKV {
+                    .map(|q| ClaugeKV {
                         key: q.key.clone(),
                         value: q.value.clone().unwrap_or_default(),
                         enabled: if q.disabled.unwrap_or(false) { 0 } else { 1 },
@@ -541,10 +541,10 @@ fn extract_postman_auth(auth: &Option<PostmanAuth>) -> (String, String) {
 fn flatten_postman_items(
     items: &[PostmanItem],
     parent_auth: &Option<PostmanAuth>,
-    collections: &mut Vec<(String, Vec<QorixRequest>)>,
+    collections: &mut Vec<(String, Vec<ClaugeRequest>)>,
     collection_name: &str,
 ) {
-    let mut top_requests: Vec<QorixRequest> = Vec::new();
+    let mut top_requests: Vec<ClaugeRequest> = Vec::new();
 
     for item in items {
         if let Some(ref request) = item.request {
@@ -557,12 +557,12 @@ fn flatten_postman_items(
             let url = extract_postman_url(&request.url);
             let params = extract_postman_params(&request.url);
 
-            let headers: Vec<QorixKV> = request
+            let headers: Vec<ClaugeKV> = request
                 .header
                 .as_ref()
                 .map(|hs| {
                     hs.iter()
-                        .map(|h| QorixKV {
+                        .map(|h| ClaugeKV {
                             key: h.key.clone(),
                             value: h.value.clone(),
                             enabled: if h.disabled.unwrap_or(false) { 0 } else { 1 },
@@ -607,7 +607,7 @@ fn flatten_postman_items(
                 .or(parent_auth.as_ref());
             let (auth_type, auth_data) = extract_postman_auth(&effective_auth.cloned());
 
-            top_requests.push(QorixRequest {
+            top_requests.push(ClaugeRequest {
                 name: item.name.clone(),
                 method,
                 url,
@@ -649,7 +649,7 @@ pub async fn import_postman(
     let postman: PostmanCollection =
         serde_json::from_str(&json).map_err(|e| format!("Invalid Postman JSON: {}", e))?;
 
-    let mut flat_collections: Vec<(String, Vec<QorixRequest>)> = Vec::new();
+    let mut flat_collections: Vec<(String, Vec<ClaugeRequest>)> = Vec::new();
     flatten_postman_items(
         &postman.item,
         &postman.auth,
@@ -661,7 +661,7 @@ pub async fn import_postman(
     let mut total_requests = 0usize;
 
     for (name, requests) in &flat_collections {
-        let coll = QorixCollection {
+        let coll = ClaugeCollection {
             name: name.clone(),
             description: String::new(),
             requests: requests.clone(),
@@ -683,7 +683,7 @@ pub async fn import_postman(
 
 // ── Import cURL ─────────────────────────────────────────────────────
 
-fn parse_curl(curl_command: &str) -> Result<QorixRequest, String> {
+fn parse_curl(curl_command: &str) -> Result<ClaugeRequest, String> {
     let input = curl_command.trim();
     if !input.starts_with("curl") && !input.starts_with("curl") {
         return Err("Not a valid cURL command".to_string());
@@ -695,7 +695,7 @@ fn parse_curl(curl_command: &str) -> Result<QorixRequest, String> {
 
     let mut method = String::new();
     let mut url = String::new();
-    let mut headers: Vec<QorixKV> = Vec::new();
+    let mut headers: Vec<ClaugeKV> = Vec::new();
     let mut body = String::new();
     let mut auth_type = "none".to_string();
     let mut auth_data = String::new();
@@ -714,7 +714,7 @@ fn parse_curl(curl_command: &str) -> Result<QorixRequest, String> {
                 i += 1;
                 if i < tokens.len() {
                     if let Some((k, v)) = tokens[i].split_once(':') {
-                        headers.push(QorixKV {
+                        headers.push(ClaugeKV {
                             key: k.trim().to_string(),
                             value: v.trim().to_string(),
                             enabled: 1,
@@ -745,7 +745,7 @@ fn parse_curl(curl_command: &str) -> Result<QorixRequest, String> {
             "-b" | "--cookie" => {
                 i += 1;
                 if i < tokens.len() {
-                    headers.push(QorixKV {
+                    headers.push(ClaugeKV {
                         key: "Cookie".to_string(),
                         value: tokens[i].clone(),
                         enabled: 1,
@@ -788,7 +788,7 @@ fn parse_curl(curl_command: &str) -> Result<QorixRequest, String> {
         .unwrap_or("Imported Request")
         .to_string();
 
-    Ok(QorixRequest {
+    Ok(ClaugeRequest {
         name: if name.is_empty() {
             "Imported Request".to_string()
         } else {

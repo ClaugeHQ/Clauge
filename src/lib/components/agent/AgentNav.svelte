@@ -4,6 +4,18 @@
   import { showContextMenu } from '$lib/components/shared/contextmenu';
   import { showToast } from '$lib/components/shared/toast';
   import type { AgentSession } from '$lib/types/agent';
+  import { tabs, addTab, activateTab } from '$lib/stores/tabs';
+  import { get } from 'svelte/store';
+
+  // Teleport action: moves element to document.body to escape stacking context
+  function teleport(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentElement === document.body) node.remove();
+      }
+    };
+  }
 
   interface Props {
     searchQuery?: string;
@@ -61,6 +73,15 @@
   }
 
   function handleSelectSession(session: AgentSession) {
+    // Open or focus the tab for this session
+    const currentTabs = get(tabs);
+    const existing = currentTabs.find(t => t.mode === 'agent' && t.key === session.id);
+    if (existing) {
+      activateTab(existing.id);
+    } else {
+      addTab(session.title, 'agent', session.id, purposeColor(session.purpose));
+    }
+
     // Don't re-select the already active session
     if ($activeAgentSession?.id === session.id) return;
     activeAgentSession.set(session);
@@ -116,7 +137,12 @@
         label: 'Reset Session',
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
         action: () => {
-          window.dispatchEvent(new CustomEvent('agent:reset-session', { detail: { session } }));
+          confirmTitle = 'Reset Session';
+          confirmMessage = `Reset "${session.title}"? This will clear the Claude session ID and start fresh.`;
+          confirmAction = async () => {
+            window.dispatchEvent(new CustomEvent('agent:reset-session', { detail: { session } }));
+          };
+          confirmShow = true;
         },
       },
       { label: '', action: () => {}, separator: true },
@@ -179,9 +205,9 @@
           >
             <span class="session-icon">
               {#if activity === 'running'}
-                <img src="/code-in-action.svg" alt="" width="20" height="20" />
+                <img src="/code-in-action.svg" alt="" width="36" height="26" />
               {:else}
-                <img src="/code-no-action.svg" alt="" width="16" height="16" />
+                <img src="/code-no-action.svg" alt="" width="22" height="22" />
               {/if}
             </span>
             <div class="session-body">
@@ -217,17 +243,19 @@
   {/if}
 </div>
 
-<!-- Confirm Dialog -->
+<!-- Confirm Dialog — teleported to body to avoid nav panel stacking context clipping -->
 {#if confirmShow}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="confirm-overlay" onclick={() => confirmShow = false}>
-    <div class="confirm-dialog" onclick={(e) => e.stopPropagation()}>
-      <div class="confirm-title">{confirmTitle}</div>
-      <div class="confirm-msg">{confirmMessage}</div>
-      <div class="confirm-actions">
-        <button class="confirm-btn" onclick={() => confirmShow = false}>Cancel</button>
-        <button class="confirm-btn danger" onclick={handleConfirmOk}>Delete</button>
+  <div class="confirm-portal" use:teleport>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="confirm-overlay" onclick={() => confirmShow = false}>
+      <div class="confirm-dialog" onclick={(e) => e.stopPropagation()}>
+        <div class="confirm-title">{confirmTitle}</div>
+        <div class="confirm-msg">{confirmMessage}</div>
+        <div class="confirm-actions">
+          <button class="confirm-btn" onclick={() => confirmShow = false}>Cancel</button>
+          <button class="confirm-btn danger" onclick={handleConfirmOk}>{confirmTitle === 'Delete Session' ? 'Delete' : 'Reset'}</button>
+        </div>
       </div>
     </div>
   </div>
@@ -323,7 +351,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 8px 5px 16px;
+    padding: 5px 8px 5px 8px;
     cursor: pointer;
     transition: background 0.08s;
     text-align: left;
@@ -333,8 +361,8 @@
   .session-item.active { background: color-mix(in srgb, var(--agent, var(--acc)) 10%, transparent); }
 
   .session-icon {
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     flex-shrink: 0;
     display: flex;
     align-items: center;

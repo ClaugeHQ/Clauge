@@ -16,8 +16,11 @@
     agentListContexts,
     agentSaveContext,
     agentDeleteContext,
+    agentFetchUsageLimits,
+    agentGetUsageAnalytics,
   } from '$lib/commands/agent';
-  import type { ClaudePlugin, MarketplacePlugin, AgentContext } from '$lib/types/agent';
+  import type { ClaudePlugin, MarketplacePlugin, AgentContext, UsageAnalytics } from '$lib/types/agent';
+  import { agentUsageLimits } from '$lib/stores/agent';
 
   type SettingsTab = 'general' | 'appearance' | 'ai' | 'agent' | 'proxy' | 'shortcuts' | 'about';
 
@@ -26,17 +29,18 @@
 
   $effect(() => {
     const modal = $activeModal;
-    if (modal === 'settings' || modal === 'settings:ai' || modal === 'settings:agent') {
+    if (modal === 'settings' || modal === 'settings:ai' || modal === 'settings:agent' || modal === 'settings:agent:usage') {
       show = true;
       if (modal === 'settings:ai') activeTab = 'ai';
       if (modal === 'settings:agent') activeTab = 'agent';
+      if (modal === 'settings:agent:usage') { activeTab = 'agent'; agentSubTab = 'usage'; }
     } else {
       show = false;
     }
   });
 
   $effect(() => {
-    if (!show && ($activeModal === 'settings' || $activeModal === 'settings:ai' || $activeModal === 'settings:agent')) {
+    if (!show && ($activeModal === 'settings' || $activeModal === 'settings:ai' || $activeModal === 'settings:agent' || $activeModal === 'settings:agent:usage')) {
       activeModal.set(null);
     }
   });
@@ -288,14 +292,91 @@
   });
 
   // --- Agent Tab ---
-  type AgentSubTab = 'general' | 'plugins' | 'contexts';
+  type AgentSubTab = 'general' | 'plugins' | 'contexts' | 'usage';
   let agentSubTab = $state<AgentSubTab>('general');
 
   // Agent General
   let agentSessionKey = $derived($settings['agent_session_key'] ?? '');
-  let agentNotifyEnabled = $derived(($settings['agent_notify_enabled'] ?? 'true') === 'true');
-  let agentSoundEnabled = $derived(($settings['agent_sound_enabled'] ?? 'false') === 'true');
+  let agentSoundEnabled = $derived(($settings['agent_sound_enabled'] ?? 'true') === 'true');
   let agentDockBounceEnabled = $derived(($settings['agent_dock_bounce_enabled'] ?? 'true') === 'true');
+  let agentRefreshMins = $derived(Number($settings['agent_refresh_mins'] ?? '5'));
+
+  // Agent key management
+  let agentKeyInput = $state('');
+  let showAgentKey = $state(false);
+  let agentKeyTestStatus = $state<'idle' | 'testing' | 'success' | 'error'>('idle');
+  let agentKeyTestMessage = $state('');
+
+  // Agent provider
+  type AgentProvider = 'claude_code' | 'codex' | 'gemini_cli';
+  let agentProvider = $state<AgentProvider>('claude_code');
+
+  const AGENT_PROVIDERS: Record<string, { name: string; icon: string; description: string; available: boolean }> = {
+    claude_code: { name: 'Claude Code', icon: 'M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z', description: 'Anthropic CLI agent', available: true },
+    codex: { name: 'Codex', icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5', description: 'OpenAI CLI agent', available: false },
+    gemini_cli: { name: 'Gemini CLI', icon: 'M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z', description: 'Google CLI agent', available: false },
+  };
+
+  // Agent Usage Stats
+  let agentUsageData = $state<UsageAnalytics | null>(null);
+  let agentUsageLoading = $state(false);
+  let agentUsageDays = $state(7);
+
+  const REFRESH_OPTIONS = [
+    { value: 5, label: '5 minutes' },
+    { value: 15, label: '15 minutes' },
+    { value: 30, label: '30 minutes' },
+    { value: 60, label: '1 hour' },
+  ];
+
+  function agentLiveColor(pct: number): string {
+    if (pct > 80) return '#f85149';
+    if (pct > 50) return '#d29922';
+    return 'var(--acc)';
+  }
+
+  function agentFormatCost(n: number) { return n < 0.01 && n > 0 ? '<$0.01' : '$' + n.toFixed(2); }
+  function agentFormatTokens(n: number) { return n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? (n / 1_000).toFixed(1) + 'K' : String(n); }
+  function agentDecodeName(s: string) { return s.replace(/-/g, '/'); }
+
+  async function handleSaveAgentKey() {
+    const key = agentKeyInput.trim();
+    if (!key) {
+      showToast('Enter a session key first', 'error');
+      return;
+    }
+    agentKeyTestStatus = 'testing';
+    agentKeyTestMessage = '';
+    try {
+      await agentFetchUsageLimits(key);
+      agentKeyTestStatus = 'success';
+      agentKeyTestMessage = 'Session key verified';
+      await handleSettingChange('agent_session_key', key);
+      showToast('Session key verified and saved', 'success');
+    } catch (e: any) {
+      agentKeyTestStatus = 'error';
+      agentKeyTestMessage = typeof e === 'string' ? e : e.message || 'Invalid or expired session key';
+      showToast('Invalid session key — not saved', 'error');
+    }
+  }
+
+  async function handleRemoveAgentKey() {
+    await handleSettingChange('agent_session_key', '');
+    agentKeyInput = '';
+    agentKeyTestStatus = 'idle';
+    agentKeyTestMessage = '';
+    showToast('Session key removed', 'success');
+  }
+
+  async function loadAgentUsage() {
+    agentUsageLoading = true;
+    try {
+      agentUsageData = await agentGetUsageAnalytics(agentUsageDays);
+    } catch { agentUsageData = null; }
+    agentUsageLoading = false;
+  }
+
+  function selectAgentUsageDays(d: number) { agentUsageDays = d; loadAgentUsage(); }
 
   // Agent Plugins
   type PluginView = 'installed' | 'marketplace';
@@ -343,9 +424,9 @@
     } catch { showToast('Failed to toggle plugin', 'error'); }
   }
 
-  async function handleUninstallPlugin(name: string) {
+  async function handleUninstallPlugin(name: string, marketplace: string) {
     try {
-      await agentUninstallPlugin(name);
+      await agentUninstallPlugin(name, marketplace);
       installedPlugins = installedPlugins.filter(p => p.name !== name);
       marketplacePlugins = marketplacePlugins.map(p => p.name === name ? { ...p, installed: false } : p);
       showToast('Plugin uninstalled', 'success');
@@ -390,7 +471,7 @@
       return;
     }
     try {
-      await agentSaveContext(name, content);
+      await agentSaveContext({ id: editingContext?.id, name, content });
       await loadAgentContexts();
       cancelEditContext();
       showToast('Context saved', 'success');
@@ -413,16 +494,31 @@
       agentSettingsLoaded = true;
       loadAgentPlugins();
       loadAgentContexts();
+      agentKeyInput = $settings['agent_session_key'] ?? '';
     }
     if (!show) {
       agentSettingsLoaded = false;
       agentSubTab = 'general';
       cancelEditContext();
+      agentKeyTestStatus = 'idle';
+      agentKeyTestMessage = '';
+      showAgentKey = false;
+    }
+  });
+
+  let agentUsageLoaded = false;
+  $effect(() => {
+    if (agentSubTab === 'usage' && show && !agentUsageLoaded) {
+      agentUsageLoaded = true;
+      loadAgentUsage();
+    }
+    if (agentSubTab !== 'usage') {
+      agentUsageLoaded = false;
     }
   });
 </script>
 
-<Modal bind:show title="Settings" width="780px" onclose={handleClose}>
+<Modal bind:show title="Settings" width={activeTab === 'agent' && agentSubTab === 'usage' ? '960px' : '780px'} onclose={handleClose}>
   <div class="stg-layout">
     <!-- Tab sidebar -->
     <div class="stg-tabs">
@@ -759,35 +855,141 @@
           <button class="ai-subtab" class:active={agentSubTab === 'contexts'} onclick={() => agentSubTab = 'contexts'}>
             Contexts
           </button>
+          <button
+            class="ai-subtab"
+            class:active={agentSubTab === 'usage'}
+            class:disabled={!agentSessionKey}
+            onclick={() => { if (agentSessionKey) agentSubTab = 'usage'; }}
+          >
+            Usage Stats
+            {#if !agentSessionKey}
+              <svg class="ai-subtab-lock" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            {/if}
+          </button>
         </div>
 
         {#if agentSubTab === 'general'}
+          <!-- Agent Provider -->
           <div class="stg-section">
-            <span class="stg-section-label">Session</span>
-            <div class="stg-field" style="flex-direction: column; align-items: stretch;">
-              <label class="stg-label">Session Key</label>
-              <span class="agent-field-desc">Used to fetch usage limits from Claude AI</span>
-              <input
-                class="stg-input"
-                type="password"
-                style="width: 100%;"
-                value={agentSessionKey}
-                placeholder="session key..."
-                onchange={(e) => handleSettingChange('agent_session_key', e.currentTarget.value)}
-              />
+            <span class="stg-section-label">Agent Provider</span>
+            <div class="agent-provider-grid">
+              {#each Object.entries(AGENT_PROVIDERS) as [key, provider]}
+                <button
+                  class="agent-provider-card"
+                  class:active={agentProvider === key}
+                  class:disabled={!provider.available}
+                  onclick={() => { if (provider.available) agentProvider = key as AgentProvider; }}
+                >
+                  <div class="agent-provider-icon">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d={provider.icon} /></svg>
+                  </div>
+                  <div class="agent-provider-info">
+                    <span class="agent-provider-name">{provider.name}</span>
+                    <span class="agent-provider-desc">{provider.description}</span>
+                  </div>
+                  {#if provider.available}
+                    {#if agentProvider === key}
+                      <span class="agent-provider-badge active">
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        Active
+                      </span>
+                    {/if}
+                  {:else}
+                    <span class="agent-provider-badge soon">Soon</span>
+                  {/if}
+                </button>
+              {/each}
             </div>
           </div>
 
+          <!-- Session Key -->
+          <div class="stg-section">
+            <span class="stg-section-label">Session Key</span>
+            <div class="ai-cfg">
+              <div class="ai-cfg-section">
+                <label class="ai-cfg-label">Claude AI Session Key</label>
+                <div class="ai-key-input-wrap">
+                  <input
+                    class="ai-cfg-input"
+                    type={showAgentKey ? 'text' : 'password'}
+                    placeholder="sk-ant-sid01-..."
+                    bind:value={agentKeyInput}
+                  />
+                  <button class="ai-key-toggle" onclick={() => showAgentKey = !showAgentKey} type="button">
+                    {#if showAgentKey}
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    {:else}
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    {/if}
+                  </button>
+                </div>
+
+                {#if agentKeyTestStatus === 'success'}
+                  <span class="ai-test-result success">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                    {agentKeyTestMessage}
+                  </span>
+                {:else if agentKeyTestStatus === 'error'}
+                  <span class="ai-test-result error">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    {agentKeyTestMessage}
+                  </span>
+                {/if}
+
+                <div class="ai-key-actions">
+                  <button
+                    class="ai-action-btn primary"
+                    onclick={() => handleSaveAgentKey()}
+                    disabled={!agentKeyInput.trim() || agentKeyTestStatus === 'testing'}
+                  >
+                    {#if agentKeyTestStatus === 'testing'}
+                      Verifying...
+                    {:else}
+                      Save & Verify
+                    {/if}
+                  </button>
+                  {#if agentSessionKey}
+                    <button class="ai-action-btn danger" onclick={handleRemoveAgentKey}>Remove Key</button>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="ai-cfg-divider"></div>
+
+              <div class="ai-cfg-footer">
+                <div class="ai-cfg-links">
+                  <span class="agent-key-hint">claude.ai &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; sessionKey</span>
+                </div>
+                {#if agentSessionKey}
+                  <span class="ai-status-badge">
+                    <span class="ai-status-dot"></span>
+                    Connected
+                  </span>
+                {/if}
+              </div>
+            </div>
+          </div>
+
+          <!-- Polling -->
+          <div class="stg-section">
+            <span class="stg-section-label">Polling</span>
+            <div class="stg-field">
+              <label class="stg-label">Usage refresh interval</label>
+              <select
+                class="stg-select"
+                value={agentRefreshMins}
+                onchange={(e) => handleSettingChange('agent_refresh_mins', e.currentTarget.value)}
+              >
+                {#each REFRESH_OPTIONS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+
+          <!-- Notifications -->
           <div class="stg-section">
             <span class="stg-section-label">Notifications</span>
-            <div class="stg-field">
-              <label class="stg-label">Enable notifications when Claude needs input</label>
-              <label class="stg-toggle">
-                <input type="checkbox" checked={agentNotifyEnabled}
-                  onchange={(e) => handleSettingChange('agent_notify_enabled', String(e.currentTarget.checked))} />
-                <span class="stg-toggle-slider"></span>
-              </label>
-            </div>
             <div class="stg-field">
               <label class="stg-label">Enable sound alerts</label>
               <label class="stg-toggle">
@@ -839,7 +1041,7 @@
                           onchange={() => handleTogglePlugin(plugin.name, !plugin.enabled)} />
                         <span class="stg-toggle-slider"></span>
                       </label>
-                      <button class="ai-action-btn danger sm" onclick={() => handleUninstallPlugin(plugin.name)}>
+                      <button class="ai-action-btn danger sm" onclick={() => handleUninstallPlugin(plugin.name, plugin.marketplace)}>
                         Uninstall
                       </button>
                     </div>
@@ -953,6 +1155,170 @@
                 {/each}
               </div>
             {/if}
+          {/if}
+
+        {:else if agentSubTab === 'usage'}
+          <!-- Day range selector -->
+          <div class="ud-days">
+            {#each [7, 14, 30, 90] as d}
+              <button class="ud-day-btn" class:active={agentUsageDays === d} onclick={() => selectAgentUsageDays(d)}>{d}d</button>
+            {/each}
+            <button class="ai-action-btn sm" style="margin-left: auto;" onclick={loadAgentUsage}>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
+          </div>
+
+          {#if agentUsageLoading}
+            <div class="ud-loading"><div class="ud-spinner"></div>Loading analytics...</div>
+          {:else if agentUsageData}
+            <!-- Summary cards -->
+            <div class="ud-cards">
+              <div class="ud-card"><span class="ud-val">{agentFormatCost(agentUsageData.totalCost)}</span><span class="ud-lbl">Total Cost</span></div>
+              <div class="ud-card"><span class="ud-val">{agentUsageData.totalApiCalls.toLocaleString()}</span><span class="ud-lbl">API Calls</span></div>
+              <div class="ud-card"><span class="ud-val">{agentUsageData.totalSessions}</span><span class="ud-lbl">Sessions</span></div>
+              <div class="ud-card"><span class="ud-val">{agentUsageData.cacheHitPercent.toFixed(1)}%</span><span class="ud-lbl">Cache Hit</span></div>
+            </div>
+
+            <!-- Token breakdown -->
+            <div class="ud-token-row">
+              <span><strong>In:</strong> {agentFormatTokens(agentUsageData.totalInputTokens)}</span>
+              <span><strong>Out:</strong> {agentFormatTokens(agentUsageData.totalOutputTokens)}</span>
+              <span><strong>Cache R:</strong> {agentFormatTokens(agentUsageData.totalCacheReadTokens)}</span>
+              <span><strong>Cache W:</strong> {agentFormatTokens(agentUsageData.totalCacheWriteTokens)}</span>
+            </div>
+
+            <!-- Daily chart -->
+            {#if agentUsageData.daily.length > 0}
+              <div class="ud-section-inline">
+                <div class="ud-section-title">Daily Activity</div>
+                <div class="ud-chart">
+                  {#each agentUsageData.daily.slice(-21) as day}
+                    {@const maxCost = Math.max(...agentUsageData.daily.slice(-21).map(d => d.cost), 0.01)}
+                    <div class="ud-bar-wrap" title="{day.date}: {agentFormatCost(day.cost)} / {day.calls} calls">
+                      <div class="ud-bar" style="height:{Math.max(3, (day.cost / maxCost) * 100)}%"></div>
+                      <span class="ud-bar-lbl">{day.date.slice(8)}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            <!-- Live Usage + Models -->
+            <div class="ud-grid">
+              <div class="ud-section">
+                <div class="ud-section-title">Live Usage</div>
+                {#if $agentUsageLimits}
+                  {@const sessionPct = $agentUsageLimits.five_hour?.utilization ?? $agentUsageLimits.standard?.percentUsed ?? null}
+                  {@const weeklyPct = $agentUsageLimits.seven_day?.utilization ?? $agentUsageLimits.extended?.percentUsed ?? null}
+                  {@const sonnetPct = $agentUsageLimits.seven_day_sonnet?.utilization ?? null}
+                  <div class="ud-live-rows">
+                    {#if sessionPct != null}
+                      <div class="ud-live-row">
+                        <span class="ud-live-lbl">Session</span>
+                        <div class="ud-live-bar"><div class="ud-live-fill" style="width:{sessionPct}%;background:{agentLiveColor(sessionPct)}"></div></div>
+                        <span class="ud-live-pct" style="color:{agentLiveColor(sessionPct)}">{sessionPct.toFixed(1)}%</span>
+                      </div>
+                    {/if}
+                    {#if weeklyPct != null}
+                      <div class="ud-live-row">
+                        <span class="ud-live-lbl">Weekly</span>
+                        <div class="ud-live-bar"><div class="ud-live-fill" style="width:{weeklyPct}%;background:{agentLiveColor(weeklyPct)}"></div></div>
+                        <span class="ud-live-pct" style="color:{agentLiveColor(weeklyPct)}">{weeklyPct.toFixed(1)}%</span>
+                      </div>
+                    {/if}
+                    {#if sonnetPct != null}
+                      <div class="ud-live-row">
+                        <span class="ud-live-lbl">Sonnet</span>
+                        <div class="ud-live-bar"><div class="ud-live-fill" style="width:{sonnetPct}%;background:{agentLiveColor(sonnetPct)}"></div></div>
+                        <span class="ud-live-pct" style="color:{agentLiveColor(sonnetPct)}">{sonnetPct.toFixed(1)}%</span>
+                      </div>
+                    {/if}
+                  </div>
+                {:else}
+                  <div style="padding:8px 0;font-size:11px;color:var(--t3);">Fetching live data...</div>
+                {/if}
+              </div>
+              <div class="ud-section">
+                <div class="ud-section-title">Models</div>
+                <div class="ud-scroll">
+                  {#each agentUsageData.byModel as m}
+                    <div class="ud-row">
+                      <div class="ud-row-info">
+                        <span class="ud-row-name">{m.model}</span>
+                        <span class="ud-row-meta">{m.calls} calls &middot; {m.cacheHitPercent.toFixed(0)}% cache</span>
+                      </div>
+                      <span class="ud-row-cost">{agentFormatCost(m.cost)}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            </div>
+
+            <!-- Projects + Top Sessions (2-col) -->
+            <div class="ud-grid">
+              <div class="ud-section">
+                <div class="ud-section-title">Projects ({agentUsageData.byProject.length})</div>
+                <div class="ud-scroll">
+                  {#each agentUsageData.byProject as p}
+                    <div class="ud-row">
+                      <div class="ud-row-info">
+                        <span class="ud-row-name" title={p.project}>{agentDecodeName(p.project)}</span>
+                        <span class="ud-row-meta">{p.sessions} sess &middot; {p.calls} calls</span>
+                      </div>
+                      <span class="ud-row-cost">{agentFormatCost(p.cost)}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+              <div class="ud-section">
+                <div class="ud-section-title">Top Sessions</div>
+                <div class="ud-scroll">
+                  {#each agentUsageData.topSessions.slice(0, 6) as s}
+                    <div class="ud-row">
+                      <div class="ud-row-info">
+                        <span class="ud-row-name" title={s.project}>{agentDecodeName(s.project)}</span>
+                        <span class="ud-row-meta">{s.model} &middot; {s.sessionId.slice(0, 8)}</span>
+                      </div>
+                      <span class="ud-row-cost">{agentFormatCost(s.cost)}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            </div>
+
+            <!-- Tools + Shell (2-col) -->
+            <div class="ud-grid">
+              <div class="ud-section">
+                <div class="ud-section-title">Tools</div>
+                <div class="ud-scroll">
+                  {#each agentUsageData.tools.slice(0, 6) as t}
+                    <div class="ud-tool-row">
+                      <span class="ud-tool-name">{t.name}</span>
+                      <div class="ud-tool-bar"><div class="ud-tool-fill" style="width:{Math.max(3, (t.count / (agentUsageData.tools[0]?.count || 1)) * 100)}%"></div></div>
+                      <span class="ud-tool-ct">{t.count.toLocaleString()}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+              <div class="ud-section">
+                <div class="ud-section-title">Shell</div>
+                <div class="ud-scroll">
+                  {#each agentUsageData.shellCommands.slice(0, 6) as cmd}
+                    <div class="ud-tool-row">
+                      <span class="ud-tool-name" style="font-family:var(--mono)">{cmd.name}</span>
+                      <div class="ud-tool-bar"><div class="ud-tool-fill" style="width:{Math.max(3, (cmd.count / (agentUsageData.shellCommands[0]?.count || 1)) * 100)}%"></div></div>
+                      <span class="ud-tool-ct">{cmd.count.toLocaleString()}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            </div>
+          {:else}
+            <div class="ud-loading">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="var(--t4)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+              <p style="margin: 0; font-size: 13px; color: var(--t2); font-weight: 500;">No usage data found</p>
+              <span style="font-size: 11px; color: var(--t3);">Start using Claude Code sessions to see analytics here</span>
+            </div>
           {/if}
         {/if}
 
@@ -2064,4 +2430,144 @@
     border-color: var(--acc);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 12%, transparent);
   }
+
+  /* -- Agent Provider Grid -- */
+  .agent-provider-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .agent-provider-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 10px 10px;
+    background: var(--n2);
+    border: 1px solid var(--b1);
+    border-radius: var(--radius-lg);
+    cursor: default;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+    text-align: center;
+  }
+  .agent-provider-card:hover:not(.disabled) {
+    border-color: var(--b2);
+    background: rgba(255,255,255,0.05);
+  }
+  .agent-provider-card.active {
+    border-color: transparent;
+    outline: 2px solid var(--acc);
+    outline-offset: 1px;
+  }
+  .agent-provider-card.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .agent-provider-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--t2);
+  }
+  .agent-provider-card.active .agent-provider-icon {
+    background: color-mix(in srgb, var(--acc) 15%, transparent);
+    color: var(--acc);
+  }
+  .agent-provider-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .agent-provider-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--t1);
+    font-family: var(--ui);
+  }
+  .agent-provider-desc {
+    font-size: 10px;
+    color: var(--t3);
+    font-family: var(--ui);
+  }
+  .agent-provider-badge {
+    font-size: 9px;
+    font-weight: 600;
+    font-family: var(--ui);
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .agent-provider-badge.active {
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+  .agent-provider-badge.soon {
+    color: var(--t4);
+    background: rgba(255,255,255,0.04);
+  }
+  .agent-key-hint {
+    font-size: 10px;
+    color: var(--t4);
+    font-family: var(--mono);
+  }
+
+  /* -- Agent Usage Stats (inline) -- */
+  .ud-days { display: flex; gap: 6px; align-items: center; margin-bottom: 16px; }
+  .ud-day-btn { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--b1); background: transparent; color: var(--t3); font-size: 11px; font-family: var(--ui); cursor: default; transition: all 0.12s; }
+  .ud-day-btn.active { background: var(--acc); color: #fff; border-color: var(--acc); }
+  .ud-day-btn:hover:not(.active) { background: var(--c); color: var(--t1); }
+
+  .ud-loading { padding: 48px; text-align: center; font-size: 13px; color: var(--t3); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .ud-spinner { width: 22px; height: 22px; border: 2px solid var(--b1); border-top-color: var(--acc); border-radius: 50%; animation: ud-spin 0.6s linear infinite; }
+  @keyframes ud-spin { to { transform: rotate(360deg); } }
+
+  .ud-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+  .ud-card { display: flex; flex-direction: column; align-items: center; padding: 12px 8px; border-radius: 8px; background: var(--n2); border: 1px solid var(--b1); }
+  .ud-val { font-size: 18px; font-weight: 700; color: var(--t1); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .ud-lbl { font-size: 9px; color: var(--t3); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 4px; font-family: var(--ui); }
+
+  .ud-token-row { display: flex; gap: 16px; justify-content: center; padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,0.02); font-size: 10px; color: var(--t3); margin-bottom: 16px; font-family: var(--mono); }
+  .ud-token-row strong { color: var(--t1); font-weight: 500; }
+
+  .ud-section-inline { margin-bottom: 16px; }
+  .ud-section { flex: 1; min-width: 0; }
+  .ud-section-title { font-size: 10px; font-weight: 600; color: var(--t3); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; font-family: var(--ui); }
+
+  .ud-chart { display: flex; align-items: flex-end; gap: 3px; height: 80px; padding: 4px 0; }
+  .ud-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; cursor: default; }
+  .ud-bar { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px; background: var(--acc); opacity: 0.8; transition: height 0.3s ease; }
+  .ud-bar-wrap:hover .ud-bar { opacity: 1; }
+  .ud-bar-lbl { font-size: 8px; color: var(--t4); margin-top: 3px; }
+
+  .ud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .ud-scroll { max-height: 160px; overflow-y: auto; }
+
+  .ud-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 5px; }
+  .ud-row:hover { background: rgba(255,255,255,0.03); }
+  .ud-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .ud-row-name { font-size: 12px; font-weight: 500; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui); }
+  .ud-row-meta { font-size: 10px; color: var(--t3); font-family: var(--mono); }
+  .ud-row-cost { font-size: 12px; font-weight: 600; color: var(--acc); font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+  .ud-tool-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 11px; }
+  .ud-tool-name { width: 80px; flex-shrink: 0; color: var(--t1); font-weight: 500; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ud-tool-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+  .ud-tool-fill { height: 100%; background: var(--acc); border-radius: 2px; opacity: 0.7; }
+  .ud-tool-ct { width: 44px; text-align: right; color: var(--t3); font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  /* -- Live Usage Bars -- */
+  .ud-live-rows { display: flex; flex-direction: column; gap: 8px; }
+  .ud-live-row { display: flex; align-items: center; gap: 8px; }
+  .ud-live-lbl { font-size: 11px; color: var(--t3); width: 52px; flex-shrink: 0; font-family: var(--ui); font-weight: 500; }
+  .ud-live-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+  .ud-live-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+  .ud-live-pct { font-size: 12px; font-weight: 600; width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; font-family: var(--mono); }
 </style>

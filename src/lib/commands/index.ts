@@ -61,7 +61,7 @@ export {
 export {
   exportCollection,
   exportAllCollections,
-  importQorix,
+  importClauge,
   importPostman,
   importCurl,
   exportAsCurl,

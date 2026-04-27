@@ -195,13 +195,11 @@
 <aside class="sidebar glass-surface">
   <div class="sidebar-drag" data-drag-region></div>
   <div class="wc-area" data-drag-region>
-    {#if !isFullscreen}
-      <div class="wc-dots">
-        <button class="wc-dot wc-close" onclick={wcClose}></button>
-        <button class="wc-dot wc-min" onclick={wcMinimize}></button>
-        <button class="wc-dot wc-max" onclick={wcFullscreen}></button>
-      </div>
-    {/if}
+    <div class="wc-dots">
+      <button class="wc-dot wc-close" onclick={wcClose}></button>
+      <button class="wc-dot wc-min" onclick={wcMinimize}></button>
+      <button class="wc-dot wc-max" onclick={wcFullscreen}></button>
+    </div>
   </div>
 
   <!-- Mode buttons -->
@@ -216,6 +214,9 @@
   </SidebarButton>
   <SidebarButton tip="NoSQL" active={$mode === 'nosql'} dotColor="var(--nosql)" id="sbi-nosql" onclick={() => setMode('nosql')}>
     <svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+  </SidebarButton>
+  <SidebarButton tip="SSH" active={$mode === 'ssh'} dotColor="var(--ssh)" id="sbi-ssh" onclick={() => setMode('ssh')}>
+    <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="6" rx="1"/><rect x="2" y="14" width="20" height="6" rx="1"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
   </SidebarButton>
 
   <div class="sb-sep"></div>
@@ -428,7 +429,7 @@
     padding: 0 0 10px;
     gap: 2px;
     flex-shrink: 0;
-    z-index: 30;
+    z-index: 150;
   }
   .sidebar-drag {
     height: 0px;
@@ -619,6 +620,16 @@
     width: 2px;
     border-radius: 0 2px 2px 0;
     background: var(--nosql);
+  }
+  :global(#sbi-ssh.on::before) {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: var(--ssh);
   }
   :global(#sbi-history.on::before) {
     content: '';

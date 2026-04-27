@@ -29,9 +29,8 @@ export const agentContexts = writable<AgentContext[]>([]);
 export const agentSessionActivity = writable<Map<string, 'running' | 'done'>>(new Map());
 
 // Notification preferences (loaded from settings)
-export const agentNotifyEnabled = writable<boolean>(false);
-export const agentSoundEnabled = writable<boolean>(false);
-export const agentDockBounceEnabled = writable<boolean>(false);
+export const agentSoundEnabled = writable<boolean>(true);
+export const agentDockBounceEnabled = writable<boolean>(true);
 
 // Usage limits (fetched from Claude AI API)
 export const agentUsageLimits = writable<any>(null);
@@ -54,15 +53,17 @@ export async function loadAgentUsageLimits() {
     const limits = await agentFetchUsageLimits(key);
     agentUsageLimits.set(limits);
     // Update tray title with usage stats
+    // Claude API returns { five_hour: { utilization }, seven_day: { utilization } }
+    // Also handle alternate shape: { standard: { percentUsed }, extended: { percentUsed } }
     try {
-      const standard = limits?.standard;
-      const extended = limits?.extended;
+      const sessionPct = limits?.five_hour?.utilization ?? limits?.standard?.percentUsed;
+      const weeklyPct = limits?.seven_day?.utilization ?? limits?.extended?.percentUsed;
       const parts: string[] = [];
-      if (standard && typeof standard.percentUsed === 'number') {
-        parts.push(`S:${Math.round(standard.percentUsed)}%`);
+      if (sessionPct != null) {
+        parts.push(`S:${Math.round(sessionPct)}%`);
       }
-      if (extended && typeof extended.percentUsed === 'number') {
-        parts.push(`W:${Math.round(extended.percentUsed)}%`);
+      if (weeklyPct != null) {
+        parts.push(`W:${Math.round(weeklyPct)}%`);
       }
       if (parts.length > 0) {
         await agentUpdateTrayTitle(parts.join(' '));

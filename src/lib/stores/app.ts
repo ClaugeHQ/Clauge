@@ -1,9 +1,27 @@
 import { writable } from 'svelte/store';
 import type { AIMessage } from '$lib/types/ai';
 
-export type AppMode = 'agent' | 'rest' | 'sql' | 'nosql' | 'history';
+export type AppMode = 'agent' | 'rest' | 'sql' | 'nosql' | 'ssh' | 'history';
 
-export const mode = writable<AppMode>('rest');
+const MODE_STORAGE_KEY = 'clauge_last_mode';
+const VALID_MODES: AppMode[] = ['agent', 'rest', 'sql', 'nosql', 'ssh'];
+
+function loadInitialMode(): AppMode {
+  try {
+    const saved = localStorage.getItem(MODE_STORAGE_KEY);
+    if (saved && (VALID_MODES as string[]).includes(saved)) return saved as AppMode;
+  } catch { /* ignore */ }
+  return 'agent';
+}
+
+export const mode = writable<AppMode>(loadInitialMode());
+
+// Persist mode changes (skip 'history' — it's a transient view, not a primary mode)
+mode.subscribe(v => {
+  if ((VALID_MODES as string[]).includes(v)) {
+    try { localStorage.setItem(MODE_STORAGE_KEY, v); } catch { /* ignore */ }
+  }
+});
 export const navOpen = writable<boolean>(true);
 export const aiPanelOpen = writable<boolean>(false);
 export const aiPanelOpenPerMode = writable<Record<string, boolean>>({});

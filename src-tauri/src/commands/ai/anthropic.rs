@@ -182,6 +182,7 @@ pub async fn stream_anthropic(
 
                         let tool_result = execute_tool(
                             &current_tool_name,
+                            &current_tool_id,
                             &tool_input,
                             context,
                             pool,

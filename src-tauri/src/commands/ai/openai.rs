@@ -64,8 +64,19 @@ pub async fn stream_openai(
         })
         .collect();
 
-    // Check if the user's message likely needs tools (to save tokens on Groq's tight limits)
-    let needs_tools = {
+    // The keyword-heuristic optimization below is REST-specific. SQL/NoSQL/SSH
+    // modes must always send their tools and full system prompt — without them
+    // the assistant cannot do its job (e.g. SSH cannot execute_shell).
+    // Detect non-REST modes by content of the system prompt.
+    let is_rest_mode = !system_prompt.contains("SQL assistant")
+        && !system_prompt.contains("NoSQL assistant")
+        && !system_prompt.contains("SSH operations assistant");
+
+    // For REST: keep the legacy heuristic (saves tokens on Groq's tight limits).
+    // For SQL/NoSQL/SSH: always include tools and the full system prompt.
+    let needs_tools = if !is_rest_mode {
+        true
+    } else {
         let last_user_msg = conversation_msgs.iter().rev()
             .find(|m| m["role"].as_str() == Some("user"))
             .and_then(|m| m["content"].as_str())
@@ -80,8 +91,8 @@ pub async fn stream_openai(
         matched
     };
 
-    // Prepend system message — use shorter prompt when tools are skipped
-    let sys_content = if needs_tools {
+    // Use the actual system prompt unless we're in REST + the keyword heuristic skipped tools
+    let sys_content = if needs_tools || !is_rest_mode {
         system_prompt.to_string()
     } else {
         "You are a REST API assistant. Answer briefly. No emojis. No markdown headers.".to_string()
@@ -344,6 +355,7 @@ pub async fn stream_openai(
 
                 let tool_result = execute_tool(
                     name,
+                    id,
                     &tool_input,
                     context,
                     pool,

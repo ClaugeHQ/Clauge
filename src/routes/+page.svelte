@@ -5,6 +5,7 @@
   import RestPanel from '$lib/components/rest/RestPanel.svelte';
   import SqlPanel from '$lib/components/sql/SqlPanel.svelte';
   import NoSqlPanel from '$lib/components/nosql/NoSqlPanel.svelte';
+  import SshPanel from '$lib/components/ssh/SshPanel.svelte';
   import HistoryViewer from '$lib/components/rest/HistoryViewer.svelte';
 </script>
 
@@ -26,6 +27,8 @@
     <SqlPanel />
   {:else if $mode === 'nosql'}
     <NoSqlPanel />
+  {:else if $mode === 'ssh'}
+    <SshPanel />
   {/if}
 </div>
 

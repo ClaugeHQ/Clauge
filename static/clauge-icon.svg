@@ -1,40 +1,53 @@
 <svg width="1024" height="1024" viewBox="0 0 680 680" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f8fafc"/>
-      <stop offset="100%" stop-color="#e2e8f0"/>
+      <stop offset="0%" stop-color="#1a1040"/>
+      <stop offset="100%" stop-color="#060414"/>
     </linearGradient>
-    <linearGradient id="bl" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#6366f1"/>
+    <linearGradient id="ghostGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#c4b5fd"/>
     </linearGradient>
-    <linearGradient id="br" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="eyeL" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
     </linearGradient>
-    <linearGradient id="sl" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="eyeR" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="50%" stop-color="#6366f1"/>
       <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
     <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.2"/>
+      <stop offset="0%" stop-color="#7c5fff" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.3"/>
     </linearGradient>
-    <linearGradient id="topShine" x1="0%" y1="0%" x2="60%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8"/>
+    <radialGradient id="glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#7c5fff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#7c5fff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="shine" cx="35%" cy="25%" r="45%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
+    </radialGradient>
+    <filter id="ghostGlow">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
     <clipPath id="clip">
       <rect x="40" y="40" width="600" height="600" rx="132"/>
     </clipPath>
   </defs>
   <rect x="40" y="40" width="600" height="600" rx="132" fill="url(#bg)"/>
-  <rect x="40" y="40" width="600" height="600" rx="132" fill="url(#topShine)"/>
+  <rect x="40" y="40" width="600" height="600" rx="132" fill="url(#shine)"/>
   <g clip-path="url(#clip)">
-    <path d="M224 155 L148 340 L224 525" fill="none" stroke="url(#bl)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M456 155 L532 340 L456 525" fill="none" stroke="url(#br)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="372" y1="165" x2="308" y2="515" stroke="url(#sl)" stroke-width="52" stroke-linecap="round"/>
+    <ellipse cx="340" cy="320" rx="220" ry="200" fill="url(#glow)"/>
+    <g filter="url(#ghostGlow)" opacity="0.3">
+      <path d="M340 118 C250 118 178 188 178 276 L178 480 C178 480 178 500 196 500 C210 500 218 488 226 476 C234 464 242 452 256 452 C270 452 278 464 286 476 C294 488 302 502 320 502 C338 502 346 488 354 476 C362 464 370 452 384 452 C398 452 406 464 414 476 C422 488 430 500 444 500 C462 500 462 480 462 480 L462 276 C462 188 430 118 340 118Z" fill="#7c5fff"/>
+    </g>
+    <path d="M340 118 C250 118 178 188 178 276 L178 480 C178 480 178 500 196 500 C210 500 218 488 226 476 C234 464 242 452 256 452 C270 452 278 464 286 476 C294 488 302 502 320 502 C338 502 346 488 354 476 C362 464 370 452 384 452 C398 452 406 464 414 476 C422 488 430 500 444 500 C462 500 462 480 462 480 L462 276 C462 188 430 118 340 118Z" fill="url(#ghostGrad)"/>
+    <ellipse cx="296" cy="290" rx="30" ry="34" fill="url(#eyeL)"/>
+    <ellipse cx="287" cy="280" rx="9" ry="10" fill="white" opacity="0.45"/>
+    <ellipse cx="384" cy="290" rx="30" ry="34" fill="url(#eyeR)"/>
+    <ellipse cx="375" cy="280" rx="9" ry="10" fill="white" opacity="0.45"/>
   </g>
-  <rect x="40" y="40" width="600" height="600" rx="132" fill="none" stroke="url(#rim)" stroke-width="1.5"/>
+  <rect x="40" y="40" width="600" height="600" rx="132" fill="none" stroke="url(#rim)" stroke-width="1.5" opacity="0.7"/>
 </svg>

@@ -15,11 +15,11 @@
     agentShellOpen,
     agentSessionActivity,
     agentSessions,
-    agentNotifyEnabled,
     agentSoundEnabled,
     agentDockBounceEnabled,
   } from '$lib/stores/agent';
   import { getSetting } from '$lib/commands/settings';
+  import { tabs as tabsStore, closeTab, activateTab } from '$lib/stores/tabs';
   import {
     agentSpawnTerminal,
     agentSpawnShell,
@@ -52,9 +52,11 @@
   let activeShellEntry: { term: Terminal; fitAddon: FitAddon; container: HTMLDivElement; terminalId: string | null } | null = null;
 
   // Divider drag state
-  let dragging = false;
-  let mainWidth = 55; // percentage (left terminal width)
-  let fitTimer: ReturnType<typeof setTimeout> | null = null;
+  let dragging = $state(false);
+  let mainWidth = $state(55); // percentage (left terminal width)
+
+  // Terminal background color (synced with theme to fill gaps)
+  let termBg = $state('#0d0d18');
 
   // Track current session to detect changes
   let currentSessionId: string | null = null;
@@ -62,6 +64,11 @@
   // Loading state for terminal spawn
   let spawning = $state(false);
   let termReady = $state(false);
+  // Shell-panel loading: tracks session IDs currently spawning a shell
+  let shellLoadingSessions = $state<string[]>([]);
+  let activeShellLoading = $derived(
+    $activeAgentSession ? shellLoadingSessions.includes($activeAgentSession.id) : false
+  );
 
   // Context usage polling interval
   let contextUsageInterval: ReturnType<typeof setInterval> | null = null;
@@ -99,25 +106,10 @@
     if (actionPatterns.some(p => p.test(buf))) {
       notifyLastTime = Date.now();
 
-      // macOS notification
-      if (get(agentNotifyEnabled)) {
-        import('@tauri-apps/plugin-notification').then(({ isPermissionGranted, requestPermission, sendNotification }) => {
-          isPermissionGranted().then(granted => {
-            if (!granted) {
-              requestPermission().then(perm => {
-                if (perm === 'granted') sendNotification({ title: 'Clauge', body: 'Claude needs your input' });
-              });
-            } else {
-              sendNotification({ title: 'Clauge', body: 'Claude needs your input' });
-            }
-          });
-        }).catch(() => {});
-      }
-
-      // Dock bounce
+      // Dock bounce — Critical = persistent bounce until focus
       if (get(agentDockBounceEnabled)) {
-        import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-          getCurrentWindow().requestUserAttention(2);
+        import('@tauri-apps/api/window').then(({ getCurrentWindow, UserAttentionType }) => {
+          getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
         }).catch(() => {});
       }
 
@@ -163,9 +155,10 @@
       const raw = atob(base64Data);
       const text = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
       notifyOutputBuffer += text;
-      if (notifyOutputBuffer.length > 500) notifyOutputBuffer = notifyOutputBuffer.slice(-500);
 
+      // Check on every chunk if unfocused (timers may be throttled in background)
       if (!document.hasFocus()) checkNotifyBuffer();
+      // Also debounce for when data arrives in small chunks
       if (notifyBufferTimer) clearTimeout(notifyBufferTimer);
       notifyBufferTimer = setTimeout(() => checkNotifyBuffer(), 300);
     } catch (_) {}
@@ -204,17 +197,54 @@
     loadWebGLAddon(t);
 
     t.onData((data) => {
+      // Only count REAL user typing as exit intent. xterm fires onData for protocol
+      // replies too — focus reports (\x1b[I/\x1b[O), Device Attributes responses
+      // (\x1b[?1;2c), Cmd+L (\x0c), etc. — none of which represent the user typing
+      // an exit command. Restrict to printable chars or Enter, with no escape seq.
+      const isUserTyping = !/\x1b/.test(data) && /[\x20-\x7e\r\n]/.test(data);
+      if (isUserTyping) {
+        const e = get(agentTerminalMap).get(sessionId);
+        if (e) (e as any)._lastExitIntent = Date.now();
+      }
+
       const tIds = get(agentTerminalIds);
       const termId = tIds.get(sessionId);
-      if (termId) agentWriteToTerminal(termId, data);
-    });
-
-    new ResizeObserver(() => {
-      if (fa && container.offsetWidth > 0) {
-        requestAnimationFrame(() => {
-          try { fa.fit(); } catch (_) {}
+      if (termId) {
+        agentWriteToTerminal(termId, data).catch(() => {
+          // PTY dead (I/O error) — treat as session exit
+          agentTerminalIds.update(m => { m.delete(sessionId); return new Map(m); });
+          agentTerminalMap.update(m => { m.delete(sessionId); return new Map(m); });
+          agentSessionActivity.update(m => { m.set(sessionId, 'done'); return new Map(m); });
+          const currentActive = get(activeAgentSession);
+          if (currentActive?.id === sessionId) {
+            const activity = get(agentSessionActivity);
+            const sessions = get(agentSessions);
+            const nextRunning = sessions.find(s => s.id !== sessionId && activity.get(s.id) === 'running');
+            if (nextRunning) { activeAgentSession.set(nextRunning); }
+            else { currentSessionId = null; activeAgentSession.set(null); }
+          }
         });
       }
+    });
+
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    new ResizeObserver(() => {
+      if (!fa || container.offsetWidth <= 0) return;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        try {
+          fa.fit();
+          // Skip PTY resize during drag — only resize on mouseup via refitAll
+          if (dragging) return;
+          const tIds = get(agentTerminalIds);
+          const termId = tIds.get(sessionId);
+          if (termId) {
+            const dims = fa.proposeDimensions();
+            if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
+          }
+        } catch (_) {}
+      }, 100);
     }).observe(container);
 
     const entry = { term: t, fitAddon: fa, container, terminalId: null as string | null, _exitBuffer: '' };
@@ -231,7 +261,10 @@
     entry.container.style.display = 'block';
     try { entry.term.options.scrollback = 10000; } catch (_) {}
     activeTermEntry = entry;
-    requestAnimationFrame(() => { try { entry.fitAddon.fit(); } catch (_) {} });
+    requestAnimationFrame(() => {
+      try { entry.fitAddon.fit(); } catch (_) {}
+      try { entry.term.focus(); } catch (_) {}
+    });
   }
 
   function createShellEntry(sessionId: string): { term: Terminal; fitAddon: FitAddon; container: HTMLDivElement; terminalId: string | null } {
@@ -252,6 +285,11 @@
     t.open(container);
     loadWebGLAddon(t);
 
+    // Safety fallback — if first data never arrives, drop the loader after 3s
+    setTimeout(() => {
+      shellLoadingSessions = shellLoadingSessions.filter(id => id !== sessionId);
+    }, 3000);
+
     t.onData((data) => {
       const sIds = get(agentShellIds);
       const shellId = sIds.get(sessionId);
@@ -265,10 +303,22 @@
       }
     });
 
+    let shellResizeTimer: ReturnType<typeof setTimeout> | null = null;
     new ResizeObserver(() => {
-      if (fa && container.offsetWidth > 0) {
-        requestAnimationFrame(() => { try { fa.fit(); } catch (_) {} });
-      }
+      if (!fa || container.offsetWidth <= 0) return;
+      if (shellResizeTimer) clearTimeout(shellResizeTimer);
+      shellResizeTimer = setTimeout(() => {
+        shellResizeTimer = null;
+        try {
+          fa.fit();
+          const sIds = get(agentShellIds);
+          const shellId = sIds.get(sessionId);
+          if (shellId) {
+            const dims = fa.proposeDimensions();
+            if (dims) agentResizeTerminal(shellId, dims.cols, dims.rows).catch(() => {});
+          }
+        } catch (_) {}
+      }, 100);
     }).observe(container);
 
     const sEntry = { term: t, fitAddon: fa, container, terminalId: null as string | null };
@@ -287,12 +337,12 @@
     requestAnimationFrame(() => { try { sEntry.fitAddon.fit(); } catch (_) {} });
   }
 
-  function refitAll() {
+  function refitAll(sendPtyResize = false) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (activeTermEntry?.fitAddon) {
-          try {
-            activeTermEntry.fitAddon.fit();
+        try {
+          activeTermEntry?.fitAddon?.fit();
+          if (sendPtyResize && activeTermEntry?.fitAddon) {
             const tIds = get(agentTerminalIds);
             const session = get(activeAgentSession);
             if (session) {
@@ -302,11 +352,11 @@
                 if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
               }
             }
-          } catch (_) {}
-        }
-        if (activeShellEntry?.fitAddon) {
-          try {
-            activeShellEntry.fitAddon.fit();
+          }
+        } catch (_) {}
+        try {
+          activeShellEntry?.fitAddon?.fit();
+          if (sendPtyResize && activeShellEntry?.fitAddon) {
             const sIds = get(agentShellIds);
             const session = get(activeAgentSession);
             if (session) {
@@ -316,8 +366,8 @@
                 if (dims) agentResizeTerminal(shellId, dims.cols, dims.rows).catch(() => {});
               }
             }
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
       });
     });
   }
@@ -336,6 +386,10 @@
       showShellEntry(sEntry);
       return;
     }
+    // Fresh spawn — show loader until shell prints first prompt
+    if (!shellLoadingSessions.includes(session.id)) {
+      shellLoadingSessions = [...shellLoadingSessions, session.id];
+    }
     if (!sEntry) {
       sEntry = createShellEntry(session.id);
     } else {
@@ -345,10 +399,17 @@
 
     const projectPath = session.worktreePath || session.projectPath;
     const channel = new Channel();
+    let shellFirstData = false;
     channel.onmessage = (msg: any) => {
       if (!msg.data) return;
       const bytes = Uint8Array.from(atob(msg.data), (c: string) => c.charCodeAt(0));
       sEntry!.term.write(bytes);
+      if (!shellFirstData) {
+        shellFirstData = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          shellLoadingSessions = shellLoadingSessions.filter(id => id !== session.id);
+        }));
+      }
     };
     try {
       const shellTermId = await agentSpawnShell(projectPath, channel);
@@ -378,7 +439,9 @@
   }
 
   let _spawnLock = false;
-  let _spawnGeneration = 0; // Increments on each spawn to invalidate old Channel handlers
+  // Per-session generation: invalidates stale Channel handlers when the SAME session respawns.
+  // Global generation was wrong — it blocked writes from other sessions' tabs.
+  const _spawnGenerations = new Map<string, number>();
 
   async function selectSession(session: any) {
     console.log(`[TERM] selectSession called: id=${session?.id}, title=${session?.title}`);
@@ -413,7 +476,9 @@
       return;
     }
 
-    console.log(`[TERM] SPAWNING NEW terminal for session ${session.id}, gen=${_spawnGeneration + 1}`);
+    const currentGen = (_spawnGenerations.get(session.id) || 0) + 1;
+    _spawnGenerations.set(session.id, currentGen);
+    console.log(`[TERM] SPAWNING NEW terminal for session ${session.id}, gen=${currentGen}`);
     // Kill old PTY process if still lingering
     const oldTermId = get(agentTerminalIds).get(session.id);
     if (oldTermId) {
@@ -422,8 +487,7 @@
       agentTerminalIds.update(m => { m.delete(session.id); return new Map(m); });
     }
 
-    // Invalidate old Channel handlers
-    _spawnGeneration++;
+    // Per-session generation already incremented above
 
     // Always dispose old xterm and create fresh — prevents stale data from old Channels
     if (entry) {
@@ -482,15 +546,81 @@
 
       let outputReceived = false;
       let activityTimer: ReturnType<typeof setTimeout> | null = null;
+      let activityBytes = 0;       // Rolling byte counter for activity detection
+      let activityWindow: ReturnType<typeof setTimeout> | null = null;
+      let lastUserInput = 0;       // Timestamp of last user keystroke
+      const spawnTime = Date.now(); // Used to ignore exit detection during initial banner/history output
       const sessionId = session.id;
-      const myGeneration = _spawnGeneration; // Capture current generation
+      const myGeneration = currentGen; // Capture per-session generation
       console.log(`[TERM] Creating Channel, gen=${myGeneration}, about to call agentSpawnTerminal`);
       const onOutput = new Channel();
 
+      let firstDataSeen = false;
       onOutput.onmessage = (payload: any) => {
-        // Ignore data from old/stale Channel if a newer spawn happened
-        if (myGeneration !== _spawnGeneration) { console.log(`[TERM] STALE Channel write blocked: myGen=${myGeneration}, currentGen=${_spawnGeneration}`); return; }
-        if (spawning) { spawning = false; termReady = true; }
+        // Ignore data from old/stale Channel if a newer spawn happened FOR THIS SESSION
+        const latestGen = _spawnGenerations.get(sessionId) || 0;
+        if (myGeneration !== latestGen) { console.log(`[TERM] STALE Channel write blocked: myGen=${myGeneration}, currentGen=${latestGen}`); return; }
+        // First PTY data: defer the loader hide by two animation frames so xterm
+        // has time to actually paint the bytes — flipping immediately leaves a
+        // visible blank gap because xterm batches writes into the next frame.
+        if (!firstDataSeen && payload.data && payload.exit !== true) {
+          firstDataSeen = true;
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (spawning) { spawning = false; termReady = true; }
+          }));
+        }
+
+        // PTY-close signal from Rust: reader thread sends { exit: true } when the
+        // child process dies. This is the authoritative exit signal — no text matching
+        // needed. Triggered when user types "exit" + Enter and Claude Code exits.
+        if (payload.exit === true) {
+          console.log(`[TERM] EXIT signaled by PTY close for session ${sessionId}, gen=${myGeneration}, suppress=${_suppressExit}`);
+          agentTerminalIds.update(m => { m.delete(sessionId); return new Map(m); });
+          const tMapNow = get(agentTerminalMap);
+          const exitedEntry = tMapNow.get(sessionId);
+          if (exitedEntry) {
+            try { exitedEntry.container.remove(); } catch (_) {}
+            try { exitedEntry.term.dispose(); } catch (_) {}
+          }
+          agentTerminalMap.update(m => { m.delete(sessionId); return new Map(m); });
+          // Capture session ID from buffered "claude --resume <id>" if available
+          if (entry && entry._exitBuffer && !session.claudeSessionId) {
+            const resumeMatch = entry._exitBuffer.match(/claude --resume ([a-f0-9-]+)/);
+            if (resumeMatch) {
+              session.claudeSessionId = resumeMatch[1];
+              agentUpdateSessionId(session.id, resumeMatch[1]).catch(() => {});
+            }
+          }
+          if (entry) entry._exitBuffer = '';
+          agentSessionActivity.update(m => { m.set(sessionId, 'done'); return new Map(m); });
+          activeTermEntry = null;
+          if (currentSessionId === sessionId) currentSessionId = null;
+          if (!_suppressExit) {
+            const allTabs = get(tabsStore);
+            const exitedTab = allTabs.find(t => t.mode === 'agent' && t.key === sessionId);
+            if (exitedTab) {
+              const remainingAgentTabs = allTabs.filter(t => t.mode === 'agent' && t.id !== exitedTab.id);
+              closeTab(exitedTab.id);
+              if (remainingAgentTabs.length > 0) {
+                const nextTab = remainingAgentTabs[remainingAgentTabs.length - 1];
+                activateTab(nextTab.id);
+                if (nextTab.key) {
+                  const sessions = get(agentSessions);
+                  const nextSession = sessions.find(s => s.id === nextTab.key);
+                  if (nextSession) activeAgentSession.set(nextSession);
+                }
+              } else {
+                activeAgentSession.set(null);
+              }
+            } else {
+              const currentActive = get(activeAgentSession);
+              if (currentActive?.id === sessionId) activeAgentSession.set(null);
+            }
+          }
+          _suppressExit = false;
+          return;
+        }
+
         // Write data to terminal
         if (entry!.term) {
           try {
@@ -515,10 +645,34 @@
             .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
             .replace(/\x1b\][^\x07]*\x07/g, '');
 
-          if (/Resume this session with:/i.test(clean) || /claude --resume [a-f0-9-]{8,}/.test(clean) || /session has ended|Exiting Claude/i.test(clean)) {
+          // Only trigger exit detection if user RECENTLY typed /exit (within 10s).
+          // Window resizes / PTY redraws can flood the buffer with conversation history
+          // that contains farewell messages or "Resume this session with:" text from
+          // prior interactions — those would falsely trigger exit on resize otherwise.
+          const lastExitIntent = (entry as any)?._lastExitIntent || 0;
+          const recentExitIntent = lastExitIntent && (Date.now() - lastExitIntent) < 10000;
+          // Note: "Resume this session with:" and "claude --resume <id>" are NOT exit
+          // patterns anymore — Claude Code v2 prints them in the startup banner too.
+          // Real exits are caught via PTY-close (I/O error in agentWriteToTerminal)
+          // and these explicit farewell patterns.
+          const matched_ended = /session has ended|Exiting Claude/i.test(clean);
+          const matched_farewell = /(Goodbye!|Bye!|See ya!|Catch you later!|Take care!|Until next time!)\s*$/i.test(clean);
+          const exitMatched = recentExitIntent && (matched_ended || matched_farewell);
+          if (matched_ended || matched_farewell) {
+            console.log(`[TERM-DBG] regex-match session=${sessionId.slice(0,8)} ended=${matched_ended} farewell=${matched_farewell} recentIntent=${recentExitIntent} intentAge=${lastExitIntent ? Date.now() - lastExitIntent : 'never'}ms tail=${JSON.stringify(clean.slice(-200))}`);
+          }
+          if (exitMatched) {
             console.log(`[TERM] EXIT DETECTED for session ${sessionId}, gen=${myGeneration}`);
             agentTerminalIds.update(m => { m.delete(sessionId); return new Map(m); });
-            entry!._exitBuffer = '';
+            // Remove terminal entry + dispose xterm + remove container from DOM
+            const tMapNow = get(agentTerminalMap);
+            const exitedEntry = tMapNow.get(sessionId);
+            if (exitedEntry) {
+              try { exitedEntry.container.remove(); } catch (_) {}
+              try { exitedEntry.term.dispose(); } catch (_) {}
+            }
+            agentTerminalMap.update(m => { m.delete(sessionId); return new Map(m); });
+            if (entry) entry._exitBuffer = '';
             // Capture session ID if not already set (for future --resume)
             const resumeMatch = clean.match(/claude --resume ([a-f0-9-]+)/);
             if (resumeMatch && !session.claudeSessionId) {
@@ -528,20 +682,31 @@
             }
             agentSessionActivity.update(m => { m.set(sessionId, 'done'); return new Map(m); });
 
-            // Auto-switch to next running session, or show empty state
+            // Clear stale active reference — entry was just disposed/removed from DOM
+            activeTermEntry = null;
+            if (currentSessionId === sessionId) currentSessionId = null;
+
+            // Synchronous tab-aware switching
             if (!_suppressExit) {
-              const currentActive = get(activeAgentSession);
-              if (currentActive?.id === sessionId) {
-                const activity = get(agentSessionActivity);
-                const sessions = get(agentSessions);
-                const nextRunning = sessions.find(s => s.id !== sessionId && activity.get(s.id) === 'running');
-                if (nextRunning) {
-                  activeAgentSession.set(nextRunning);
+              const allTabs = get(tabsStore);
+              const exitedTab = allTabs.find(t => t.mode === 'agent' && t.key === sessionId);
+              if (exitedTab) {
+                const remainingAgentTabs = allTabs.filter(t => t.mode === 'agent' && t.id !== exitedTab.id);
+                closeTab(exitedTab.id);
+                if (remainingAgentTabs.length > 0) {
+                  const nextTab = remainingAgentTabs[remainingAgentTabs.length - 1];
+                  activateTab(nextTab.id);
+                  if (nextTab.key) {
+                    const sessions = get(agentSessions);
+                    const nextSession = sessions.find(s => s.id === nextTab.key);
+                    if (nextSession) activeAgentSession.set(nextSession);
+                  }
                 } else {
-                  // No running sessions — show empty/default state
-                  currentSessionId = null;
                   activeAgentSession.set(null);
                 }
+              } else {
+                const currentActive = get(activeAgentSession);
+                if (currentActive?.id === sessionId) activeAgentSession.set(null);
               }
             }
             _suppressExit = false;
@@ -549,10 +714,24 @@
           }
         } catch (_) {}
 
-        // Track activity for background sessions
-        const currentSession = get(activeAgentSession);
-        if (currentSession?.id !== sessionId) {
-          agentSessionActivity.update(m => { m.set(sessionId, 'running'); return new Map(m); });
+        // Track activity — only mark 'running' if sustained output (not just echo/redraw)
+        // Count bytes in a rolling 500ms window. Claude Code generating output produces
+        // hundreds of bytes/sec. Echo/redraws are < 50 bytes total.
+        if (!_suppressExit) {
+          const payloadSize = payload.data?.length || 0;
+          activityBytes += payloadSize;
+
+          if (!activityWindow) {
+            activityWindow = setTimeout(() => {
+              activityWindow = null;
+              if (activityBytes > 200) {
+                // Substantial output — Claude Code is actively working
+                agentSessionActivity.update(m => { m.set(sessionId, 'running'); return new Map(m); });
+              }
+              activityBytes = 0;
+            }, 500);
+          }
+
           if (activityTimer) clearTimeout(activityTimer);
           activityTimer = setTimeout(() => {
             const act = get(agentSessionActivity);
@@ -614,13 +793,9 @@
       // Start context usage polling (Feature 2)
       startContextUsagePolling(session);
 
-      // Fit + resize PTY
+      // Visual fit only — ResizeObserver handles debounced PTY resize
       requestAnimationFrame(() => {
-        try {
-          entry!.fitAddon.fit();
-          const dims = entry!.fitAddon.proposeDimensions();
-          if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
-        } catch (_) {}
+        try { entry!.fitAddon.fit(); } catch (_) {}
       });
 
       if (get(agentShellOpen)) spawnShellForSession(session);
@@ -632,7 +807,7 @@
     }
   }
 
-  // Draggable divider between main terminal and shell
+  // Draggable divider between main terminal and shell (same pattern as AI panel)
   function handleDividerMousedown(e: MouseEvent) {
     e.preventDefault();
     dragging = true;
@@ -641,40 +816,27 @@
     const startW = mainWidth;
     const rect = wrapperEl.getBoundingClientRect();
 
-    function onMove(ev: MouseEvent) {
-      const deltaX = ev.clientX - startX;
-      const pct = startW + (deltaX / rect.width) * 100;
+    function onMove(e: MouseEvent) {
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
       mainWidth = Math.max(25, Math.min(80, pct));
-
-      if (!fitTimer) {
-        fitTimer = setTimeout(() => {
-          fitTimer = null;
-          try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
-          try { activeShellEntry?.fitAddon?.fit(); } catch (_) {}
-        }, 100);
-      }
     }
 
     function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
       dragging = false;
-      if (fitTimer) { clearTimeout(fitTimer); fitTimer = null; }
-      refitAll();
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      refitAll(true);
     }
 
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   // React to theme changes — update all terminal instances
   const unsubAppearance = appearance.subscribe((app) => {
     if (!app) return;
     const termTheme = getTerminalTheme(app.theme, app.accentColor);
+    termBg = termTheme.background || '#0d0d18';
     const tMap = get(agentTerminalMap);
     for (const [, entry] of tMap) {
       if (entry?.term) entry.term.options.theme = termTheme;
@@ -690,6 +852,12 @@
     console.log(`[TERM] SUBSCRIBER: session=${session?.id || 'null'}, currentSessionId=${currentSessionId}, match=${session?.id === currentSessionId}`);
     if (session && session.id !== currentSessionId) {
       console.log(`[TERM] SUBSCRIBER: triggering selectSession via rAF`);
+      // Sync tab activation
+      import('$lib/stores/tabs').then(({ tabs: tabsStore, activateTab: activateTabFn }) => {
+        const allTabs = get(tabsStore);
+        const matchingTab = allTabs.find((t: any) => t.mode === 'agent' && t.key === session.id);
+        if (matchingTab) activateTabFn(matchingTab.id);
+      });
       requestAnimationFrame(() => selectSession(session));
     } else if (!session) {
       currentSessionId = null;
@@ -779,10 +947,91 @@
     currentSessionId = null;
     activeTermEntry = null;
     activeShellEntry = null;
+    _suppressExit = false; // Reset — killed PTY won't trigger exit detection to clear it
 
     loadAgentSessions().then(() => {
       selectSession(session);
     });
+  }
+
+  // Event handler for relaunch — kills terminal but KEEPS session ID for --resume with updated prompt
+  function handleRelaunchSession(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    if (!detail?.session) return;
+    const session = detail.session;
+    _suppressExit = true;
+
+    // Kill terminal
+    const tIds = get(agentTerminalIds);
+    const termId = tIds.get(session.id);
+    if (termId) agentKillTerminal(termId).catch(() => {});
+
+    // Kill shell
+    const sIds = get(agentShellIds);
+    const shellId = sIds.get(session.id);
+    if (shellId) agentKillTerminal(shellId).catch(() => {});
+
+    // Remove from maps (keep claudeSessionId for --resume)
+    agentTerminalIds.update(m => { m.delete(session.id); return new Map(m); });
+    agentShellIds.update(m => { m.delete(session.id); return new Map(m); });
+
+    const tMap = get(agentTerminalMap);
+    const entry = tMap.get(session.id);
+    if (entry) {
+      entry.container.remove();
+      entry.term.dispose();
+      agentTerminalMap.update(m => { m.delete(session.id); return new Map(m); });
+    }
+
+    const sMap = get(agentShellMap);
+    const sEntry = sMap.get(session.id);
+    if (sEntry) {
+      sEntry.container.remove();
+      sEntry.term.dispose();
+      agentShellMap.update(m => { m.delete(session.id); return new Map(m); });
+    }
+
+    currentSessionId = null;
+    activeTermEntry = null;
+    activeShellEntry = null;
+    _suppressExit = false; // Reset — killed PTY won't trigger exit detection to clear it
+
+    // Relaunch with updated session data (prompt changes picked up from activeAgentSession)
+    requestAnimationFrame(() => selectSession(session));
+  }
+
+  // Event handler for tab close — kills terminal without deleting session from DB
+  function handleCloseTabSession(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    const sessionId = detail?.sessionId;
+    if (!sessionId) return;
+
+    _suppressExit = true;
+
+    // Cleanup terminal entry
+    const tMap = get(agentTerminalMap);
+    const entry = tMap.get(sessionId);
+    if (entry) {
+      entry.container.remove();
+      entry.term.dispose();
+      agentTerminalMap.update(m => { m.delete(sessionId); return new Map(m); });
+    }
+
+    // Cleanup shell entry
+    const sMap = get(agentShellMap);
+    const sEntry = sMap.get(sessionId);
+    if (sEntry) {
+      sEntry.container.remove();
+      sEntry.term.dispose();
+      agentShellMap.update(m => { m.delete(sessionId); return new Map(m); });
+    }
+
+    agentTerminalIds.update(m => { m.delete(sessionId); return new Map(m); });
+    agentShellIds.update(m => { m.delete(sessionId); return new Map(m); });
+
+    if (activeTermEntry === entry) activeTermEntry = null;
+    if (activeShellEntry === sEntry) activeShellEntry = null;
+    currentSessionId = null;
   }
 
   // Event handler for delete-session (Feature 5)
@@ -838,6 +1087,13 @@
       currentSessionId = null;
       activeTermEntry = null;
       activeShellEntry = null;
+      agentShellOpen.set(false);
+      // Close the tab for deleted session
+      import('$lib/stores/tabs').then(({ tabs: tabsStore, closeTab: closeTabFn }) => {
+        const allTabs = get(tabsStore);
+        const agentTab = allTabs.find((t: any) => t.mode === 'agent' && t.key === session.id);
+        if (agentTab) closeTabFn(agentTab.id);
+      });
       activeAgentSession.set(null);
     }
 
@@ -847,19 +1103,19 @@
   onMount(async () => {
     // Load notification preferences from settings
     try {
-      const [notify, sound, dock] = await Promise.all([
-        getSetting('agent_notify_enabled'),
+      const [sound, dock] = await Promise.all([
         getSetting('agent_sound_enabled'),
         getSetting('agent_dock_bounce_enabled'),
       ]);
-      agentNotifyEnabled.set(notify === 'true');
-      agentSoundEnabled.set(sound === 'true');
-      agentDockBounceEnabled.set(dock === 'true');
+      agentSoundEnabled.set(sound !== 'false');
+      agentDockBounceEnabled.set(dock !== 'false');
     } catch (_) {}
 
-    // Listen for reset-session and delete-session events
+    // Listen for reset-session, delete-session, and close-tab-session events
     window.addEventListener('agent:reset-session', handleResetSession);
     window.addEventListener('agent:delete-session', handleDeleteSession);
+    window.addEventListener('agent:close-tab-session', handleCloseTabSession);
+    window.addEventListener('agent:relaunch-session', handleRelaunchSession);
 
     // File drag-and-drop: write dropped file paths into the active terminal
     try {
@@ -901,6 +1157,8 @@
     if (notifySoundInterval) clearInterval(notifySoundInterval);
     window.removeEventListener('agent:reset-session', handleResetSession);
     window.removeEventListener('agent:delete-session', handleDeleteSession);
+    window.removeEventListener('agent:close-tab-session', handleCloseTabSession);
+    window.removeEventListener('agent:relaunch-session', handleRelaunchSession);
     if (unlistenFileDrop) unlistenFileDrop();
   });
 </script>
@@ -917,19 +1175,24 @@
           </div>
         </div>
       {/if}
-      <div class="agent-terminal-container" class:term-hidden={!termReady} bind:this={terminalEl}></div>
+      <div class="agent-terminal-container" class:term-hidden={!termReady} bind:this={terminalEl} style="background:{termBg}"></div>
     </div>
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="agent-divider"
-      class:active={dragging}
-      style="display:{$agentShellOpen ? 'block' : 'none'}"
-      onmousedown={handleDividerMousedown}
-    ></div>
-
-    <div class="agent-shell-panel" style="display:{$agentShellOpen ? 'flex' : 'none'};width:{100 - mainWidth}%;flex:none;">
-      <div class="agent-shell-container" bind:this={shellEl}></div>
+    <div class="agent-shell-panel" class:dragging={dragging} style="display:{$agentShellOpen ? 'flex' : 'none'};width:{100 - mainWidth}%;flex:none;">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="agent-drag-handle" onmousedown={handleDividerMousedown}></div>
+      <div class="agent-shell-wrap">
+        {#if activeShellLoading}
+          <div class="agent-loading shell-loading">
+            <img src="/code-in-action.svg" alt="" class="loading-mascot" />
+            <div class="loading-text">
+              <span class="loading-title">Starting Shell</span>
+              <span class="loading-sub">Loading terminal session<span class="loading-dots"></span></span>
+            </div>
+          </div>
+        {/if}
+        <div class="agent-shell-container" class:term-hidden={activeShellLoading} bind:this={shellEl} style="background:{termBg}"></div>
+      </div>
     </div>
   </div>
 {:else}
@@ -967,16 +1230,44 @@
     opacity: 1;
     transition: opacity 0.35s ease;
   }
+  .agent-terminal-container :global(.xterm) {
+    height: 100% !important;
+    padding: 0 !important;
+  }
+  .agent-terminal-container :global(.xterm-viewport) {
+    height: 100% !important;
+    /* Scrollbar overlays content instead of taking space */
+    scrollbar-gutter: auto;
+  }
+  .agent-terminal-container :global(.xterm-screen) {
+    height: 100% !important;
+  }
+  .agent-shell-container :global(.xterm) {
+    height: 100% !important;
+    padding: 0 !important;
+  }
+  .agent-shell-container :global(.xterm-viewport) {
+    height: 100% !important;
+    scrollbar-gutter: auto;
+  }
+  .agent-shell-container :global(.xterm-screen) {
+    height: 100% !important;
+  }
+  .agent-terminal-container {
+    transition: opacity 0.15s ease;
+  }
   .agent-terminal-container.term-hidden {
     opacity: 0;
   }
   /* Thin scrollbar for xterm */
-  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar) { width: 4px; }
-  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb) { background: var(--b1); border-radius: 2px; }
-  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) { background: var(--t4); }
-  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar) { width: 4px; }
-  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar-thumb) { background: var(--b1); border-radius: 2px; }
-  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) { background: var(--t4); }
+  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar) { width: 3px; }
+  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar-track) { background: transparent; }
+  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb) { background: rgba(255,255,255,0.10); border-radius: 3px; }
+  .agent-terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) { background: rgba(255,255,255,0.20); }
+  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar) { width: 3px; }
+  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar-track) { background: transparent; }
+  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar-thumb) { background: rgba(255,255,255,0.10); border-radius: 3px; }
+  .agent-shell-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) { background: rgba(255,255,255,0.20); }
 
   .agent-loading {
     position: absolute;
@@ -1026,43 +1317,46 @@
     to { opacity: 1; transform: scale(1); }
   }
 
-  .agent-divider {
-    width: 4px;
-    background: transparent;
-    flex-shrink: 0;
-    cursor: col-resize;
-    position: relative;
-  }
-  .agent-divider::after {
-    content: '';
-    position: absolute;
-    left: 1px;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: var(--b1);
-  }
-  .agent-divider:hover::after {
-    background: var(--acc);
-    width: 2px;
-    left: 1px;
-  }
-  .agent-divider.active::after {
-    background: var(--acc);
-    width: 2px;
-  }
-
   .agent-shell-panel {
     display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    flex-direction: row;
     min-width: 200px;
   }
+  .agent-shell-panel.dragging {
+    transition: none;
+    user-select: none;
+  }
+  .agent-drag-handle {
+    width: 4px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    background: var(--b1);
+    transition: background 0.15s;
+  }
+  .agent-drag-handle:hover,
+  .agent-shell-panel.dragging .agent-drag-handle {
+    background: var(--acc);
+  }
 
+  .agent-shell-wrap {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    position: relative;
+    display: flex;
+  }
   .agent-shell-container {
     flex: 1;
     min-height: 0;
+    min-width: 0;
     overflow: hidden;
+    transition: opacity 0.15s ease;
+  }
+  .agent-shell-container.term-hidden {
+    opacity: 0;
+  }
+  .shell-loading {
+    /* same .agent-loading positioning, just scoped here */
   }
 
   .agent-empty {

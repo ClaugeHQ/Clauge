@@ -15,7 +15,7 @@
   let activeTab: 'import' | 'export' = $state('import');
 
   // Import state
-  let importFormat: 'auto' | 'qorix' | 'postman' | 'curl' = $state('auto');
+  let importFormat: 'auto' | 'clauge' | 'postman' | 'curl' = $state('auto');
   let importText = $state('');
   let importFile: File | null = $state(null);
   let importing = $state(false);
@@ -23,7 +23,7 @@
 
   // Export state
   let exportCollectionId = $state('__all__');
-  let exportFormat: 'qorix' | 'curl' = $state('qorix');
+  let exportFormat: 'clauge' | 'curl' = $state('clauge');
   let exporting = $state(false);
 
   const collectionList = $derived($collections);
@@ -31,19 +31,19 @@
   // Reset to JSON format when "All Collections" is selected (cURL not available for all)
   $effect(() => {
     if (exportCollectionId === '__all__' && exportFormat === 'curl') {
-      exportFormat = 'qorix';
+      exportFormat = 'clauge';
     }
   });
 
-  function detectFormat(text: string): 'qorix' | 'postman' | 'curl' {
+  function detectFormat(text: string): 'clauge' | 'postman' | 'curl' {
     const trimmed = text.trim();
     if (trimmed.startsWith('curl ') || trimmed.startsWith('curl\t')) {
       return 'curl';
     }
     try {
       const obj = JSON.parse(trimmed);
-      if (obj.format && typeof obj.format === 'string' && (obj.format.startsWith('clauge/') || obj.format.startsWith('qorix/'))) {
-        return 'qorix';
+      if (obj.format && typeof obj.format === 'string' && obj.format.startsWith('clauge/')) {
+        return 'clauge';
       }
       if (obj.info && obj.item) {
         return 'postman';
@@ -86,7 +86,7 @@
         const result = await cmd.importPostman(content);
         showToast(result.message, 'success');
       } else {
-        const result = await cmd.importQorix(content);
+        const result = await cmd.importClauge(content);
         showToast(result.message, 'success');
       }
 
@@ -187,7 +187,7 @@
       <label class="ie-label">Format</label>
       <select class="ie-select" bind:value={importFormat}>
         <option value="auto">Auto-detect</option>
-        <option value="qorix">Clauge JSON</option>
+        <option value="clauge">Clauge JSON</option>
         <option value="postman">Postman Collection</option>
         <option value="curl">cURL Command</option>
       </select>
@@ -229,7 +229,7 @@
 
       <label class="ie-label">Format</label>
       <select class="ie-select" bind:value={exportFormat}>
-        <option value="qorix">Clauge JSON</option>
+        <option value="clauge">Clauge JSON</option>
         {#if exportCollectionId !== '__all__'}
           <option value="curl">cURL (.sh)</option>
         {/if}

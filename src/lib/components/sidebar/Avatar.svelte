@@ -9,7 +9,7 @@
     {:else if $githubConnected}
       <span class="avatar-letter">{($githubUsername ?? 'U').charAt(0).toUpperCase()}</span>
     {:else}
-      <span class="avatar-letter">QX</span>
+      <span class="avatar-letter">CL</span>
     {/if}
   </button>
   {#if $githubConnected}

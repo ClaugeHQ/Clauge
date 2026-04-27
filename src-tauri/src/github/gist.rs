@@ -10,7 +10,6 @@ use crate::db::models::{
 };
 
 const GIST_DESCRIPTION: &str = "clauge-data-v1";
-const LEGACY_GIST_DESCRIPTION: &str = "qorix-data-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,7 +160,6 @@ async fn export_data(pool: &SqlitePool) -> Result<SyncData, String> {
 }
 
 /// Find the Clauge gist by description (paginates through all gists).
-/// Also matches the legacy "qorix-data-v1" description for backward compatibility.
 async fn find_clauge_gist(
     client: &tauri_plugin_http::reqwest::Client,
     token: &str,
@@ -196,7 +194,7 @@ async fn find_clauge_gist(
 
         for gist in &gists {
             let desc = gist.description.as_deref();
-            if desc == Some(GIST_DESCRIPTION) || desc == Some(LEGACY_GIST_DESCRIPTION) {
+            if desc == Some(GIST_DESCRIPTION) {
                 if gist.public.unwrap_or(false) {
                     log::warn!("[Sync] Found PUBLIC gist {} — skipping, user should delete manually", gist.id);
                     continue; // Skip public gists, only use secret ones
@@ -372,8 +370,7 @@ pub async fn gist_sync_pull(pool: State<'_, SqlitePool>) -> Result<String, Strin
 
     let file_content = gist
         .files
-        .get("qorix-data.json")
-        .or_else(|| gist.files.get("clauge-data.json"))
+        .get("clauge-data.json")
         .and_then(|f| f.content.as_deref())
         .ok_or_else(|| "Gist does not contain sync data file".to_string())?;
 

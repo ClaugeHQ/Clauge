@@ -188,6 +188,8 @@ pub struct ToolCount {
 pub struct TerminalOutputPayload {
     pub terminal_id: String,
     pub data: String, // base64 encoded
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<bool>, // true when PTY closed (EOF or read error)
 }
 
 pub(crate) struct TerminalEntry {
