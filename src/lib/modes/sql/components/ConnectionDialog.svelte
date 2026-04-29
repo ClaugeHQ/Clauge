@@ -32,6 +32,10 @@
   let ssl = $state(false);
   let testing = $state(false);
   let testStatus = $state(''); // two-step status text during a tunneled test
+  // Generation counter — bumped on every fresh test AND on dialog close.
+  // Each await checks `myGen !== testGen` to bail silently when stale.
+  // In-flight backend test will complete; we just discard the result.
+  let testGen = $state(0);
 
   // SSH tunnel section state ─────────────────────────────────────────────
   let useSshTunnel = $state(false);
@@ -115,6 +119,7 @@
   }
 
   async function handleTest() {
+    const myGen = ++testGen;
     testing = true;
     testStatus = '';
     try {
@@ -129,20 +134,36 @@
             targetPort: port,
           });
         } catch (e: any) {
+          if (myGen !== testGen) return; // stale — dialog closed or new test started
           showToast(`Tunnel test failed: ${e?.toString?.() ?? e}`, 'error');
           return;
         }
+        if (myGen !== testGen) return;
         testStatus = 'Testing database…';
       }
       const result = await sqlTestConnection(buildConfig());
+      if (myGen !== testGen) return;
       showToast(result || 'Connection successful', 'success');
     } catch (err: any) {
+      if (myGen !== testGen) return;
       showToast(err.toString(), 'error');
     } finally {
+      if (myGen === testGen) {
+        testing = false;
+        testStatus = '';
+      }
+    }
+  }
+
+  // Reset state + invalidate in-flight tests when the dialog closes.
+  // In-flight backend test will complete; we just discard the result.
+  $effect(() => {
+    if (!show) {
+      testGen++;
       testing = false;
       testStatus = '';
     }
-  }
+  });
 
   function handleSave() {
     if (!name.trim()) {
@@ -412,6 +433,11 @@
     font-family: var(--ui);
     cursor: default;
     transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+    /* min-width keeps the Test button stable when its label cycles
+       through "Testing tunnel…" / "Testing database…" — otherwise the
+       button reflows and visually shifts the adjacent Cancel/Save. */
+    min-width: 160px;
+    text-align: center;
   }
   .conn-btn.outline {
     border: 1px solid var(--b1);

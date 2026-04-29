@@ -32,6 +32,10 @@
   let testing = $state(false);
   let saving = $state(false);
   let testStatus = $state('');
+  // Generation counter — bumped on every fresh test AND on dialog close.
+  // Each await checks `myGen !== testGen` to bail silently when stale.
+  // In-flight backend test will complete; we just discard the result.
+  let testGen = $state(0);
 
   // SSH tunnel section state ─────────────────────────────────────────────
   let useSshTunnel = $state(false);
@@ -136,6 +140,7 @@
   }
 
   async function handleTest() {
+    const myGen = ++testGen;
     testing = true;
     testStatus = '';
     try {
@@ -152,21 +157,37 @@
               targetPort: target.port,
             });
           } catch (e: any) {
+            if (myGen !== testGen) return; // stale — dialog closed or new test started
             showToast(`Tunnel test failed: ${friendlyError(e)}`, 'error');
             return;
           }
+          if (myGen !== testGen) return;
           testStatus = 'Testing database…';
         }
       }
       const msg = await nosqlTestConnection(buildConfig());
+      if (myGen !== testGen) return;
       showToast(msg || 'Connection successful', 'success');
     } catch (e: any) {
+      if (myGen !== testGen) return;
       showToast(friendlyError(e), 'error');
     } finally {
+      if (myGen === testGen) {
+        testing = false;
+        testStatus = '';
+      }
+    }
+  }
+
+  // Reset state + invalidate in-flight tests when the dialog closes.
+  // In-flight backend test will complete; we just discard the result.
+  $effect(() => {
+    if (!show) {
+      testGen++;
       testing = false;
       testStatus = '';
     }
-  }
+  });
 
   async function handleSave() {
     const config = buildConfig();
@@ -525,6 +546,11 @@
     font-family: var(--ui);
     cursor: default;
     transition: border-color 0.12s, color 0.12s;
+    /* min-width keeps the Test button stable when its label cycles
+       through "Testing tunnel…" / "Testing database…" — otherwise the
+       button reflows and visually shifts the adjacent Cancel/Save. */
+    min-width: 160px;
+    text-align: center;
   }
   .conn-test-btn:hover:not(:disabled) {
     border-color: var(--b2);
