@@ -41,9 +41,10 @@ pub async fn insert(
     ssl: i32,
     direct_connection: i32,
     sort_order: i32,
+    ssh_profile_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO nosql_connections (id, name, driver, connection_string, host, port, database_name, username, password, ssl, direct_connection, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO nosql_connections (id, name, driver, connection_string, host, port, database_name, username, password, ssl, direct_connection, sort_order, ssh_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(name)
@@ -57,6 +58,7 @@ pub async fn insert(
     .bind(ssl)
     .bind(direct_connection)
     .bind(sort_order)
+    .bind(ssh_profile_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -84,9 +86,10 @@ pub async fn update(
     password: &str,
     ssl: i32,
     direct_connection: i32,
+    ssh_profile_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE nosql_connections SET name = ?, driver = ?, connection_string = ?, host = ?, port = ?, database_name = ?, username = ?, password = ?, ssl = ?, direct_connection = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE nosql_connections SET name = ?, driver = ?, connection_string = ?, host = ?, port = ?, database_name = ?, username = ?, password = ?, ssl = ?, direct_connection = ?, ssh_profile_id = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .bind(name)
     .bind(driver)
@@ -98,6 +101,7 @@ pub async fn update(
     .bind(password)
     .bind(ssl)
     .bind(direct_connection)
+    .bind(ssh_profile_id)
     .bind(id)
     .execute(pool)
     .await?;

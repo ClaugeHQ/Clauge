@@ -27,6 +27,11 @@ pub struct NoSqlConnectionConfig {
     pub ssl: bool,
     #[serde(default)]
     pub direct_connection: bool,
+    /// Optional SSH profile to tunnel through. When `Some`, the connection
+    /// is rewritten to target the local end of an SSH tunnel established
+    /// against `host:port` from the bastion.
+    #[serde(default)]
+    pub ssh_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +76,10 @@ pub struct NoSqlConnection {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+    /// When set, the runtime opens an SSH tunnel through the referenced
+    /// `ssh_profiles.id` and rewrites the connection target to the local
+    /// end of the tunnel before handing it to the Mongo / Redis client.
+    pub ssh_profile_id: Option<String>,
 }
 
 // ── Connection Pool ─────────────────────────────────────────────────────
@@ -80,10 +89,23 @@ pub enum NoSqlPool {
     Redis(redis::aio::ConnectionManager),
 }
 
-pub type NoSqlConnections = Arc<Mutex<HashMap<String, NoSqlPool>>>;
+/// Combined pool map + parallel tunnel map. Splitting them into two maps
+/// (rather than wrapping `NoSqlPool` in a struct) keeps every existing
+/// `match guard.get(...)` arm in this file unchanged. Tunnels live and die
+/// with their pool: every code path that removes from `pools` also removes
+/// from `tunnels`, and `SshTunnel::Drop` closes the SSH session.
+pub struct NoSqlState {
+    pub pools: Mutex<HashMap<String, NoSqlPool>>,
+    pub tunnels: Mutex<HashMap<String, crate::modes::ssh::tunnel::SshTunnel>>,
+}
+
+pub type NoSqlConnections = Arc<NoSqlState>;
 
 pub fn create_nosql_state() -> NoSqlConnections {
-    Arc::new(Mutex::new(HashMap::new()))
+    Arc::new(NoSqlState {
+        pools: Mutex::new(HashMap::new()),
+        tunnels: Mutex::new(HashMap::new()),
+    })
 }
 
 // ── Helper: build connection string if not provided ─────────────────────
@@ -126,14 +148,105 @@ fn build_redis_uri(config: &NoSqlConnectionConfig) -> String {
     format!("{}://{}{}:{}{}", scheme, auth, config.host, config.port, db)
 }
 
+/// Decide what `host` / `port` and connection string the driver should see.
+///
+/// When the saved connection has no `ssh_profile_id`, returns the config
+/// untouched and `None` for the tunnel (legacy behaviour).
+///
+/// When `ssh_profile_id` is set, opens an SSH tunnel to the *original*
+/// `host:port` (the DB target as seen from the bastion), then returns a
+/// rewritten config whose `host` is `127.0.0.1`, whose `port` is the
+/// kernel-chosen local listener port, and whose `connection_string` (if
+/// any) has been rewritten to point at the same local endpoint.
+///
+/// MongoDB `mongodb+srv://` URIs are explicitly rejected: SRV resolves to
+/// multiple replica-set hosts and an SSH local forward can only target a
+/// single one, so combining them is unsupported.
+async fn apply_tunnel_if_any(
+    app_pool: &SqlitePool,
+    config: &NoSqlConnectionConfig,
+) -> Result<(NoSqlConnectionConfig, Option<crate::modes::ssh::tunnel::SshTunnel>), String> {
+    let profile_id = match &config.ssh_profile_id {
+        Some(p) if !p.is_empty() => p,
+        _ => return Ok((config.clone(), None)),
+    };
+
+    // Reject SRV early — see doc comment.
+    if config.driver == "mongodb"
+        && config.connection_string.starts_with("mongodb+srv://")
+    {
+        return Err(
+            "SSH tunnels can't be combined with mongodb+srv:// URIs. Use a plain \
+             mongodb://host:port/... URL or clear the connection string and rely \
+             on the host/port fields."
+                .to_string(),
+        );
+    }
+
+    let tunnel = crate::modes::ssh::tunnel::open(
+        app_pool,
+        profile_id,
+        &config.host,
+        config.port,
+    )
+    .await?;
+
+    let mut tunneled = config.clone();
+    let local_port = tunnel.local_port;
+    tunneled.host = "127.0.0.1".to_string();
+    tunneled.port = local_port;
+
+    // If the saved row has an explicit connection_string, rewrite it to
+    // target the local listener. We don't try to be clever — we replace
+    // the host:port portion with 127.0.0.1:<local_port> using a regex-free
+    // scan since we don't have `regex` as a dependency.
+    if !tunneled.connection_string.is_empty() {
+        tunneled.connection_string =
+            rewrite_uri_host_port(&tunneled.connection_string, local_port)?;
+    }
+
+    Ok((tunneled, Some(tunnel)))
+}
+
+/// Replace the `host:port` portion of a `scheme://[creds@]host[:port]/...`
+/// URI with `127.0.0.1:<new_port>`, leaving credentials, path, and query
+/// string intact.
+fn rewrite_uri_host_port(uri: &str, new_port: u16) -> Result<String, String> {
+    let scheme_end = uri
+        .find("://")
+        .ok_or_else(|| format!("connection string missing scheme: {}", uri))?;
+    let scheme = &uri[..scheme_end + 3]; // includes "://"
+    let rest = &uri[scheme_end + 3..];
+
+    // Split off credentials (everything before the last `@`) and the rest
+    // (host[:port]/path?query). Some URIs have `@` inside the password
+    // (URL-encoded) — splitting on the LAST `@` before the first `/` would
+    // be safer, but practical URIs rarely contain that. Splitting on the
+    // first `/` first lets us bound the search.
+    let path_start = rest.find('/').unwrap_or(rest.len());
+    let authority = &rest[..path_start];
+    let trailer = &rest[path_start..];
+
+    let (creds, hostport) = match authority.rfind('@') {
+        Some(at) => (&authority[..at + 1], &authority[at + 1..]),
+        None => ("", authority),
+    };
+    let _ = hostport; // we're replacing the whole host:port wholesale
+
+    Ok(format!("{}{}{}:{}{}", scheme, creds, "127.0.0.1", new_port, trailer))
+}
+
 // ── Connection Management Commands ──────────────────────────────────────
 
 #[tauri::command]
 pub async fn nosql_connect(
     connections: State<'_, NoSqlConnections>,
+    app_pool: State<'_, SqlitePool>,
     config: NoSqlConnectionConfig,
 ) -> Result<String, String> {
     let id = Uuid::new_v4().to_string();
+
+    let (config, tunnel) = apply_tunnel_if_any(app_pool.inner(), &config).await?;
 
     let pool = match config.driver.as_str() {
         "mongodb" => {
@@ -186,7 +299,10 @@ pub async fn nosql_connect(
         other => return Err(format!("Unsupported driver: {}", other)),
     };
 
-    connections.lock().await.insert(id.clone(), pool);
+    connections.pools.lock().await.insert(id.clone(), pool);
+    if let Some(t) = tunnel {
+        connections.tunnels.lock().await.insert(id.clone(), t);
+    }
     Ok(id)
 }
 
@@ -195,16 +311,31 @@ pub async fn nosql_disconnect(
     connections: State<'_, NoSqlConnections>,
     connection_id: String,
 ) -> Result<(), String> {
-    connections
+    let removed = connections
+        .pools
         .lock()
         .await
         .remove(&connection_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-    Ok(())
+        .is_some();
+    // Drop the tunnel last so any in-flight close from the driver can
+    // still drain through the SSH session.
+    let _ = connections.tunnels.lock().await.remove(&connection_id);
+    if removed {
+        Ok(())
+    } else {
+        Err("Connection not found".to_string())
+    }
 }
 
 #[tauri::command]
-pub async fn nosql_test_connection(config: NoSqlConnectionConfig) -> Result<(), String> {
+pub async fn nosql_test_connection(
+    app_pool: State<'_, SqlitePool>,
+    config: NoSqlConnectionConfig,
+) -> Result<(), String> {
+    let (config, tunnel) = apply_tunnel_if_any(app_pool.inner(), &config).await?;
+    // Tunnel must outlive the driver's connect+ping below; we drop it at
+    // the very end of this function. `_tunnel` keeps it bound.
+    let _tunnel = tunnel;
     match config.driver.as_str() {
         "mongodb" => {
             let uri = build_mongo_uri(&config);
@@ -256,7 +387,7 @@ pub async fn nosql_test_connection(config: NoSqlConnectionConfig) -> Result<(), 
 
 macro_rules! get_mongo {
     ($conns:expr, $id:expr) => {{
-        let guard = $conns.lock().await;
+        let guard = $conns.pools.lock().await;
         match guard.get($id) {
             Some(NoSqlPool::Mongo(c)) => c.clone(),
             Some(_) => return Err("Connection is not MongoDB".to_string()),
@@ -267,7 +398,7 @@ macro_rules! get_mongo {
 
 macro_rules! get_redis {
     ($conns:expr, $id:expr) => {{
-        let guard = $conns.lock().await;
+        let guard = $conns.pools.lock().await;
         match guard.get($id) {
             Some(NoSqlPool::Redis(cm)) => cm.clone(),
             Some(_) => return Err("Connection is not Redis".to_string()),
@@ -863,6 +994,7 @@ pub async fn nosql_save_connection(
         if config.ssl { 1 } else { 0 },
         if config.direct_connection { 1 } else { 0 },
         max_order.0 + 1,
+        config.ssh_profile_id.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -913,6 +1045,7 @@ pub async fn nosql_update_saved_connection(
         config.password.as_deref().unwrap_or(""),
         if config.ssl { 1 } else { 0 },
         if config.direct_connection { 1 } else { 0 },
+        config.ssh_profile_id.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;

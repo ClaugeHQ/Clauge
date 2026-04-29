@@ -108,7 +108,7 @@ pub async fn execute_nosql_tool(
             if connection_id.is_empty() {
                 return "Error: connection_id is required".to_string();
             }
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -136,7 +136,7 @@ pub async fn execute_nosql_tool(
             if connection_id.is_empty() || database.is_empty() {
                 return "Error: connection_id and database are required".to_string();
             }
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -165,7 +165,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id, database, and collection are required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -241,7 +241,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id, database, and collection are required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -278,7 +278,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id, database, and collection are required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -348,7 +348,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id is required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Redis(cm)) => {
                     let mut conn = cm.clone();
@@ -385,7 +385,7 @@ pub async fn execute_nosql_tool(
                 return "Error: empty command".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Redis(cm)) => {
                     let mut conn = cm.clone();
@@ -427,7 +427,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id, database, and collection are required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -481,7 +481,7 @@ pub async fn execute_nosql_tool(
                 return "Error: documents must be a JSON array or object".to_string();
             };
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
@@ -518,7 +518,7 @@ pub async fn execute_nosql_tool(
                 return "Error: connection_id, database, and collection are required".to_string();
             }
 
-            let guard = nosql_conns.lock().await;
+            let guard = nosql_conns.pools.lock().await;
             match guard.get(connection_id) {
                 Some(super::client::NoSqlPool::Mongo(client)) => {
                     let client = client.clone();
