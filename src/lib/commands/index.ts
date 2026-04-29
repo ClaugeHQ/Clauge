@@ -103,6 +103,6 @@ export {
   nosqlListSavedConnections,
   nosqlDeleteSavedConnection,
   nosqlUpdateSavedConnection,
-} from './nosql_client';
+} from '$lib/modes/nosql/commands';
 
 export * from './ai';

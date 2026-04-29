@@ -1,7 +1,7 @@
 <script lang="ts">
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { nosqlFindDocuments, nosqlInsertDocument, nosqlUpdateDocument, nosqlDeleteDocument, nosqlCountDocuments } from '$lib/commands/nosql_client';
+  import { nosqlFindDocuments, nosqlInsertDocument, nosqlUpdateDocument, nosqlDeleteDocument, nosqlCountDocuments } from '../commands';
   import { parseCsv, parseJsonDocs } from '$lib/utils/import-parser';
   import QueryEditor from './QueryEditor.svelte';
   import { highlightJSON } from '$lib/utils/json-highlight';
@@ -539,7 +539,7 @@
     aggPipeline = val;
     loading = true;
     try {
-      const { nosqlAggregate } = await import('$lib/commands/nosql_client');
+      const { nosqlAggregate } = await import('../commands');
       const result = await nosqlAggregate(connectionId, database, collection, val);
       queryResult = result.documents;
       queryDuration = result.durationMs;

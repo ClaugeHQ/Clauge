@@ -11,12 +11,12 @@
     editingNoSqlConnection,
     nosqlLiveConnectionIds,
     openNoSqlCollection,
-  } from '$lib/stores/nosql';
-  import { nosqlListDatabases, nosqlListCollections, nosqlCreateCollection, nosqlDropDatabase, nosqlDropCollection, nosqlRenameCollection } from '$lib/commands/nosql_client';
+  } from '../stores';
+  import { nosqlListDatabases, nosqlListCollections, nosqlCreateCollection, nosqlDropDatabase, nosqlDropCollection, nosqlRenameCollection } from '../commands';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
   import { showContextMenu } from '$lib/components/shared/contextmenu';
-  import type { NoSqlConnection } from '$lib/types/nosql';
+  import type { NoSqlConnection } from '../types';
 
   // SVG icon helpers (inline, 14x14, stroke-based)
   const icons = {

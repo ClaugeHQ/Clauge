@@ -43,4 +43,4 @@ export type {
   NoSqlQueryResult,
   RedisKeyInfo,
   RedisValue,
-} from './nosql';
+} from '$lib/modes/nosql/types';

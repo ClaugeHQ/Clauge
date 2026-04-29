@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import type { NoSqlConnection, NoSqlConnectionConfig } from '$lib/types/nosql';
+import type { NoSqlConnection, NoSqlConnectionConfig } from './types';
 import {
   nosqlListSavedConnections,
   nosqlSaveConnection,
@@ -7,7 +7,7 @@ import {
   nosqlUpdateSavedConnection,
   nosqlConnect,
   nosqlDisconnect,
-} from '$lib/commands/nosql_client';
+} from './commands';
 
 // --- NoSQL Tab State (per global tab) ---
 export interface NoSqlTabData {

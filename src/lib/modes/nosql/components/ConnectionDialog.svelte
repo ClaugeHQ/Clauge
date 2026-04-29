@@ -2,8 +2,8 @@
   import Modal from '$lib/components/shared/Modal.svelte';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { nosqlTestConnection } from '$lib/commands/nosql_client';
-  import type { NoSqlConnection, NoSqlConnectionConfig } from '$lib/types/nosql';
+  import { nosqlTestConnection } from '../commands';
+  import type { NoSqlConnection, NoSqlConnectionConfig } from '../types';
 
   interface Props {
     show: boolean;

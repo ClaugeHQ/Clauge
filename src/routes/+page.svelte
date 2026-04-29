@@ -4,7 +4,7 @@
   import AgentPanel from '$lib/components/agent/AgentPanel.svelte';
   import RestPanel from '$lib/components/rest/RestPanel.svelte';
   import SqlPanel from '$lib/components/sql/SqlPanel.svelte';
-  import NoSqlPanel from '$lib/components/nosql/NoSqlPanel.svelte';
+  import NoSqlPanel from '$lib/modes/nosql/components/NoSqlPanel.svelte';
   import SshPanel from '$lib/modes/ssh/components/SshPanel.svelte';
   import HistoryViewer from '$lib/components/rest/HistoryViewer.svelte';
 </script>

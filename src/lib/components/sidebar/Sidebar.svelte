@@ -8,7 +8,7 @@
   import { loadCollections } from '$lib/stores/collections';
   import { loadEnvironments } from '$lib/stores/environments';
   import { loadConnections as loadSqlConnections, loadSqlScripts } from '$lib/stores/sql';
-  import { loadNoSqlConnections } from '$lib/stores/nosql';
+  import { loadNoSqlConnections } from '$lib/modes/nosql/stores';
   import { friendlyError } from '$lib/utils/errors';
   import SidebarButton from './SidebarButton.svelte';
   import Avatar from './Avatar.svelte';

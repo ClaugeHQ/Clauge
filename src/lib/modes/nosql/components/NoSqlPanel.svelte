@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { activeNoSqlConnection, connectedNoSqlIds, nosqlLiveConnectionIds, nosqlTabState, setNoSqlTabData, nosqlConnections, activeNoSqlConnectionId, insertNoSqlQueryText, aiExecuteNoSqlQuery } from '$lib/stores/nosql';
-  import { nosqlListDatabases, nosqlListCollections as listColls } from '$lib/commands/nosql_client';
+  import { activeNoSqlConnection, connectedNoSqlIds, nosqlLiveConnectionIds, nosqlTabState, setNoSqlTabData, nosqlConnections, activeNoSqlConnectionId, insertNoSqlQueryText, aiExecuteNoSqlQuery } from '../stores';
+  import { nosqlListDatabases, nosqlListCollections as listColls } from '../commands';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
   import { tabs, activeTabId, addTab } from '$lib/stores/tabs';

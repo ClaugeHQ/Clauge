@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { NoSqlConnection, NoSqlConnectionConfig, NoSqlQueryResult, RedisKeyInfo, RedisValue } from '$lib/types/nosql';
+import type { NoSqlConnection, NoSqlConnectionConfig, NoSqlQueryResult, RedisKeyInfo, RedisValue } from './types';
 
 // --- Connection management ---
 

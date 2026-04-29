@@ -2,7 +2,7 @@
   import { mode, navOpen } from '$lib/stores/app';
   import RestNav from './RestNav.svelte';
   import SqlNav from './SqlNav.svelte';
-  import NoSqlNav from './NoSqlNav.svelte';
+  import NoSqlNav from '$lib/modes/nosql/components/NoSqlNav.svelte';
   import AgentNav from '$lib/components/agent/AgentNav.svelte';
   import SshNav from '$lib/modes/ssh/components/SshNav.svelte';
   import HistoryPanel from './HistoryPanel.svelte';

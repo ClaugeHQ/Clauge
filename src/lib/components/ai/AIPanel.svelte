@@ -6,7 +6,7 @@
   import { sendChatMessage, generateSessionId } from '$lib/services/ai-chat';
   import { REST_SYSTEM_PROMPT, REST_TOOLS } from '$lib/prompts/rest';
   import { SQL_SYSTEM_PROMPT, SQL_TOOLS } from '$lib/prompts/sql';
-  import { NOSQL_SYSTEM_PROMPT, NOSQL_TOOLS } from '$lib/prompts/nosql';
+  import { NOSQL_SYSTEM_PROMPT, NOSQL_TOOLS } from '$lib/modes/nosql/ai/prompt';
   import { buildSshSystemPrompt, SSH_TOOLS } from '$lib/modes/ssh/ai/prompt';
   import { activeSshProfile } from '$lib/modes/ssh/stores';
   import { redactSecrets } from '$lib/modes/ssh/ai/safety';
@@ -400,7 +400,7 @@
       return gatherSqlContext();
     }
     if (currentMode === 'nosql') {
-      const { gatherNosqlContext } = await import('$lib/services/ai-context-nosql');
+      const { gatherNosqlContext } = await import('$lib/modes/nosql/ai/context');
       return gatherNosqlContext();
     }
     const { gatherRestContext } = await import('$lib/services/ai-context-rest');
@@ -554,7 +554,7 @@
           }
           // NoSQL: apply_nosql_query — write query to the active NoSQL editor via store
           if (action === 'apply_nosql_query' && data.query) {
-            import('$lib/stores/nosql').then(({ applyAiNoSqlQuery }) => {
+            import('$lib/modes/nosql/stores').then(({ applyAiNoSqlQuery }) => {
               if (typeof applyAiNoSqlQuery === 'function') {
                 applyAiNoSqlQuery(data.query);
               }
@@ -563,7 +563,7 @@
           // NoSQL: ai_execute_nosql — switch to NoSQL mode, ensure tab, trigger execution
           if (action === 'ai_execute_nosql' && data.filter) {
             Promise.all([
-              import('$lib/stores/nosql'),
+              import('$lib/modes/nosql/stores'),
               import('$lib/stores/tabs'),
               import('$lib/stores/app'),
             ]).then(([{ triggerAiNoSqlExecution }, { addTab, tabs: tabStore, activeTabId: activeTabStore }, { mode: modeStore }]) => {

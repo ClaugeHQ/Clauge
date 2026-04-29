@@ -21,9 +21,9 @@
   import { loadConnections as loadSqlConnections, loadSqlScripts, showSqlConnectionDialog, editingSqlConnection, handleSqlConnectionSave, showSqlDisconnectConfirm, sqlDisconnectTarget, disconnectFromDb, connections as sqlConnections } from '$lib/stores/sql';
   import { showToast } from '$lib/components/shared/toast';
   import ConfirmDialog from '$lib/components/shared/ConfirmDialog.svelte';
-  import { loadNoSqlConnections, showNoSqlConnectionDialog, editingNoSqlConnection, handleNoSqlConnectionSave, nosqlConnections } from '$lib/stores/nosql';
+  import { loadNoSqlConnections, showNoSqlConnectionDialog, editingNoSqlConnection, handleNoSqlConnectionSave, nosqlConnections } from '$lib/modes/nosql/stores';
   import SqlConnectionDialog from '$lib/components/sql/ConnectionDialog.svelte';
-  import NoSqlConnectionDialog from '$lib/components/nosql/ConnectionDialog.svelte';
+  import NoSqlConnectionDialog from '$lib/modes/nosql/components/ConnectionDialog.svelte';
   import { loadSettings, loadAppearance, appearance } from '$lib/stores/settings';
   import { setConnected, setLastSynced, hasSyncedOnce, markSynced, showSyncRestorePrompt } from '$lib/stores/github';
   import { githubGetStatus, gistCheckExists, gistSyncPush, gistSyncPull } from '$lib/commands/github';

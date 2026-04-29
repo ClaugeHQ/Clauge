@@ -1,9 +1,9 @@
 <script lang="ts">
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { redisListKeys, redisGetKey, redisSetKey, redisDeleteKey, redisExecute } from '$lib/commands/nosql_client';
+  import { redisListKeys, redisGetKey, redisSetKey, redisDeleteKey, redisExecute } from '../commands';
   import { highlightJSON } from '$lib/utils/json-highlight';
-  import type { RedisKeyInfo, RedisValue } from '$lib/types/nosql';
+  import type { RedisKeyInfo, RedisValue } from '../types';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
   interface Props {
