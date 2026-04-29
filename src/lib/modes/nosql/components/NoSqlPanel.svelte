@@ -3,7 +3,7 @@
   import { nosqlListDatabases, nosqlListCollections as listColls } from '../commands';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { tabs, activeTabId, addTab } from '$lib/stores/tabs';
+  import { tabs, activeTabId, addTab } from '$lib/shared/stores/tabs';
   import DocumentViewer from './DocumentViewer.svelte';
   import RedisViewer from './RedisViewer.svelte';
 

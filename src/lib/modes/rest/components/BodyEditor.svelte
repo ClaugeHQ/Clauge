@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { highlightJSON } from '$lib/utils/json-highlight';
+  import { highlightJSON } from '$lib/shared/utils/json-highlight';
   import { showToast } from '$lib/components/shared/toast';
   import FormKVEditor from './FormKVEditor.svelte';
   import MultipartEditor from './MultipartEditor.svelte';

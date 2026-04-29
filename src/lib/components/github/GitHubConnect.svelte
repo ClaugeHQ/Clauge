@@ -4,14 +4,14 @@
   import { activeModal } from '$lib/stores/app';
   import { githubConnected, githubUsername, setConnected, setDisconnected, syncing, setSyncing, setLastSynced, markSynced, showSyncRestorePrompt } from '$lib/stores/github';
   import { githubDisconnect, githubGetOauthUrl, githubConnectWithToken, gistSyncPull, gistCheckExists } from '$lib/commands/github';
-  import { collections } from '$lib/stores/collections';
+  import { collections } from '$lib/modes/rest/stores';
   import { connections as sqlConnections } from '$lib/modes/sql/stores';
   import { nosqlConnections } from '$lib/modes/nosql/stores';
   import { get } from 'svelte/store';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { loadCollections } from '$lib/stores/collections';
-  import { loadEnvironments } from '$lib/stores/environments';
+  import { loadCollections } from '$lib/modes/rest/stores';
+  import { loadEnvironments } from '$lib/modes/rest/stores';
   import { loadConnections as loadSqlConnections, loadSqlScripts } from '$lib/modes/sql/stores';
   import { loadNoSqlConnections } from '$lib/modes/nosql/stores';
 

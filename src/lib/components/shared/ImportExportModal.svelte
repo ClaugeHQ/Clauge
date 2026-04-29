@@ -2,7 +2,7 @@
   import Modal from './Modal.svelte';
   import { showToast } from './toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { loadCollections, collections } from '$lib/stores/collections';
+  import { loadCollections, collections } from '$lib/modes/rest/stores';
   import * as cmd from '$lib/commands';
   import type { Collection } from '$lib/types';
 

@@ -4,9 +4,6 @@ export {
   updateCollection,
   deleteCollection,
   reorderCollections,
-} from './collections';
-
-export {
   listRequests,
   getRequest,
   createRequest,
@@ -16,9 +13,6 @@ export {
   moveRequest,
   updateRequestHeaders,
   updateRequestParams,
-} from './requests';
-
-export {
   listEnvironments,
   createEnvironment,
   updateEnvironment,
@@ -29,17 +23,17 @@ export {
   updateEnvVariable,
   deleteEnvVariable,
   getEnvVariablesForResolution,
-} from './environments';
-
-export {
   executeRequest,
-} from './http';
-
-export {
   listHistory,
   clearHistory,
   deleteHistoryEntry,
-} from './history';
+  exportCollection,
+  exportAllCollections,
+  importClauge,
+  importPostman,
+  importCurl,
+  exportAsCurl,
+} from '$lib/modes/rest/commands';
 
 export {
   getSetting,
@@ -57,15 +51,6 @@ export {
   gistSyncPush,
   gistSyncPull,
 } from './github';
-
-export {
-  exportCollection,
-  exportAllCollections,
-  importClauge,
-  importPostman,
-  importCurl,
-  exportAsCurl,
-} from './import_export';
 
 export {
   sqlConnect,

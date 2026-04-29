@@ -2,8 +2,8 @@
   import type { Request, Collection } from '$lib/types';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
-  import { activeRequestId, activeCollectionId, loadRequest, deleteRequest, collections, loadCollections } from '$lib/stores/collections';
-  import { tabs, activeTabId, addTab, activateTab, updateTab } from '$lib/stores/tabs';
+  import { activeRequestId, activeCollectionId, loadRequest, deleteRequest, collections, loadCollections } from '$lib/modes/rest/stores';
+  import { tabs, activeTabId, addTab, activateTab, updateTab } from '$lib/shared/stores/tabs';
   import { showContextMenu } from '$lib/components/shared/contextmenu';
   import { showToast } from '$lib/components/shared/toast';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';

@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { activeTabId } from '$lib/stores/tabs';
+import { activeTabId } from '$lib/shared/stores/tabs';
 import { activeConnectionId, getSqlTabData, connections as sqlConnections, databaseTables, getLiveId, connectedIds, dbLiveConnections } from '../stores';
 import type { ChatContext, ContextRequest, ContextResponse, ContextEnvVar } from '$lib/types/ai';
 

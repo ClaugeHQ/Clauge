@@ -60,7 +60,7 @@
                 ghUsername = username;
                 toast(`Connected as ${username}`, 'success');
                 // Check if local is empty and cloud has data to restore
-                const { collections } = await import('$lib/stores/collections');
+                const { collections } = await import('$lib/modes/rest/stores');
                 const { connections: sqlConns } = await import('$lib/modes/sql/stores');
                 const { nosqlConnections } = await import('$lib/modes/nosql/stores');
                 const localEmpty = get(collections).length === 0

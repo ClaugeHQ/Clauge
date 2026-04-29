@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { activeRequest, requestEnvOverrides } from '$lib/stores/collections';
-  import { activeEnvId, getEffectiveEnvId } from '$lib/stores/environments';
-  import { getEnvVariablesForResolution } from '$lib/commands/environments';
+  import { activeRequest, requestEnvOverrides } from '$lib/modes/rest/stores';
+  import { activeEnvId, getEffectiveEnvId } from '$lib/modes/rest/stores';
+  import { getEnvVariablesForResolution } from '$lib/modes/rest/commands';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
   import { get } from 'svelte/store';
-  import { activeTabId, tabs, markDirty, setDraft, getDraft, updateTab } from '$lib/stores/tabs';
-  import { parseCurl } from '$lib/utils/curl-parser';
+  import { activeTabId, tabs, markDirty, setDraft, getDraft, updateTab } from '$lib/shared/stores/tabs';
+  import { parseCurl } from '$lib/modes/rest/utils/curl-parser';
   import { showToast } from '$lib/components/shared/toast';
   import ReqEnvPill from './ReqEnvPill.svelte';
   import { tick } from 'svelte';

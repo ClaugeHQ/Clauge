@@ -4,7 +4,7 @@
   import { showContextMenu } from '$lib/components/shared/contextmenu';
   import { showToast } from '$lib/components/shared/toast';
   import type { AgentSession } from '$lib/types/agent';
-  import { tabs, addTab, activateTab } from '$lib/stores/tabs';
+  import { tabs, addTab, activateTab } from '$lib/shared/stores/tabs';
   import { get } from 'svelte/store';
   import { AGENT_EVENT } from '$lib/shared/constants/events';
 

@@ -2,9 +2,9 @@
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
   import { nosqlFindDocuments, nosqlInsertDocument, nosqlUpdateDocument, nosqlDeleteDocument, nosqlCountDocuments } from '../commands';
-  import { parseCsv, parseJsonDocs } from '$lib/utils/import-parser';
+  import { parseCsv, parseJsonDocs } from '$lib/shared/utils/import-parser';
   import QueryEditor from './QueryEditor.svelte';
-  import { highlightJSON } from '$lib/utils/json-highlight';
+  import { highlightJSON } from '$lib/shared/utils/json-highlight';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
   interface Props {

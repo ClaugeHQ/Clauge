@@ -11,7 +11,7 @@
     updateEnvironment,
     deleteEnvironment,
     setDefaultEnv
-  } from '$lib/stores/environments';
+  } from '$lib/modes/rest/stores';
   import { activeModal } from '$lib/stores/app';
   import { showToast } from '$lib/components/shared/toast';
   import { ENV_SAVE_DEBOUNCE_MS } from '$lib/shared/constants/timings';

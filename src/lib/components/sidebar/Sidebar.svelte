@@ -2,11 +2,11 @@
   import { onMount } from 'svelte';
   import { mode, navOpen, aiPanelOpen, activeModal } from '$lib/stores/app';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { activeHistoryEntry } from '$lib/stores/history';
+  import { activeHistoryEntry } from '$lib/modes/rest/stores';
   import { githubConnected, githubUsername, githubAvatarUrl, syncing, lastSyncedAt, setSyncing, setLastSynced, setDisconnected, showSyncRestorePrompt, markSynced } from '$lib/stores/github';
   import { gistSyncPush, gistSyncPull, githubDisconnect } from '$lib/commands/github';
-  import { loadCollections } from '$lib/stores/collections';
-  import { loadEnvironments } from '$lib/stores/environments';
+  import { loadCollections } from '$lib/modes/rest/stores';
+  import { loadEnvironments } from '$lib/modes/rest/stores';
   import { loadConnections as loadSqlConnections, loadSqlScripts } from '$lib/modes/sql/stores';
   import { loadNoSqlConnections } from '$lib/modes/nosql/stores';
   import { friendlyError } from '$lib/utils/errors';

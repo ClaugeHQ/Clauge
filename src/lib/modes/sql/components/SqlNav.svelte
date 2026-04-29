@@ -13,7 +13,7 @@
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
   import { showContextMenu } from '$lib/components/shared/contextmenu';
   import type { SqlConnectionConfig, SqlConnection, TableInfo, ColumnInfo } from '../types';
-  import { tabs, activeTabId } from '$lib/stores/tabs';
+  import { tabs, activeTabId } from '$lib/shared/stores/tabs';
   import { get } from 'svelte/store';
 
   const icons = {

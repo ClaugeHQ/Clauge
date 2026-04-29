@@ -2,7 +2,7 @@
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
   import { redisListKeys, redisGetKey, redisSetKey, redisDeleteKey, redisExecute } from '../commands';
-  import { highlightJSON } from '$lib/utils/json-highlight';
+  import { highlightJSON } from '$lib/shared/utils/json-highlight';
   import type { RedisKeyInfo, RedisValue } from '../types';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 

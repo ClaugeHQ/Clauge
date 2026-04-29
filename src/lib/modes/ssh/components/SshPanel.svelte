@@ -19,7 +19,7 @@
     sshKillTerminal,
     sshTouchProfile,
   } from '../commands';
-  import { tabs as tabsStore, addTab, activateTab, closeTab } from '$lib/stores/tabs';
+  import { tabs as tabsStore, addTab, activateTab, closeTab } from '$lib/shared/stores/tabs';
   import { getTerminalTheme } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
   import { showToast } from '$lib/components/shared/toast';

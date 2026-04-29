@@ -2,7 +2,7 @@
   import type { HttpResponse } from '$lib/types';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
   import { showToast } from '$lib/components/shared/toast';
-  import { highlightJSON } from '$lib/utils/json-highlight';
+  import { highlightJSON } from '$lib/shared/utils/json-highlight';
   import ResponseHeaders from './ResponseHeaders.svelte';
   import { onMount, onDestroy } from 'svelte';
 

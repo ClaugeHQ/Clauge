@@ -1,12 +1,12 @@
 <script lang="ts">
   import { mode } from '$lib/stores/app';
-  import { activeHistoryEntry } from '$lib/stores/history';
+  import { activeHistoryEntry } from '$lib/modes/rest/stores';
   import AgentPanel from '$lib/components/agent/AgentPanel.svelte';
-  import RestPanel from '$lib/components/rest/RestPanel.svelte';
+  import RestPanel from '$lib/modes/rest/components/RestPanel.svelte';
   import SqlPanel from '$lib/modes/sql/components/SqlPanel.svelte';
   import NoSqlPanel from '$lib/modes/nosql/components/NoSqlPanel.svelte';
   import SshPanel from '$lib/modes/ssh/components/SshPanel.svelte';
-  import HistoryViewer from '$lib/components/rest/HistoryViewer.svelte';
+  import HistoryViewer from '$lib/modes/rest/components/HistoryViewer.svelte';
 </script>
 
 <div class="workspace">

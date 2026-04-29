@@ -2,14 +2,14 @@
   import RequestBar from './RequestBar.svelte';
   import RequestEditor from './RequestEditor.svelte';
   import ResponseViewer from './ResponseViewer.svelte';
-  import { activeRequest, activeRequestId, requestEnvOverrides, commitRequest, currentRestResponse } from '$lib/stores/collections';
-  import { activeEnvId, getEffectiveEnvId } from '$lib/stores/environments';
-  import { executeRequest, quickExecute } from '$lib/commands/http';
+  import { activeRequest, activeRequestId, requestEnvOverrides, commitRequest, currentRestResponse } from '$lib/modes/rest/stores';
+  import { activeEnvId, getEffectiveEnvId } from '$lib/modes/rest/stores';
+  import { executeRequest, quickExecute } from '$lib/modes/rest/commands';
   import { showToast } from '$lib/components/shared/toast';
   import { friendlyError } from '$lib/utils/errors';
-  import { loadHistory } from '$lib/stores/history';
+  import { loadHistory } from '$lib/modes/rest/stores';
   import { mode } from '$lib/stores/app';
-  import { tabs, activeTabId, getDraft, draftRequests } from '$lib/stores/tabs';
+  import { tabs, activeTabId, getDraft, draftRequests } from '$lib/shared/stores/tabs';
   import type { HttpResponse } from '$lib/types';
   import { get } from 'svelte/store';
 

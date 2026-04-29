@@ -10,7 +10,7 @@
     getDbLiveId, connectToDatabase, updateSqlScript,
     sqlRowLimit
   } from '../stores';
-  import { tabs, activeTabId, addTab } from '$lib/stores/tabs';
+  import { tabs, activeTabId, addTab } from '$lib/shared/stores/tabs';
   import { sqlExecuteQuery, sqlDescribeTable, sqlListSchemas } from '../commands';
   import type { TableInfo, SqlResultEntry, ColumnInfo } from '../types';
   import { showToast } from '$lib/components/shared/toast';

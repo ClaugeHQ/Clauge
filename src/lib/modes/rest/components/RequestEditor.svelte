@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { activeRequest } from '$lib/stores/collections';
+  import { activeRequest } from '$lib/modes/rest/stores';
   import type { KVInput } from '$lib/types';
-  import { activeTabId, markDirty, setDraft, getDraft, draftRequests } from '$lib/stores/tabs';
+  import { activeTabId, markDirty, setDraft, getDraft, draftRequests } from '$lib/shared/stores/tabs';
   import BodyEditor from './BodyEditor.svelte';
   import KVTable from './KVTable.svelte';
   import AuthEditor from './AuthEditor.svelte';

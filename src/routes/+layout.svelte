@@ -16,8 +16,8 @@
   import favicon from '$lib/assets/favicon.svg';
 
   import { onMount, onDestroy } from 'svelte';
-  import { loadCollections, clearActiveRequest, collections } from '$lib/stores/collections';
-  import { loadEnvironments } from '$lib/stores/environments';
+  import { loadCollections, clearActiveRequest, collections } from '$lib/modes/rest/stores';
+  import { loadEnvironments } from '$lib/modes/rest/stores';
   import { loadConnections as loadSqlConnections, loadSqlScripts, showSqlConnectionDialog, editingSqlConnection, handleSqlConnectionSave, showSqlDisconnectConfirm, sqlDisconnectTarget, disconnectFromDb, connections as sqlConnections } from '$lib/modes/sql/stores';
   import { showToast } from '$lib/components/shared/toast';
   import ConfirmDialog from '$lib/components/shared/ConfirmDialog.svelte';
@@ -33,7 +33,7 @@
   import type { SshProfile } from '$lib/modes/ssh/types';
   import { getSetting } from '$lib/commands/settings';
   import AIPanel from '$lib/components/ai/AIPanel.svelte';
-  import { tabs, addTab, activeTabId, activateTab } from '$lib/stores/tabs';
+  import { tabs, addTab, activeTabId, activateTab } from '$lib/shared/stores/tabs';
   import type { AgentSession } from '$lib/types/agent';
   import { setupGlobalShortcuts, teardownGlobalShortcuts } from '$lib/utils/shortcuts';
   import { applyTheme } from '$lib/utils/theme';

@@ -1,7 +1,6 @@
 import { get } from 'svelte/store';
-import { activeRequest, requestEnvOverrides, currentRestResponse, collections, activeCollectionId } from '$lib/stores/collections';
-import { activeEnvId, getEffectiveEnvId, loadEnvVariables } from '$lib/stores/environments';
-import { activeTabId, getDraft } from '$lib/stores/tabs';
+import { activeRequest, requestEnvOverrides, currentRestResponse, collections, activeCollectionId, activeEnvId, getEffectiveEnvId, loadEnvVariables } from '../stores';
+import { activeTabId, getDraft } from '$lib/shared/stores/tabs';
 import type { ChatContext, ContextRequest, ContextResponse, ContextEnvVar } from '$lib/types/ai';
 
 export async function gatherRestContext(): Promise<ChatContext> {

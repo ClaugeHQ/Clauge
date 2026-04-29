@@ -5,7 +5,7 @@
     setEnvVariable,
     updateEnvVariable,
     deleteEnvVariable
-  } from '$lib/stores/environments';
+  } from '$lib/modes/rest/stores';
   import type { EnvVariable } from '$lib/types';
   import { showToast } from '$lib/components/shared/toast';
 

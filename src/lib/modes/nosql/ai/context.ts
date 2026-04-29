@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { nosqlConnections, connectedNoSqlIds, activeNoSqlConnectionId, getNoSqlTabData, nosqlLiveConnectionIds } from '../stores';
-import { activeTabId } from '$lib/stores/tabs';
+import { activeTabId } from '$lib/shared/stores/tabs';
 import type { ChatContext, ContextRequest, ContextEnvVar } from '$lib/types/ai';
 
 export async function gatherNosqlContext(): Promise<ChatContext> {

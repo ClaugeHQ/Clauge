@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { activeEnvId, getEffectiveEnvId } from '$lib/stores/environments';
-  import { activeRequest, requestEnvOverrides } from '$lib/stores/collections';
-  import { activeTabId } from '$lib/stores/tabs';
-  import { getEnvVariablesForResolution } from '$lib/commands/environments';
+  import { activeEnvId, getEffectiveEnvId } from '$lib/modes/rest/stores';
+  import { activeRequest, requestEnvOverrides } from '$lib/modes/rest/stores';
+  import { activeTabId } from '$lib/shared/stores/tabs';
+  import { getEnvVariablesForResolution } from '$lib/modes/rest/commands';
 
   let { value = '', placeholder = '', type = 'text', onchange }: {
     value: string;

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { activeRequest, requestEnvOverrides, setRequestEnv } from '$lib/stores/collections';
-  import { activeTabId } from '$lib/stores/tabs';
-  import { environments, activeEnvId, getEffectiveEnvId } from '$lib/stores/environments';
+  import { activeRequest, requestEnvOverrides, setRequestEnv } from '$lib/modes/rest/stores';
+  import { activeTabId } from '$lib/shared/stores/tabs';
+  import { environments, activeEnvId, getEffectiveEnvId } from '$lib/modes/rest/stores';
 
   let dropdownOpen = $state(false);
 

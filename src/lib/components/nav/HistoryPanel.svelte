@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { history, loadHistory, clearHistory, activeHistoryEntry } from '$lib/stores/history';
+  import { history, loadHistory, clearHistory, activeHistoryEntry } from '$lib/modes/rest/stores';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
   import { showToast } from '$lib/components/shared/toast';

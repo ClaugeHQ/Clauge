@@ -7,20 +7,14 @@ export type {
   RequestUpdate,
   KVInput,
   ImportResult,
-} from './collection';
-
-export type {
   Environment,
   EnvVariable,
-} from './environment';
-
-export type {
   HttpResponse,
-} from './http';
+  HistoryEntry,
+} from '$lib/modes/rest/types';
 
 export type {
   AppearanceConfig,
-  HistoryEntry,
 } from './settings';
 
 export type {

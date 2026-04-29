@@ -1,7 +1,7 @@
 <script lang="ts">
   import { navOpen, aiPanelOpen, aiPanelOpenPerMode, mode } from '$lib/stores/app';
-  import { tabs, activeTabId, addTab, closeTab, activateTab, getDraft, markClean, clearDraft } from '$lib/stores/tabs';
-  import { activeRequestId, loadRequest, clearActiveRequest, commitRequest } from '$lib/stores/collections';
+  import { tabs, activeTabId, addTab, closeTab, activateTab, getDraft, markClean, clearDraft } from '$lib/shared/stores/tabs';
+  import { activeRequestId, loadRequest, clearActiveRequest, commitRequest } from '$lib/modes/rest/stores';
   import { sqlIsConnected, activeConnection, disconnectFromDb, initSqlTab, clearSqlTabData, setSqlTabData, sqlScripts, saveSqlScript, updateSqlScript, deleteSqlScript, getSqlTabData, activeConnectionId, selectedDatabase, connectToDatabase, sqlPendingChanges, connectToDb, connectedIds } from '$lib/modes/sql/stores';
   import { clearNoSqlTabData, initNoSqlTab, openNoSqlCollection, setNoSqlTabData, activeNoSqlConnectionId } from '$lib/modes/nosql/stores';
   import { showToast } from '$lib/components/shared/toast';

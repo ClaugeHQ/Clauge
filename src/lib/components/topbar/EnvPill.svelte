@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { environments, activeEnvId, setActiveEnv } from '$lib/stores/environments';
+  import { environments, activeEnvId, setActiveEnv } from '$lib/modes/rest/stores';
   import { activeModal } from '$lib/stores/app';
   import { derived } from 'svelte/store';
   import Dropdown from '$lib/components/shared/Dropdown.svelte';

@@ -19,7 +19,7 @@
     agentDockBounceEnabled,
   } from '$lib/stores/agent';
   import { getSetting } from '$lib/commands/settings';
-  import { tabs as tabsStore, closeTab, activateTab } from '$lib/stores/tabs';
+  import { tabs as tabsStore, closeTab, activateTab } from '$lib/shared/stores/tabs';
   import {
     agentSpawnTerminal,
     agentSpawnShell,
@@ -865,7 +865,7 @@
     if (session && session.id !== currentSessionId) {
       console.log(`[TERM] SUBSCRIBER: triggering selectSession via rAF`);
       // Sync tab activation
-      import('$lib/stores/tabs').then(({ tabs: tabsStore, activateTab: activateTabFn }) => {
+      import('$lib/shared/stores/tabs').then(({ tabs: tabsStore, activateTab: activateTabFn }) => {
         const allTabs = get(tabsStore);
         const matchingTab = allTabs.find((t: any) => t.mode === 'agent' && t.key === session.id);
         if (matchingTab) activateTabFn(matchingTab.id);
@@ -1101,7 +1101,7 @@
       activeShellEntry = null;
       agentShellOpen.set(false);
       // Close the tab for deleted session
-      import('$lib/stores/tabs').then(({ tabs: tabsStore, closeTab: closeTabFn }) => {
+      import('$lib/shared/stores/tabs').then(({ tabs: tabsStore, closeTab: closeTabFn }) => {
         const allTabs = get(tabsStore);
         const agentTab = allTabs.find((t: any) => t.mode === 'agent' && t.key === session.id);
         if (agentTab) closeTabFn(agentTab.id);

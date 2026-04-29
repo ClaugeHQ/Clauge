@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Collection, Request } from '$lib/types';
-  import { activeCollectionId, deleteCollection, updateCollection, createRequest, loadCollections, loadRequest, collectionsRefreshTrigger } from '$lib/stores/collections';
-  import { tabs, addTab, activateTab } from '$lib/stores/tabs';
+  import { activeCollectionId, deleteCollection, updateCollection, createRequest, loadCollections, loadRequest, collectionsRefreshTrigger } from '$lib/modes/rest/stores';
+  import { tabs, addTab, activateTab } from '$lib/shared/stores/tabs';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
   import { get } from 'svelte/store';

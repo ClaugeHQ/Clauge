@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { collections, createRequest, loadRequest } from '$lib/stores/collections';
-  import { getDraft, updateTab, markClean, tabs } from '$lib/stores/tabs';
+  import { collections, createRequest, loadRequest } from '$lib/modes/rest/stores';
+  import { getDraft, updateTab, markClean, tabs } from '$lib/shared/stores/tabs';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
-  import { loadCollections } from '$lib/stores/collections';
+  import { loadCollections } from '$lib/modes/rest/stores';
 
   interface Props {
     show: boolean;
@@ -85,7 +85,7 @@
       await loadRequest(req.id);
       // If draft has more data, commit it
       if (draft) {
-        const { commitRequest } = await import('$lib/stores/collections');
+        const { commitRequest } = await import('$lib/modes/rest/stores');
         await commitRequest(req.id, draft);
       }
       close();

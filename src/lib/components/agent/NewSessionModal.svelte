@@ -3,7 +3,7 @@
   import { agentCreateSession, agentDiscoverSessions, agentListContexts, agentAttachContext, agentUpdateSessionId } from '$lib/commands/agent';
   import type { AgentContext, DiscoveredSession } from '$lib/types/agent';
   import { loadAgentSessions, agentSessions, activeAgentSession } from '$lib/stores/agent';
-  import { tabs as tabsStore, addTab, activateTab } from '$lib/stores/tabs';
+  import { tabs as tabsStore, addTab, activateTab } from '$lib/shared/stores/tabs';
   import { showToast } from '$lib/components/shared/toast';
   import { get } from 'svelte/store';
 

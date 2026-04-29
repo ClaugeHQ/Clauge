@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { activeHistoryEntry } from '$lib/stores/history';
+  import { activeHistoryEntry } from '$lib/modes/rest/stores';
   import { METHOD_COLORS, METHOD_COLORS_LIGHT } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
 

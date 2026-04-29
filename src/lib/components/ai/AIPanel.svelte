@@ -1,10 +1,10 @@
 <script lang="ts">
   import { aiPanelOpen, aiPanelOpenPerMode, mode, activeModal, getModeChatMessages, setModeChatMessages, clearModeChatMessages, type AppMode } from '$lib/stores/app';
   import { settings } from '$lib/stores/settings';
-  import { loadCollections } from '$lib/stores/collections';
-  import { activeTabId, draftRequests } from '$lib/stores/tabs';
+  import { loadCollections } from '$lib/modes/rest/stores';
+  import { activeTabId, draftRequests } from '$lib/shared/stores/tabs';
   import { sendChatMessage, generateSessionId } from '$lib/services/ai-chat';
-  import { REST_SYSTEM_PROMPT, REST_TOOLS } from '$lib/prompts/rest';
+  import { REST_SYSTEM_PROMPT, REST_TOOLS } from '$lib/modes/rest/ai/prompt';
   import { SQL_SYSTEM_PROMPT, SQL_TOOLS } from '$lib/modes/sql/ai/prompt';
   import { NOSQL_SYSTEM_PROMPT, NOSQL_TOOLS } from '$lib/modes/nosql/ai/prompt';
   import { buildSshSystemPrompt, SSH_TOOLS } from '$lib/modes/ssh/ai/prompt';
@@ -18,7 +18,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { highlightJSON } from '$lib/utils/json-highlight';
+  import { highlightJSON } from '$lib/shared/utils/json-highlight';
   import SshExecuteConfirmModal from '$lib/modes/ssh/components/SshExecuteConfirmModal.svelte';
   import { executeAndCaptureOnSsh } from '$lib/modes/ssh/ai/execute';
   import { getSshAutoRun, setSshAutoRun, getAiPanelWidth, setAiPanelWidth } from '$lib/shared/constants/storage';
@@ -403,7 +403,7 @@
       const { gatherNosqlContext } = await import('$lib/modes/nosql/ai/context');
       return gatherNosqlContext();
     }
-    const { gatherRestContext } = await import('$lib/services/ai-context-rest');
+    const { gatherRestContext } = await import('$lib/modes/rest/ai/context');
     return gatherRestContext();
   }
 
@@ -517,7 +517,7 @@
             loadCollections();
           }
           if (action === 'switch_environment') {
-            import('$lib/stores/environments').then(({ setActiveEnv }) => {
+            import('$lib/modes/rest/stores').then(({ setActiveEnv }) => {
               setActiveEnv(data.environmentId);
             });
           }
@@ -533,7 +533,7 @@
           if (action === 'ai_execute_sql' && data.query) {
             Promise.all([
               import('$lib/modes/sql/stores'),
-              import('$lib/stores/tabs'),
+              import('$lib/shared/stores/tabs'),
               import('$lib/stores/app'),
             ]).then(([{ triggerAiSqlExecution }, { addTab, tabs: tabStore, activeTabId: activeTabStore }, { mode: modeStore }]) => {
               // Switch to SQL mode
@@ -564,7 +564,7 @@
           if (action === 'ai_execute_nosql' && data.filter) {
             Promise.all([
               import('$lib/modes/nosql/stores'),
-              import('$lib/stores/tabs'),
+              import('$lib/shared/stores/tabs'),
               import('$lib/stores/app'),
             ]).then(([{ triggerAiNoSqlExecution }, { addTab, tabs: tabStore, activeTabId: activeTabStore }, { mode: modeStore }]) => {
               modeStore.set('nosql');

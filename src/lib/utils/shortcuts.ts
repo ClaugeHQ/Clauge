@@ -1,8 +1,8 @@
 import { get } from 'svelte/store';
 import { mode } from '$lib/stores/app';
 import { navOpen, aiPanelOpen, aiPanelOpenPerMode, activeModal } from '$lib/stores/app';
-import { tabs, activeTabId, closeTab, getDraft, markClean } from '$lib/stores/tabs';
-import { commitRequest } from '$lib/stores/collections';
+import { tabs, activeTabId, closeTab, getDraft, markClean } from '$lib/shared/stores/tabs';
+import { commitRequest } from '$lib/modes/rest/stores';
 import { APP_EVENT } from '$lib/shared/constants/events';
 
 export function setupGlobalShortcuts() {
@@ -90,7 +90,7 @@ function handleKeydown(e: KeyboardEvent) {
     const idx = parseInt(e.key) - 1;
     if (idx < modeTabs.length) {
       const tab = modeTabs[idx];
-      import('$lib/stores/tabs').then(({ activateTab }) => {
+      import('$lib/shared/stores/tabs').then(({ activateTab }) => {
         activateTab(tab.id);
         // For agent tabs, also set active session
         if (tab.mode === 'agent' && tab.key) {
