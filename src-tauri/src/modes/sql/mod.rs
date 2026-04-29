@@ -12,3 +12,4 @@
 
 pub mod client;
 pub mod ai_tools;
+pub mod dialects;
