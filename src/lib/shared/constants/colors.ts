@@ -35,15 +35,3 @@ export const THEME_PREVIEW_COLORS: Record<string, readonly string[]> = {
 // Used by `usageColor(pct)` style helpers — kept consistent across components.
 export const USAGE_DANGER = '#f85149';
 export const USAGE_WARN = '#d29922';
-
-// --- xterm SearchAddon decoration colors ---
-// Passed to SearchAddon's `decorations` option. These are flat colors (the
-// addon does not accept CSS custom properties) so we resolve them from the
-// theme variables at call-time and keep the literal fallbacks here as the
-// single source of truth — no new hexes at call sites.
-// Inactive matches: tinted accent. Active match: warn (orange) for contrast
-// against the inactive ones. Border colors mirror the fill at full opacity.
-export const SEARCH_MATCH_BG = 'rgba(124, 92, 248, 0.30)';
-export const SEARCH_MATCH_BORDER = 'rgba(124, 92, 248, 0.85)';
-export const SEARCH_ACTIVE_MATCH_BG = 'rgba(210, 153, 34, 0.55)';
-export const SEARCH_ACTIVE_MATCH_BORDER = 'rgba(210, 153, 34, 1.0)';

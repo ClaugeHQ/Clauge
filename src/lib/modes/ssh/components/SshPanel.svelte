@@ -3,7 +3,6 @@
   import { get } from 'svelte/store';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
-  import { SearchAddon } from '@xterm/addon-search';
   import '@xterm/xterm/css/xterm.css';
   import { Channel } from '@tauri-apps/api/core';
   import {
@@ -29,12 +28,6 @@
   import type { SshProfile, SshTerminalPayload } from '../types';
   import { SSH_EVENT } from '$lib/shared/constants/events';
   import { RESIZE_DEBOUNCE_MS, SSH_CAPTURE_TIMEOUT_MS } from '$lib/shared/constants/timings';
-  import {
-    SEARCH_MATCH_BG,
-    SEARCH_MATCH_BORDER,
-    SEARCH_ACTIVE_MATCH_BG,
-    SEARCH_ACTIVE_MATCH_BORDER,
-  } from '$lib/shared/constants/colors';
 
   let terminalEl: HTMLDivElement;
 
@@ -42,7 +35,6 @@
   type TermEntry = {
     term: Terminal;
     fitAddon: FitAddon;
-    searchAddon: SearchAddon;
     container: HTMLDivElement;
     terminalId: string | null;
     profileId: string;
@@ -55,17 +47,6 @@
       timeoutId: ReturnType<typeof setTimeout>;
     } | null;
   };
-
-  // Search-decoration options passed to SearchAddon. The addon does not honor
-  // CSS custom properties, so we use the resolved tokens from constants/colors.
-  const SEARCH_DECORATIONS = {
-    matchBackground: SEARCH_MATCH_BG,
-    matchBorder: SEARCH_MATCH_BORDER,
-    matchOverviewRuler: SEARCH_MATCH_BORDER,
-    activeMatchBackground: SEARCH_ACTIVE_MATCH_BG,
-    activeMatchBorder: SEARCH_ACTIVE_MATCH_BORDER,
-    activeMatchColorOverviewRuler: SEARCH_ACTIVE_MATCH_BORDER,
-  } as const;
 
   // Heuristic shell prompt detector: matches `$ `, `# `, `> `, `% `, `❯ ` at the
   // end of the cleaned (ANSI-stripped) buffer. Imperfect — some PS1 setups omit
@@ -126,32 +107,6 @@
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    const searchAddon = new SearchAddon();
-    term.loadAddon(searchAddon);
-    // Track match position for the "x of N" counter shown in the search bar.
-    searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
-      searchMatchIndex = resultIndex;
-      searchMatchTotal = resultCount;
-    });
-
-    // xterm captures keydowns on its hidden textarea when the terminal has
-    // focus, so the panel-level onkeydown never sees Cmd+F. Intercept here
-    // and return false to prevent xterm from also processing the key.
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown') return true;
-      const meta = isMac ? e.metaKey : e.ctrlKey;
-      if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        if (searchOpen) {
-          searchInputEl?.focus();
-          searchInputEl?.select();
-        } else {
-          openSearch();
-        }
-        return false;
-      }
-      return true;
-    });
 
     const container = document.createElement('div');
     container.style.cssText = 'width:100%;height:100%;display:none;';
@@ -162,7 +117,6 @@
     const entry: TermEntry = {
       term,
       fitAddon,
-      searchAddon,
       container,
       terminalId: null,
       profileId: profile.id,
@@ -595,163 +549,10 @@
   let activeIsExited = $derived(
     !!$activeSshProfile && exitedTabs.has($activeSshProfile.id)
   );
-
-  // ── Find-in-terminal (Cmd+F / Ctrl+F) ─────────────────────────────────────
-  let searchOpen = $state(false);
-  let searchQuery = $state('');
-  let searchMatchIndex = $state(-1);
-  let searchMatchTotal = $state(0);
-  let searchInputEl: HTMLInputElement | null = $state(null);
-
-  // Mac uses Cmd, other platforms use Ctrl. Mirrors how the rest of the app
-  // distinguishes via metaKey vs ctrlKey (see src/lib/utils/shortcuts.ts).
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac');
-
-  function openSearch() {
-    if (!activeEntry) return;
-    searchOpen = true;
-    requestAnimationFrame(() => {
-      searchInputEl?.focus();
-      searchInputEl?.select();
-    });
-  }
-
-  function closeSearch() {
-    searchOpen = false;
-    searchQuery = '';
-    searchMatchIndex = -1;
-    searchMatchTotal = 0;
-    activeEntry?.searchAddon.clearDecorations();
-    try { activeEntry?.term.focus(); } catch { /* ignore */ }
-  }
-
-  function findNext() {
-    if (!activeEntry || !searchQuery) return;
-    activeEntry.searchAddon.findNext(searchQuery, { decorations: SEARCH_DECORATIONS });
-  }
-
-  function findPrevious() {
-    if (!activeEntry || !searchQuery) return;
-    activeEntry.searchAddon.findPrevious(searchQuery, { decorations: SEARCH_DECORATIONS });
-  }
-
-  function handleSearchInput(e: Event) {
-    searchQuery = (e.target as HTMLInputElement).value;
-    if (!activeEntry) return;
-    if (searchQuery.length === 0) {
-      activeEntry.searchAddon.clearDecorations();
-      searchMatchIndex = -1;
-      searchMatchTotal = 0;
-      return;
-    }
-    activeEntry.searchAddon.findNext(searchQuery, { decorations: SEARCH_DECORATIONS });
-  }
-
-  function handleSearchKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closeSearch();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (e.shiftKey) findPrevious();
-      else findNext();
-    }
-  }
-
-  function handleSshKeydown(e: KeyboardEvent) {
-    // Only fire when SSH mode is active and there's a live terminal entry.
-    // Scoping by activeEntry naturally limits this to "SSH panel has focus";
-    // global Cmd+F outside SSH never reaches this listener (it lives on the
-    // ssh-panel element).
-    const meta = isMac ? e.metaKey : e.ctrlKey;
-    if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
-      if (!activeEntry) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (searchOpen) {
-        searchInputEl?.focus();
-        searchInputEl?.select();
-      } else {
-        openSearch();
-      }
-    }
-  }
-
-  // When the active tab changes (subscriber on activeSshProfile already fires),
-  // close any open search bar — it's tied to the previous tab's terminal.
-  $effect(() => {
-    void $activeSshProfile;
-    if (searchOpen) closeSearch();
-  });
-
-  // Window-level capture-phase Cmd+F (Ctrl+F on non-Mac). Fires before xterm's
-  // hidden textarea or the webview's default find-in-page can swallow the key.
-  // Scoped to "active SSH profile + active terminal" — runs only while the
-  // user is actually in an SSH tab.
-  $effect(() => {
-    if (!$activeSshProfile) return;
-    const handler = (e: KeyboardEvent) => {
-      const meta = isMac ? e.metaKey : e.ctrlKey;
-      if (!meta || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 'f') return;
-      if (!activeEntry) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (searchOpen) {
-        searchInputEl?.focus();
-        searchInputEl?.select();
-      } else {
-        openSearch();
-      }
-    };
-    window.addEventListener('keydown', handler, { capture: true });
-    return () => window.removeEventListener('keydown', handler, { capture: true });
-  });
 </script>
 
 {#if $activeSshProfile}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="ssh-panel" onkeydown={handleSshKeydown} tabindex="-1">
-    {#if searchOpen}
-      <div class="ssh-search">
-        <svg class="ssh-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          bind:this={searchInputEl}
-          class="ssh-search-input"
-          type="text"
-          placeholder="Find in terminal…"
-          value={searchQuery}
-          oninput={handleSearchInput}
-          onkeydown={handleSearchKeydown}
-        />
-        <span class="ssh-search-count">
-          {#if searchQuery && searchMatchTotal > 0}
-            {searchMatchIndex + 1} of {searchMatchTotal}
-          {:else if searchQuery}
-            No results
-          {/if}
-        </span>
-        <button class="ssh-search-btn" title="Previous match (Shift+Enter)" onclick={findPrevious} disabled={!searchQuery || searchMatchTotal === 0}>
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="18 15 12 9 6 15"/>
-          </svg>
-        </button>
-        <button class="ssh-search-btn" title="Next match (Enter)" onclick={findNext} disabled={!searchQuery || searchMatchTotal === 0}>
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </button>
-        <button class="ssh-search-btn ssh-search-close" title="Close (Esc)" onclick={closeSearch}>
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
-    {/if}
+  <div class="ssh-panel">
     {#if spawning}
       <div class="ssh-loading">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--ssh)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -888,75 +689,6 @@
     border-color: var(--b2);
     color: var(--t1);
     cursor: pointer;
-  }
-
-  /* Find-in-terminal search bar — sits at top of active SSH tab */
-  .ssh-search {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    background: var(--n2);
-    border-bottom: 1px solid var(--b1);
-    flex-shrink: 0;
-    z-index: 4;
-  }
-  .ssh-search-icon {
-    color: var(--t3);
-    flex-shrink: 0;
-  }
-  .ssh-search-input {
-    flex: 1;
-    min-width: 0;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--b1);
-    border-radius: var(--radius-md, 6px);
-    padding: 5px 9px;
-    font-size: 12.5px;
-    color: var(--t1);
-    font-family: var(--ui);
-    outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  .ssh-search-input::placeholder {
-    color: var(--t3);
-  }
-  .ssh-search-input:focus {
-    border-color: var(--acc);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 12%, transparent);
-  }
-  .ssh-search-count {
-    font-size: 11px;
-    font-family: var(--mono);
-    color: var(--t3);
-    white-space: nowrap;
-    min-width: 56px;
-    text-align: right;
-  }
-  .ssh-search-btn {
-    width: 22px;
-    height: 22px;
-    border-radius: 5px;
-    border: 1px solid var(--b1);
-    background: transparent;
-    color: var(--t2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background 0.12s, border-color 0.12s, color 0.12s;
-  }
-  .ssh-search-btn:hover:not(:disabled) {
-    background: var(--c);
-    border-color: var(--b2);
-    color: var(--t1);
-  }
-  .ssh-search-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .ssh-search-close {
-    margin-left: 2px;
   }
 
   .ssh-empty {
