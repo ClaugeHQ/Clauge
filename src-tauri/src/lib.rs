@@ -447,6 +447,7 @@ pub fn run() {
             modes::ssh::terminal::ssh_write_to_terminal,
             modes::ssh::terminal::ssh_resize_terminal,
             modes::ssh::terminal::ssh_kill_terminal,
+            modes::ssh::tunnel::ssh_tunnel_test,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
