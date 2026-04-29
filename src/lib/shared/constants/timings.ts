@@ -45,6 +45,14 @@ export const ONBOARDING_MOUNT_MS = 50;
 export const ONBOARDING_TRANSITION_MS = 320;
 export const SCROLL_INTO_VIEW_MS = 10;
 
+// --- Nav hover-reveal edge trigger ---
+// Width of the invisible strip on the left edge that arms the hover overlay.
+export const NAV_HOVER_TRIGGER_PX = 8;
+// Number of consecutive leftward pointer moves required before the overlay
+// reveals. Filters out cursor jitter and brief right→left grazes when the
+// pointer is just bouncing near the edge of the panel.
+export const NAV_HOVER_LEFTWARD_FRAMES = 4;
+
 // --- SSH ---
 export const SSH_CAPTURE_TIMEOUT_MS = 15_000;
 
