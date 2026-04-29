@@ -24,6 +24,11 @@ pub struct SqlConnectionConfig {
     pub username: String,
     pub password: String,
     pub ssl: bool,
+    /// Optional SSH profile to tunnel through. When `Some`, `host`/`port`
+    /// describe the *target DB host as seen from the bastion*; the runtime
+    /// rewrites the URL to point at the local end of the tunnel.
+    #[serde(default)]
+    pub ssh_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +86,10 @@ pub struct SqlSavedConnection {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+    /// When set, the runtime opens an SSH tunnel through the referenced
+    /// `ssh_profiles.id` and connects the DB driver to the local end of the
+    /// tunnel instead of `host:port` directly. NULL = no tunnel (legacy).
+    pub ssh_profile_id: Option<String>,
 }
 
 // --- Connection pool enum ---
@@ -97,12 +106,18 @@ pub enum DatabasePool {
 
 pub struct SqlConnectionManager {
     pub connections: Mutex<HashMap<String, DatabasePool>>,
+    /// Parallel map keyed by the same id as `connections`, holding any
+    /// SSH tunnel that backs the connection. Removing a pool also removes
+    /// the matching tunnel — its `Drop` closes the listener + SSH session.
+    /// Connections without a tunnel never appear here.
+    pub tunnels: Mutex<HashMap<String, crate::modes::ssh::tunnel::SshTunnel>>,
 }
 
 impl SqlConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Mutex::new(HashMap::new()),
+            tunnels: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -153,13 +168,65 @@ fn build_connection_url(config: &SqlConnectionConfig) -> Result<String, String> 
     })
 }
 
-pub async fn create_pool(config: &SqlConnectionConfig) -> Result<DatabasePool, String> {
+/// Connect a SQL pool, optionally routing through an SSH tunnel.
+///
+/// When `config.ssh_profile_id` is `Some(_)` and an `app_pool` is provided,
+/// we open an SSH tunnel via `modes::ssh::tunnel::open` and rewrite the
+/// effective host/port to the local end of that tunnel. The returned
+/// `Option<SshTunnel>` MUST be kept alive for the life of the pool; dropping
+/// it will close the local listener and the bastion session, and the pool
+/// will start failing connection attempts.
+///
+/// When the saved connection has no tunnel, behaviour is identical to the
+/// pre-tunnel `create_pool` path — same URLs, same drivers, same logs.
+pub async fn create_pool_with_tunnel(
+    config: &SqlConnectionConfig,
+    app_pool: Option<&SqlitePool>,
+) -> Result<(DatabasePool, Option<crate::modes::ssh::tunnel::SshTunnel>), String> {
     let descriptor = descriptor_for_key(&config.driver)
         .ok_or_else(|| format!("Unsupported driver: {}", config.driver))?;
+
+    // 1. Open the tunnel up-front (when requested). We use the *original*
+    // host/port — that's what the bastion needs to connect to. Then we
+    // build a tunneled config whose host/port are the local listener,
+    // and pass that through the existing URL builder unchanged.
+    let (effective_config, tunnel) = match (&config.ssh_profile_id, app_pool) {
+        (Some(profile_id), Some(app_pool)) if !profile_id.is_empty() => {
+            let t = crate::modes::ssh::tunnel::open(
+                app_pool,
+                profile_id,
+                &config.host,
+                config.port,
+            )
+            .await?;
+            let mut tunneled = config.clone();
+            tunneled.host = "127.0.0.1".to_string();
+            tunneled.port = t.local_port;
+            (tunneled, Some(t))
+        }
+        (Some(profile_id), None) if !profile_id.is_empty() => {
+            // We need the app pool to look up the SSH profile — callers
+            // must use `create_pool_with_tunnel` with `Some(app_pool)`.
+            return Err(format!(
+                "ssh_profile_id={} requires the app database pool to be provided",
+                profile_id
+            ));
+        }
+        _ => (config.clone(), None),
+    };
+
+    let pool = build_pool_inner(&effective_config, descriptor.dialect).await?;
+    Ok((pool, tunnel))
+}
+
+async fn build_pool_inner(
+    config: &SqlConnectionConfig,
+    dialect: SqlDialect,
+) -> Result<DatabasePool, String> {
     let url = build_connection_url(config)?;
     eprintln!("[Clauge SQL] create_pool driver={} host={} port={} db={} ssl={} user={}",
         config.driver, config.host, config.port, config.database, config.ssl, config.username);
-    match descriptor.dialect {
+    match dialect {
         SqlDialect::Postgres => {
             use sqlx::postgres::{PgConnectOptions, PgSslMode};
             use std::str::FromStr;
@@ -198,9 +265,10 @@ pub async fn create_pool(config: &SqlConnectionConfig) -> Result<DatabasePool, S
             Ok(DatabasePool::Sqlite(pool))
         }
         SqlDialect::Clickhouse => {
+            // ClickhouseClient::new reads host/port from `config`, so the
+            // tunneled config naturally points the HTTP base URL at
+            // `127.0.0.1:<local_port>` when an SSH tunnel is in play.
             let client = ClickhouseClient::new(config)?;
-            // Verify reachability + credentials before handing the client
-            // back; mirrors the connect-then-test contract sqlx pools have.
             client
                 .ping()
                 .await
@@ -421,25 +489,30 @@ fn sqlite_row_to_json(row: &sqlx::sqlite::SqliteRow) -> Vec<serde_json::Value> {
 #[tauri::command]
 pub async fn sql_connect(
     manager: State<'_, Arc<SqlConnectionManager>>,
+    app_pool: State<'_, SqlitePool>,
     config: SqlConnectionConfig,
 ) -> Result<String, String> {
-    let pool = create_pool(&config).await?;
+    let (pool, tunnel) = create_pool_with_tunnel(&config, Some(app_pool.inner())).await?;
     let connection_id = Uuid::new_v4().to_string();
     let mut connections = manager.connections.lock().await;
     connections.insert(connection_id.clone(), pool);
+    if let Some(t) = tunnel {
+        manager.tunnels.lock().await.insert(connection_id.clone(), t);
+    }
     Ok(connection_id)
 }
 
 #[tauri::command]
 pub async fn sql_connect_database(
     manager: State<'_, Arc<SqlConnectionManager>>,
+    app_pool: State<'_, SqlitePool>,
     config: SqlConnectionConfig,
     database: String,
     pool_key: Option<String>,
 ) -> Result<String, String> {
     let mut db_config = config;
     db_config.database = database;
-    let pool = create_pool(&db_config).await?;
+    let (pool, tunnel) = create_pool_with_tunnel(&db_config, Some(app_pool.inner())).await?;
     let key = pool_key.unwrap_or_else(|| Uuid::new_v4().to_string());
     let mut connections = manager.connections.lock().await;
     // If pool already exists under this key, close the old one first
@@ -452,7 +525,13 @@ pub async fn sql_connect_database(
             DatabasePool::Clickhouse(_) => {}
         }
     }
+    // Drop any prior tunnel under this key so the old SSH session closes
+    // before we insert the new one. Using `remove` triggers Drop.
+    let _ = manager.tunnels.lock().await.remove(&key);
     connections.insert(key.clone(), pool);
+    if let Some(t) = tunnel {
+        manager.tunnels.lock().await.insert(key.clone(), t);
+    }
     Ok(key)
 }
 
@@ -469,6 +548,8 @@ pub async fn sql_disconnect(
             DatabasePool::Sqlite(p) => p.close().await,
             DatabasePool::Clickhouse(_) => {}
         }
+        // Drop any associated tunnel — its Drop closes the SSH session.
+        let _ = manager.tunnels.lock().await.remove(&connection_id);
         Ok(())
     } else {
         Err("Connection not found".to_string())
@@ -476,15 +557,20 @@ pub async fn sql_disconnect(
 }
 
 #[tauri::command]
-pub async fn sql_test_connection(config: SqlConnectionConfig) -> Result<(), String> {
-    let pool = create_pool(&config).await?;
-    // Just connecting is enough; close immediately
+pub async fn sql_test_connection(
+    app_pool: State<'_, SqlitePool>,
+    config: SqlConnectionConfig,
+) -> Result<(), String> {
+    let (pool, tunnel) = create_pool_with_tunnel(&config, Some(app_pool.inner())).await?;
+    // Just connecting is enough; close immediately. Drop the tunnel after
+    // the pool so any in-flight close packets still reach the server.
     match pool {
         DatabasePool::Postgres(p) => p.close().await,
         DatabasePool::MySql(p) => p.close().await,
         DatabasePool::Sqlite(p) => p.close().await,
         DatabasePool::Clickhouse(_) => {}
     }
+    drop(tunnel);
     Ok(())
 }
 
@@ -1015,6 +1101,7 @@ pub async fn sql_save_connection(
         &config.password,
         config.ssl as i32,
         max_order.0 + 1,
+        config.ssh_profile_id.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -1063,6 +1150,7 @@ pub async fn sql_update_saved_connection(
         &config.username,
         &config.password,
         config.ssl as i32,
+        config.ssh_profile_id.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;

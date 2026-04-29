@@ -59,17 +59,28 @@ async fn ensure_pool(
             username: saved.username,
             password: saved.password,
             ssl: saved.ssl == 1,
+            // Forward the tunnel selection so AI auto-connect honours it.
+            ssh_profile_id: saved.ssh_profile_id,
         };
 
-        let new_pool = crate::modes::sql::client::create_pool(&config).await
+        // Pass the app pool so saved connections with `ssh_profile_id` can
+        // open their tunnel. Connections without a tunnel take the same
+        // legacy path as before — same URLs, same drivers.
+        let (new_pool, tunnel) = crate::modes::sql::client::create_pool_with_tunnel(&config, Some(pool)).await
             .map_err(|e| format!("Auto-connect failed for {}:{}/{}: {}", host, port, target_db, e))?;
 
         // Store under stable key so subsequent calls reuse the same pool
         let mut conns = sql_manager.connections.lock().await;
         if conns.contains_key(&cache_key) {
+            // Race: another caller beat us to it. Drop our extra pool and
+            // tunnel; the existing entry wins.
+            drop(tunnel);
             return Ok(cache_key);
         }
         conns.insert(cache_key.clone(), new_pool);
+        if let Some(t) = tunnel {
+            sql_manager.tunnels.lock().await.insert(cache_key.clone(), t);
+        }
         log::info!("[AI SQL] Auto-connected to {}:{}/{} as pool {}", host, port, target_db, cache_key);
         Ok(cache_key)
     } else {

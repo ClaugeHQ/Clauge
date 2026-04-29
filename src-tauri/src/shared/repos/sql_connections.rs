@@ -56,10 +56,11 @@ pub async fn insert(
     password: &str,
     ssl: i32,
     sort_order: i32,
+    ssh_profile_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO sql_connections (id, name, driver, host, port, database_name, username, password, ssl, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sql_connections (id, name, driver, host, port, database_name, username, password, ssl, sort_order, ssh_profile_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(name)
@@ -71,6 +72,7 @@ pub async fn insert(
     .bind(password)
     .bind(ssl)
     .bind(sort_order)
+    .bind(ssh_profile_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -96,9 +98,10 @@ pub async fn update(
     username: &str,
     password: &str,
     ssl: i32,
+    ssh_profile_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE sql_connections SET name = ?, driver = ?, host = ?, port = ?, database_name = ?, username = ?, password = ?, ssl = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE sql_connections SET name = ?, driver = ?, host = ?, port = ?, database_name = ?, username = ?, password = ?, ssl = ?, ssh_profile_id = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .bind(name)
     .bind(driver)
@@ -108,6 +111,7 @@ pub async fn update(
     .bind(username)
     .bind(password)
     .bind(ssl)
+    .bind(ssh_profile_id)
     .bind(id)
     .execute(pool)
     .await?;

@@ -4,7 +4,7 @@
 //
 // Per-dialect runtime logic that genuinely differs between drivers
 // (connection-string syntax in `client::build_connection_url`, sqlx pool
-// construction in `client::create_pool`, dialect-specific SQL in
+// construction in `client::build_pool_inner`, dialect-specific SQL in
 // `ai_tools.rs`) intentionally stays as match arms — those branches live
 // inside the engine, not the metadata. The registry's job is to centralise
 // the metadata and let dispatch happen via `descriptor_for_key(...)`.
