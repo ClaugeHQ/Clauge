@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::commands::ssh_models::SshProfile;
+use crate::modes::ssh::models::SshProfile;
 
 pub async fn list_all(pool: &SqlitePool) -> Result<Vec<SshProfile>, sqlx::Error> {
     sqlx::query_as::<_, SshProfile>(

@@ -15,7 +15,3 @@ pub mod agent_git;
 pub mod agent_worktree;
 pub mod agent_plugins;
 pub mod agent_usage;
-pub mod credential_store;
-pub mod ssh_models;
-pub mod ssh_profiles;
-pub mod ssh_terminal;

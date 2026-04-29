@@ -1,5 +1,5 @@
-use crate::commands::credential_store::{credential_store, CredentialStore};
-use crate::commands::ssh_models::SshProfile;
+use crate::modes::ssh::models::SshProfile;
+use crate::shared::platform::credential_store::{credential_store, CredentialStore};
 use crate::shared::repos::ssh_profiles as ssh_profiles_repo;
 use sqlx::SqlitePool;
 use tauri::State;

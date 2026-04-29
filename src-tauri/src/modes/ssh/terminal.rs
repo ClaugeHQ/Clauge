@@ -1,6 +1,6 @@
 use crate::commands::agent_models::TerminalOutputPayload;
-use crate::commands::credential_store::{credential_store, CredentialStore};
-use crate::commands::ssh_models::{SshCommand, SshProfile, SshTerminalEntry, SshTerminalState};
+use crate::modes::ssh::models::{SshCommand, SshProfile, SshTerminalEntry, SshTerminalState};
+use crate::shared::platform::credential_store::{credential_store, CredentialStore};
 use base64::Engine;
 use russh::client::{self, Handle};
 use russh::ChannelMsg;

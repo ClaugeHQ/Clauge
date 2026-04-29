@@ -2,6 +2,7 @@ mod appearance;
 mod commands;
 mod db;
 mod github;
+mod modes;
 mod shared;
 
 use std::str::FromStr;
@@ -230,7 +231,7 @@ pub fn run() {
             app.manage(Arc::new(commands::sql_client::SqlConnectionManager::new()));
             app.manage(commands::nosql_client::create_nosql_state());
             app.manage(commands::agent_models::TerminalState::default());
-            app.manage(commands::ssh_models::SshTerminalState::default());
+            app.manage(modes::ssh::models::SshTerminalState::default());
             app.manage(commands::ai::types::PendingFrontendTools::default());
 
             // Apply vibrancy on macOS — use Sidebar material (what native macOS apps use)
@@ -427,16 +428,16 @@ pub fn run() {
             commands::agent::agent_update_tray_title,
             commands::agent::agent_get_claude_plan,
             // SSH mode
-            commands::ssh_profiles::ssh_list_profiles,
-            commands::ssh_profiles::ssh_create_profile,
-            commands::ssh_profiles::ssh_update_profile,
-            commands::ssh_profiles::ssh_delete_profile,
-            commands::ssh_profiles::ssh_touch_profile,
-            commands::ssh_profiles::ssh_get_credential,
-            commands::ssh_terminal::ssh_spawn_terminal,
-            commands::ssh_terminal::ssh_write_to_terminal,
-            commands::ssh_terminal::ssh_resize_terminal,
-            commands::ssh_terminal::ssh_kill_terminal,
+            modes::ssh::profiles::ssh_list_profiles,
+            modes::ssh::profiles::ssh_create_profile,
+            modes::ssh::profiles::ssh_update_profile,
+            modes::ssh::profiles::ssh_delete_profile,
+            modes::ssh::profiles::ssh_touch_profile,
+            modes::ssh::profiles::ssh_get_credential,
+            modes::ssh::terminal::ssh_spawn_terminal,
+            modes::ssh::terminal::ssh_write_to_terminal,
+            modes::ssh::terminal::ssh_resize_terminal,
+            modes::ssh::terminal::ssh_kill_terminal,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
