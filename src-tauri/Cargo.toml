@@ -32,6 +32,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "mysql", "tls-rustls", "chrono", "uuid", "json", "rust_decimal"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
