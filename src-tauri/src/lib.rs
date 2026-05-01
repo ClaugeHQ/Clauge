@@ -251,17 +251,37 @@ pub fn run() {
                 let quit_item = MenuItem::with_id(app, "quit", "Quit Clauge", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show_item, &separator, &quit_item])?;
 
-                let icon_png = include_bytes!("../icons/tray-dark.png");
+                // tray-dark.png is a black silhouette designed to be used as a
+                // template image on macOS — the system inverts it automatically
+                // for the menubar. Linux and Windows don't do template inversion,
+                // so a black-on-dark-panel icon becomes invisible. Use the colored
+                // tray-light.png there.
+                #[cfg(target_os = "macos")]
+                let icon_png: &[u8] = include_bytes!("../icons/tray-dark.png");
+                #[cfg(not(target_os = "macos"))]
+                let icon_png: &[u8] = include_bytes!("../icons/tray-light.png");
+
                 let img = image::load_from_memory(icon_png).expect("Failed to load tray icon");
                 let rgba = img.to_rgba8();
                 let (w, h) = rgba.dimensions();
                 let tray_icon = tauri::image::Image::new_owned(rgba.into_raw(), w, h);
 
-                TrayIconBuilder::with_id("main-tray")
+                #[allow(unused_mut)]
+                let mut tray_builder = TrayIconBuilder::with_id("main-tray")
                     .icon(tray_icon)
-                    .icon_as_template(true)
                     .menu(&menu)
-                    .tooltip("Clauge")
+                    .tooltip("Clauge");
+
+                // Template mode is a macOS-only concept — the system uses the
+                // alpha channel to render the icon in the right color for the
+                // current menubar appearance. Skipping this on Linux/Windows
+                // means the icon's natural colors are used.
+                #[cfg(target_os = "macos")]
+                {
+                    tray_builder = tray_builder.icon_as_template(true);
+                }
+
+                tray_builder
                     .on_menu_event(move |app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent| {
                         let id = event.id().as_ref();
                         if id == "quit" {
