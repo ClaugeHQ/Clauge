@@ -95,6 +95,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
           releaseBody: 'A new version is available with improvements and bug fixes. Restart to apply the update.'
-          releaseDraft: false
+          # Draft mode lets all 4 matrix runners (mac aarch64, mac x86_64,
+          # windows, linux) contribute artifacts to the same draft release.
+          # The last runner's latest.json will reference ALL platforms.
+          # Manually click "Publish release" once all runs are green.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
