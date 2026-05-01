@@ -52,6 +52,8 @@ russh = "0.45"
 russh-keys = "0.45"
 async-trait = "0.1"
 sha2 = "0.10"
+# Cross-platform credential store (macOS Keychain / Windows Credential Manager / Linux Secret Service)
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
