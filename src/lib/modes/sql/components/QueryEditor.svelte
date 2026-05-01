@@ -14,6 +14,7 @@
   import { Parser as SqlParser } from 'node-sql-parser';
   import { splitSqlStatements } from '../utils/splitter';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { mod } from '$lib/utils/platform';
 
   interface Props {
     query: string;
@@ -105,7 +106,7 @@
         autocompletion({ activateOnTyping: true }),
         syntaxHighlighting(oneDarkHighlightStyle),
         editorTheme,
-        cmPlaceholder('Write your SQL query here -- Cmd+Enter to execute'),
+        cmPlaceholder(`Write your SQL query here -- ${mod()}+Enter to execute`),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             suppressExternalSync = true;

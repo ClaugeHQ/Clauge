@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { mod } from '$lib/utils/platform';
+  const m = mod();
   import QueryEditor from './QueryEditor.svelte';
   import ResultsTable from './ResultsTable.svelte';
   import {
@@ -517,7 +519,7 @@
           class="sql-execute-btn"
           onclick={() => queryEditorRef?.handleExecute()}
           disabled={currentLoading || !currentQuery.trim()}
-          title="Execute (Cmd+Enter)"
+          title={`Execute (${m}+Enter)`}
         >
           {#if currentLoading}
             Running...
@@ -591,8 +593,8 @@
       </svg>
     </div>
     <div class="sql-empty-text">Create a new query with the + button in the tab bar</div>
-    <div class="sql-empty-hint">or press Cmd+T</div>
-    <div class="sql-empty-ai"><kbd>⌘L</kbd> AI Assistant</div>
+    <div class="sql-empty-hint">or press {m}+T</div>
+    <div class="sql-empty-ai"><kbd>{m}+L</kbd> AI Assistant</div>
   </div>
 {/if}
 

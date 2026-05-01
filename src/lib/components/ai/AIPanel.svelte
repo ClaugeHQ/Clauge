@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { mod } from '$lib/utils/platform';
+  const m = mod();
   import { aiPanelOpen, aiPanelOpenPerMode, mode, activeModal, getModeChatMessages, setModeChatMessages, clearModeChatMessages, type AppMode } from '$lib/stores/app';
   import { settings } from '$lib/stores/settings';
   import { loadCollections } from '$lib/modes/rest/stores';
@@ -727,7 +729,7 @@
           </div>
           <p class="welcome-text">Set up your API key to start using AI assistance</p>
           <button class="ai-setup-btn" onclick={openAiSettings}>Configure in Settings</button>
-          <p class="welcome-hint">Toggle with <kbd>⌘L</kbd></p>
+          <p class="welcome-hint">Toggle with <kbd>{m}+L</kbd></p>
         </div>
       </div>
     {:else}
@@ -739,7 +741,7 @@
             <svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>
           </div>
           <p class="welcome-text">{modeGuideText[$mode]}</p>
-          <p class="welcome-hint">Toggle with <kbd>⌘L</kbd></p>
+          <p class="welcome-hint">Toggle with <kbd>{m}+L</kbd></p>
         </div>
       {/if}
 
@@ -986,7 +988,7 @@
           style="background: {modeColors[$mode]}"
           onclick={sendMessage}
           disabled={!inputText.trim()}
-          title="Send (Cmd+Enter)"
+          title={`Send (${m}+Enter)`}
         >
           <svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
         </button>

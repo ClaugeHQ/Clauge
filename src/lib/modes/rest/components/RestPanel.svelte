@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { mod } from '$lib/utils/platform';
+  const m = mod();
   import RequestBar from './RequestBar.svelte';
   import RequestEditor from './RequestEditor.svelte';
   import ResponseViewer from './ResponseViewer.svelte';
@@ -157,7 +159,7 @@
     </div>
     <p class="rest-empty-text">Create a new request or select one from collections</p>
     <p class="rest-empty-hint">Press <kbd>+</kbd> on a collection or use the <kbd>+</kbd> button in the tab bar</p>
-    <p class="rest-empty-hint rest-empty-ai"><kbd>⌘L</kbd> AI Assistant</p>
+    <p class="rest-empty-hint rest-empty-ai"><kbd>{m}+L</kbd> AI Assistant</p>
   </div>
 {:else}
   <div class="rest-panel">

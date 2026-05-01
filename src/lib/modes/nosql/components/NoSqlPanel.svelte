@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { mod } from '$lib/utils/platform';
+  const m = mod();
   import { activeNoSqlConnection, connectedNoSqlIds, nosqlLiveConnectionIds, nosqlTabState, setNoSqlTabData, nosqlConnections, activeNoSqlConnectionId, insertNoSqlQueryText, aiExecuteNoSqlQuery } from '../stores';
   import { nosqlListDatabases, nosqlListCollections as listColls } from '../commands';
   import { showToast } from '$lib/shared/primitives/toast';
@@ -213,7 +215,7 @@
       <div class="nosql-empty-text">
         Open a tab to start querying<br />
         <span class="nosql-empty-hint">Press <kbd>+</kbd> in the tab bar or click a collection in the sidebar</span>
-        <div class="nosql-empty-ai"><kbd>⌘L</kbd> AI Assistant</div>
+        <div class="nosql-empty-ai"><kbd>{m}+L</kbd> AI Assistant</div>
       </div>
     </div>
   {:else if isRedis && liveId}

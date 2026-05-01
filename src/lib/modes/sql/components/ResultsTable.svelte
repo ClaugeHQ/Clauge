@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { mod } from '$lib/utils/platform';
+  const m = mod();
   import { onMount, onDestroy } from 'svelte';
   import type { SqlQueryResult } from '../types';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -502,7 +504,7 @@
       {#if hasPendingChanges}
         <span class="rt-footer-sep">&middot;</span>
         <span class="rt-footer-dirty">{dirtyRows.size + deletedRows.size} pending</span>
-        <button class="rt-footer-btn rt-save-btn" onclick={saveChanges} title="Generate SQL (Cmd+S)">
+        <button class="rt-footer-btn rt-save-btn" onclick={saveChanges} title={`Generate SQL (${m}+S)`}>
           Save
         </button>
         <button class="rt-footer-btn rt-discard-btn" onclick={discardChanges} title="Discard changes">
