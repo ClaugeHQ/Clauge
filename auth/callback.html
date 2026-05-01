@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clauge — Connecting to GitHub</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #07070b;
+    color: rgba(255,255,255,0.94);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+    position: relative;
+  }
+  /* ambient backdrop — same vocabulary as the home page */
+  .bg-field { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .bg-field::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(900px 600px at 12% -8%, rgba(210, 168, 255, 0.14), transparent 60%),
+      radial-gradient(700px 500px at 92% 8%, rgba(86, 212, 221, 0.10), transparent 60%),
+      radial-gradient(600px 500px at 50% 110%, rgba(210, 168, 255, 0.08), transparent 65%);
+  }
+  .bg-field::after {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 30%, transparent 80%);
+  }
+  .card {
+    text-align: center; max-width: 420px; padding: 40px;
+    position: relative; z-index: 1;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.01em; }
+  p { font-size: 14px; color: rgba(255,255,255,0.6); line-height: 1.55; margin-bottom: 20px; }
+  .spinner { width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.12); border-top-color: #d2a8ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { color: #f85149; }
+  .success { color: #3fb950; }
+  a { color: #d2a8ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="bg-field" aria-hidden="true"></div>
+<div class="card">
+  <img src="../clauge-mark.svg" alt="Clauge" style="width:64px;height:64px;margin-bottom:16px;" />
+  <h1 id="title">Connecting to GitHub…</h1>
+  <div class="spinner" id="spinner"></div>
+  <p id="message">Exchanging authorization code…</p>
+</div>
+<script>
+(async () => {
+  const title = document.getElementById('title');
+  const message = document.getElementById('message');
+  const spinner = document.getElementById('spinner');
+
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const error = params.get('error');
+
+  if (error) {
+    title.textContent = 'Authorization Failed';
+    message.innerHTML = `<span class="error">GitHub returned: ${error}</span><br><br>Close this tab and try again from Clauge.`;
+    spinner.style.display = 'none';
+    return;
+  }
+
+  if (!code) {
+    title.textContent = 'Missing Authorization Code';
+    message.innerHTML = '<span class="error">No code received from GitHub.</span><br><br>Close this tab and try again from Clauge.';
+    spinner.style.display = 'none';
+    return;
+  }
+
+  try {
+    const resp = await fetch('https://clauge.in/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+
+    const data = await resp.json();
+
+    if (data.error || !data.access_token) {
+      throw new Error(data.error_description || data.error || 'No token received');
+    }
+
+    title.textContent = 'Redirecting to Clauge…';
+    message.innerHTML = 'Authorization successful! Opening Clauge…<br><br>If the app doesn\'t open, <a id="manual-link" href="#">click here</a>.';
+    spinner.style.display = 'none';
+
+    const deepLink = `clauge://oauth-callback?token=${encodeURIComponent(data.access_token)}`;
+    document.getElementById('manual-link').href = deepLink;
+    window.location.href = deepLink;
+
+  } catch (e) {
+    title.textContent = 'Connection Failed';
+    message.innerHTML = `<span class="error">${e.message}</span><br><br>Close this tab and try again from Clauge.`;
+    spinner.style.display = 'none';
+  }
+})();
+</script>
+</body>
+</html>

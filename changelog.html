@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Changelog — Clauge</title>
+  <meta name="description" content="What's new in Clauge — releases pulled live from GitHub." />
+  <meta name="theme-color" content="#07070b" />
+
+  <link rel="icon" type="image/svg+xml" href="clauge-mark.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="bg-field" aria-hidden="true"></div>
+
+  <header class="header" id="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="./" aria-label="Clauge home">
+        <img src="clauge-mark.svg" alt="" />
+        <span>Clauge</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="index.html#what-it-does">What it does</a>
+        <a href="index.html#ai">The AI</a>
+        <a href="index.html#themes">Themes</a>
+        <a href="changelog.html" class="is-active">Changelog</a>
+        <a href="https://github.com/ansxuman/Clauge" target="_blank" rel="noopener" class="cta">
+          <i class="fa-brands fa-github" aria-hidden="true"></i>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="changelog-hero">
+      <div class="container">
+        <span class="eyebrow"><i class="fa-solid fa-rss" aria-hidden="true"></i> Release notes</span>
+        <h1>What's new in Clauge.</h1>
+        <p>Every release, every download, straight from GitHub.</p>
+        <a class="all-releases" href="https://github.com/ansxuman/Clauge/releases" target="_blank" rel="noopener">
+          View all releases on GitHub <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        </a>
+      </div>
+    </section>
+
+    <section style="padding: 24px 0 80px;">
+      <div class="container">
+        <div class="releases" id="releases" aria-live="polite">
+          <div class="cl-loading">
+            <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+            Loading releases…
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="row">
+        <div class="col" style="max-width: 320px;">
+          <a class="brand" href="./" style="margin-bottom: 8px;">
+            <img src="clauge-mark.svg" alt="" />
+            <span>Clauge</span>
+          </a>
+          <p style="color: var(--text-dim);">The AI-powered super-app for developers.</p>
+        </div>
+        <div class="col">
+          <h5>Product</h5>
+          <a href="index.html">Home</a>
+          <a href="index.html#what-it-does">What it does</a>
+          <a href="index.html#ai">The AI</a>
+          <a href="index.html#themes">Themes</a>
+        </div>
+        <div class="col">
+          <h5>Open</h5>
+          <a href="https://github.com/ansxuman/Clauge" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/ansxuman/Clauge/issues" target="_blank" rel="noopener">Report an issue</a>
+          <a href="https://github.com/ansxuman/Clauge/releases" target="_blank" rel="noopener">Releases</a>
+        </div>
+      </div>
+      <div class="meta-row">
+        <span>© 2026 Clauge</span>
+        <span>Made for developers · macOS</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+  (async function () {
+    const REPO = 'ansxuman/Clauge';
+    const container = document.getElementById('releases');
+
+    // GitHub @mentions → profile links. Marked tokenizes code blocks and
+    // existing links first, so this only fires on plain text.
+    marked.use({
+      extensions: [{
+        name: 'ghMention',
+        level: 'inline',
+        start(src) { const i = src.indexOf('@'); return i < 0 ? undefined : i; },
+        tokenizer(src) {
+          // GitHub usernames: 1–39 chars, alphanumeric + single hyphens, no leading/trailing hyphen.
+          // Require a non-word char (or start of string) before the @ to avoid matching emails.
+          const m = /^@([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})/.exec(src);
+          if (m) return { type: 'ghMention', raw: m[0], user: m[1] };
+        },
+        renderer(t) {
+          return `<a class="cl-mention" href="https://github.com/${t.user}" target="_blank" rel="noopener">@${t.user}</a>`;
+        }
+      }]
+    });
+
+    const fmtDate = (d) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const isImage = (n) => /\.(png|jpe?g|gif|webp|svg)$/i.test(n);
+    // Only ship-friendly installers — drop tarballs/zips/raw .app bundles
+    const isDownload = (n) => /\.(dmg|pkg|exe|msi|appimage|deb|rpm)$/i.test(n);
+
+    const assetIcon = (name) => {
+      const n = name.toLowerCase();
+      if (n.endsWith('.dmg') || n.endsWith('.pkg')) return 'fa-brands fa-apple';
+      if (n.endsWith('.exe') || n.endsWith('.msi')) return 'fa-brands fa-windows';
+      if (n.endsWith('.deb') || n.endsWith('.rpm') || n.endsWith('.appimage')) return 'fa-brands fa-linux';
+      return 'fa-solid fa-download';
+    };
+
+    const archHint = (name) => {
+      const n = name.toLowerCase();
+      if (/(arm64|aarch64|apple[-_ ]?silicon)/.test(n)) return 'Apple Silicon';
+      if (/(x86_64|x64|amd64|intel)/.test(n)) return 'Intel';
+      return '';
+    };
+
+    const platformOf = (name) => {
+      const n = name.toLowerCase();
+      if (n.endsWith('.dmg') || n.endsWith('.pkg')) return 'macOS';
+      if (n.endsWith('.exe') || n.endsWith('.msi')) return 'Windows';
+      if (n.endsWith('.deb') || n.endsWith('.rpm') || n.endsWith('.appimage')) return 'Linux';
+      return '';
+    };
+
+    const extOf = (name) => {
+      const m = name.match(/\.([a-z0-9]+)$/i);
+      return m ? '.' + m[1].toLowerCase() : '';
+    };
+
+    // "Apple Silicon" + ".dmg" → primary label (arch) + suffix (.dmg)
+    const assetLabel = (name) => {
+      const arch = archHint(name);
+      if (arch) return arch;
+      return platformOf(name) || name;
+    };
+
+    // Strip the version/tag from the release title — the tag pill sits next to it
+    const cleanTitle = (title, tag) => {
+      if (!title) return tag;
+      let t = title;
+      if (tag) {
+        const safe = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        t = t.replace(new RegExp('\\s*' + safe + '\\s*', 'gi'), ' ');
+      }
+      // bare version patterns: v1.2.3, 1.2.3, 1.2.3-alpha.1, 1.2.3-rc1, etc.
+      t = t.replace(/\s*v?\d+\.\d+\.\d+(?:[-.][\w.]+)?\s*/g, ' ');
+      t = t.replace(/\s+/g, ' ').trim();
+      return t || tag || 'Release';
+    };
+
+    // Hide alpha builds per project preference
+    const isAlphaLike = (r) => {
+      const blob = `${r.tag_name || ''} ${r.name || ''}`.toLowerCase();
+      return /\balpha\b/.test(blob) || /-alpha[.-]?/.test(blob);
+    };
+
+    try {
+      const resp = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
+        headers: { 'Accept': 'application/vnd.github+json' }
+      });
+      if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
+      const allReleases = await resp.json();
+      const releases = Array.isArray(allReleases) ? allReleases.filter(r => !isAlphaLike(r)) : [];
+
+      if (!releases.length) {
+        container.innerHTML = `
+          <div class="cl-empty">
+            <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
+            <h3>No releases yet.</h3>
+            <p>The first release will land here as soon as it's published on GitHub.</p>
+            <a class="btn btn-ghost" href="https://github.com/${REPO}" target="_blank" rel="noopener">
+              <i class="fa-brands fa-github"></i> Watch the repo
+            </a>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = releases.map((r, idx) => {
+        const date = fmtDate(r.published_at || r.created_at);
+        const title = cleanTitle(r.name || r.tag_name, r.tag_name);
+        const body = r.body && r.body.trim() ? marked.parse(r.body) : '<p class="cl-empty-body">No release notes for this version.</p>';
+
+        const images = (r.assets || []).filter(a => isImage(a.name));
+        const downloads = (r.assets || []).filter(a => isDownload(a.name));
+
+        const imageHtml = images.length
+          ? `<div class="release-images">${images.map(a =>
+              `<img src="${a.browser_download_url}" alt="${a.name}" loading="lazy" />`).join('')}</div>`
+          : '';
+
+        const downloadHtml = downloads.length
+          ? `<div class="release-assets">${downloads.map(a => {
+              const label = assetLabel(a.name);
+              const platform = platformOf(a.name);
+              const ext = extOf(a.name);
+              return `<a class="release-asset" href="${a.browser_download_url}" target="_blank" rel="noopener" download title="${a.name}">
+                <i class="${assetIcon(a.name)}" aria-hidden="true"></i>
+                <span class="asset-label">${label}</span>
+                ${(platform || ext) ? `<span class="asset-suffix">${platform}${platform && ext ? ' · ' : ''}${ext}</span>` : ''}
+              </a>`;
+            }).join('')}</div>`
+          : '';
+
+        return `
+          <article class="release-card${idx === 0 ? ' is-latest' : ''}">
+            <div class="release-meta">
+              <span class="release-dot" aria-hidden="true"></span>
+              <time class="release-date">${date}</time>
+              ${idx === 0 ? '<span class="release-badge-latest">Latest</span>' : ''}
+            </div>
+            <header class="release-card-head">
+              <h2><a href="${r.html_url}" target="_blank" rel="noopener">${title}</a></h2>
+              <span class="release-tag">${r.tag_name}</span>
+            </header>
+            ${imageHtml}
+            <div class="release-body">${body}</div>
+            ${downloadHtml}
+          </article>
+        `;
+      }).join('');
+    } catch (err) {
+      container.innerHTML = `
+        <div class="cl-empty cl-empty-error">
+          <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+          <h3>Couldn't reach GitHub.</h3>
+          <p>${(err && err.message) || 'Network error.'} You can still browse releases directly.</p>
+          <a class="btn btn-ghost" href="https://github.com/${REPO}/releases" target="_blank" rel="noopener">
+            <i class="fa-brands fa-github"></i> View releases on GitHub
+          </a>
+        </div>`;
+    }
+  })();
+  </script>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+name = "clauge-gh-auth"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+routes = [
+  { pattern = "clauge.in/auth/token*", zone_name = "clauge.in" }
+]
+
+[vars]
+GITHUB_CLIENT_ID = "Ov23liXcWby6XVM80TfG"
+
+# GITHUB_CLIENT_SECRET is set via `wrangler secret put GITHUB_CLIENT_SECRET`

@@ -1,8 +1,0 @@
-// Cross-platform infrastructure shared across modes.
-// `credential_store` is the OS-keyring abstraction.
-// `shell` resolves the user's preferred shell binary per OS.
-// `install_type` distinguishes AppImage / package-manager / DMG / NSIS at runtime.
-
-pub mod credential_store;
-pub mod install_type;
-pub mod shell;
