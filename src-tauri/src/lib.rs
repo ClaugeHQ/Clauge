@@ -11,7 +11,25 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance enforcement on Linux + Windows. macOS .app bundles
+    // are single-instance natively, so the plugin is gated to other OSes.
+    // Must be registered FIRST — the plugin intercepts startup, brings the
+    // running window to focus, and forwards deep-link URIs from the new
+    // attempt (e.g. clauge:// OAuth callbacks) to the existing process.
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

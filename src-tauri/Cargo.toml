@@ -68,3 +68,11 @@ window-vibrancy = "0.7"
 # copies of the crate. HWND is the same shape in both, so the cast in
 # appearance/window_chrome.rs works either way.
 windows = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+
+# Single-instance enforcement on Linux + Windows. macOS .app bundles
+# are single-instance natively, so this plugin is gated to other OSes.
+# Forwards deep-link URIs from the new launch attempt to the running
+# process — OAuth callbacks land in the original window instead of
+# spawning a fresh instance.
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
