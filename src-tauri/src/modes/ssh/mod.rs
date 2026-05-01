@@ -7,6 +7,7 @@
 // `ai_tools` registers SSH's `execute_shell` AI tool with the shared
 // `crate::shared::ai::dispatch` registry at startup.
 
+pub mod agent;
 pub mod ai_tools;
 pub mod models;
 pub mod profiles;

@@ -55,6 +55,7 @@
     if (!host.trim() || !username.trim() || !name.trim()) return;
     if (authType === 'key' && !keyPath.trim()) return;
     if (authType === 'password' && !password) return;
+    // 'agent' has no profile-side requirements — keys live in ssh-agent.
 
     loading = true;
     try {
@@ -68,6 +69,7 @@
         accentColor: null,
         secret: authType === 'password' ? password : null,
         passphrase: authType === 'key' && passphrase ? passphrase : null,
+        // ssh-agent profiles store nothing locally — agent holds the key.
       });
       await loadSshProfiles();
       window.dispatchEvent(new CustomEvent(SSH_EVENT.PROFILE_CREATED, { detail: profile }));
@@ -117,7 +119,8 @@
       host.trim() !== '' &&
       username.trim() !== '' &&
       ((authType === 'key' && keyPath.trim() !== '') ||
-        (authType === 'password' && password !== ''))
+        (authType === 'password' && password !== '') ||
+        authType === 'agent')
   );
 </script>
 
@@ -160,10 +163,19 @@
         <span class="ns-chip" class:selected={authType === 'key'} onclick={() => (authType = 'key')}>SSH Key</span>
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <span class="ns-chip" class:selected={authType === 'password'} onclick={() => (authType = 'password')}>Password</span>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <span class="ns-chip" class:selected={authType === 'agent'} onclick={() => (authType = 'agent')}>SSH Agent</span>
       </div>
     </div>
 
-    {#if authType === 'key'}
+    {#if authType === 'agent'}
+      <div class="ns-field">
+        <span class="ns-optional">
+          Uses keys loaded into the running ssh-agent (Unix socket on macOS/Linux, named pipe on Windows).
+          Required for hardware tokens (YubiKey, smartcard). Run <code>ssh-add</code> to load keys first.
+        </span>
+      </div>
+    {:else if authType === 'key'}
       <label class="ns-field">
         <span class="ns-label">Private Key File</span>
         <div class="ns-path-row">

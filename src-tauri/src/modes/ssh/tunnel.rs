@@ -300,6 +300,9 @@ async fn connect_and_auth(
                 .await
                 .map_err(|e| format!("ssh auth password: {}", e))?
         }
+        "agent" => {
+            crate::modes::ssh::agent::try_agent_auth(&mut handle, &profile.username).await?
+        }
         other => return Err(format!("unknown auth_type: {}", other)),
     };
     if !authed {

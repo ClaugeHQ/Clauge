@@ -122,10 +122,19 @@
           <span class="ns-chip" class:selected={authType === 'key'} onclick={() => (authType = 'key')}>SSH Key</span>
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
           <span class="ns-chip" class:selected={authType === 'password'} onclick={() => (authType = 'password')}>Password</span>
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <span class="ns-chip" class:selected={authType === 'agent'} onclick={() => (authType = 'agent')}>SSH Agent</span>
         </div>
       </div>
 
-      {#if authType === 'key'}
+      {#if authType === 'agent'}
+        <div class="ns-field">
+          <span class="ns-optional">
+            Uses keys loaded into the running ssh-agent. Required for hardware tokens (YubiKey, smartcard).
+            Run <code>ssh-add</code> to load keys first.
+          </span>
+        </div>
+      {:else if authType === 'key'}
         <label class="ns-field">
           <span class="ns-label">Private Key File</span>
           <div class="ns-path-row">

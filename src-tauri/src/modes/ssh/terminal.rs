@@ -1,4 +1,5 @@
 use crate::modes::agent::models::TerminalOutputPayload;
+use crate::modes::ssh::agent::try_agent_auth;
 use crate::modes::ssh::models::{SshCommand, SshProfile, SshTerminalEntry, SshTerminalState};
 use crate::shared::platform::credential_store::{credential_store, CredentialStore};
 use base64::Engine;
@@ -216,6 +217,7 @@ async fn run_ssh_session(
                 .await
                 .map_err(|e| format!("auth password: {}", e))?
         }
+        "agent" => try_agent_auth(&mut handle, &profile.username).await?,
         other => return Err(format!("unknown auth_type: {}", other)),
     };
     if !authed {
