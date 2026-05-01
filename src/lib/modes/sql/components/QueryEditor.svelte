@@ -11,7 +11,6 @@
   import { activeConnection } from '../stores';
   import type { TableInfo } from '../types';
   import { parserProfileFor } from '../dialects';
-  import { Parser as SqlParser } from 'node-sql-parser';
   import { splitSqlStatements } from '../utils/splitter';
   import { showToast } from '$lib/shared/primitives/toast';
   import { mod } from '$lib/utils/platform';
@@ -141,20 +140,16 @@
     }
   });
 
-  const sqlParser = new SqlParser();
-
+  // Executable-iff-non-empty: trust the database engine to validate syntax
+  // and surface its own error message. node-sql-parser's grammar coverage
+  // is incomplete (it falls back to PostgreSQL for ClickHouse, doesn't
+  // recognize `SETTINGS` / `PREWHERE` / `FINAL` / `ARRAY JOIN` / extension
+  // SQL on any dialect, and silently drops single-keyword statements like
+  // `BEGIN` / `COMMIT` / `VACUUM`). Using it as a gate produced a class of
+  // bug where pressing Run did nothing, with no toast or feedback. The
+  // server is the source of truth; let it answer.
   function isExecutableStatement(text: string): boolean {
-    const trimmed = text.trim();
-    if (!trimmed) return false;
-    if (trimmed.split(/\s+/).length < 2) return false;
-
-    try {
-      const db = parserProfileFor($activeConnection?.driver ?? '');
-      sqlParser.astify(trimmed, { database: db });
-      return true;
-    } catch {
-      return false;
-    }
+    return text.trim().length > 0;
   }
 
   function executeFromCursor(view: EditorView) {

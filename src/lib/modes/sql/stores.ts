@@ -209,9 +209,30 @@ export async function connectToDb(connectionId: string) {
   if (getSqlConnState(connectionId) === 'connecting') {
     return get(liveConnectionIds)[connectionId] ?? null;
   }
-  const allConns = get(connections);
-  const conn = allConns.find(c => c.id === connectionId);
-  if (!conn) throw new Error('Connection not found');
+
+  // Load saved connections if the store hasn't been populated yet.
+  // SqlPanel calls loadConnections() fire-and-forget on mount, so any
+  // user action (e.g. opening a script via Topbar before SqlPanel's
+  // load resolves) lands here with an empty `connections` store. Auto-
+  // load and retry once.
+  let allConns = get(connections);
+  let conn = allConns.find(c => c.id === connectionId);
+  if (!conn) {
+    await loadConnections();
+    allConns = get(connections);
+    conn = allConns.find(c => c.id === connectionId);
+    if (!conn) {
+      // Saved-connection record is permanently missing (typically a stale
+      // reference from a deleted+recreated connection). Distinct from
+      // both the Rust-side "Connection not found" (live pool lost) and
+      // any transient load issue — message phrased to NOT match
+      // friendlyError's "Connection not found"/"connection not found"
+      // patterns so it surfaces verbatim instead of being mistranslated
+      // into "Connection lost — please disconnect and reconnect".
+      throw new Error(`Saved connection record missing (id ${connectionId})`);
+    }
+  }
+
   setSqlConnState(connectionId, 'connecting');
   setSqlConnError(connectionId, null);
   let liveId: string;
@@ -301,34 +322,72 @@ export function getDbLiveId(savedConnId: string, database: string): string | nul
   return get(dbLiveConnections)[key] ?? null;
 }
 
+// In-flight `connectToDatabase` calls keyed by `${savedConnId}:${database}`.
+// Multiple subscribers can request the same per-database pool concurrently
+// (e.g. Topbar.handleOpenScript awaits one while SqlPanel's self-heal
+// effect also fires after `connectedIds` flips). Without dedup, both
+// callers race to build a fresh pool — the Rust side serializes via
+// mutex but still does two real connect handshakes, and the loser can
+// surface a misleading "Connection not found" once the winner's
+// `connections.remove(&key)` step closes its pool. Sharing one Promise
+// per key collapses the race to a single round-trip.
+const inflightDbConnects = new Map<string, Promise<string>>();
+
 export async function connectToDatabase(savedConnId: string, database: string): Promise<string> {
   const key = `${savedConnId}:${database}`;
-  // Return existing connection if already connected
+
+  // Already pooled — short-circuit.
   const existing = get(dbLiveConnections)[key];
   if (existing) return existing;
 
-  const allConns = get(connections);
-  const conn = allConns.find(c => c.id === savedConnId);
-  if (!conn) throw new Error('Connection not found');
+  // Already connecting — share the in-flight Promise.
+  const inflight = inflightDbConnects.get(key);
+  if (inflight) return inflight;
 
-  const config = {
-    name: conn.name,
-    driver: conn.driver as any,
-    host: conn.host,
-    port: conn.port,
-    database: conn.databaseName,
-    username: conn.username,
-    password: conn.password,
-    ssl: !!conn.ssl,
-    // Forward the saved SSH profile so per-database pools tunnel too.
-    // The nav-expand path (loading databases/schemas/tables) lands here.
-    sshProfileId: conn.sshProfileId ?? null,
-  };
+  const promise = (async () => {
+    try {
+      // Load saved connections if the store hasn't been populated yet.
+      // Happens when a script tab is opened immediately after the SQL
+      // panel mounts (loadConnections() is fire-and-forget on mount).
+      let allConns = get(connections);
+      let conn = allConns.find(c => c.id === savedConnId);
+      if (!conn) {
+        await loadConnections();
+        allConns = get(connections);
+        conn = allConns.find(c => c.id === savedConnId);
+        if (!conn) {
+          // Same as connectToDb: saved-connection record is permanently
+          // missing. Wording avoids friendlyError's "Connection not
+          // found" pattern so it surfaces verbatim.
+          throw new Error(`Saved connection record missing (id ${savedConnId})`);
+        }
+      }
 
-  // Use savedId:dbName as the pool key — same format as AI's ensure_pool
-  const poolId = await sqlCmd.sqlConnectDatabase(config, database, key);
-  dbLiveConnections.update(m => ({ ...m, [key]: poolId }));
-  return poolId;
+      const config = {
+        name: conn.name,
+        driver: conn.driver as any,
+        host: conn.host,
+        port: conn.port,
+        database: conn.databaseName,
+        username: conn.username,
+        password: conn.password,
+        ssl: !!conn.ssl,
+        // Forward the saved SSH profile so per-database pools tunnel too.
+        // The nav-expand path (loading databases/schemas/tables) lands here.
+        sshProfileId: conn.sshProfileId ?? null,
+      };
+
+      // Use savedId:dbName as the pool key — same format as AI's ensure_pool
+      const poolId = await sqlCmd.sqlConnectDatabase(config, database, key);
+      dbLiveConnections.update(m => ({ ...m, [key]: poolId }));
+      return poolId;
+    } finally {
+      inflightDbConnects.delete(key);
+    }
+  })();
+
+  inflightDbConnects.set(key, promise);
+  return promise;
 }
 
 // --- SQL Script persistence ---

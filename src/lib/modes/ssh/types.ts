@@ -2,7 +2,7 @@
 // Tauri v2 returns Rust `Option<T>` as `T | null`; timestamps come back as
 // ISO-8601 strings from the Rust serializer.
 
-export type SshAuthType = 'key' | 'password';
+export type SshAuthType = 'key' | 'password' | 'agent';
 
 // IMPORTANT: Rust SshProfile uses `#[serde(rename_all = "camelCase")]`.
 // All multi-word field names below MUST be camelCase to match the JSON wire
@@ -51,4 +51,16 @@ export interface SshUpdateProfileArgs {
 export interface SshTerminalPayload {
   data?: string; // base64-encoded chunk
   exit?: boolean;
+}
+
+// One host parsed from ~/.ssh/config. `alreadyExists` means a profile
+// with the same name (== ssh_config alias) is already in the DB and
+// should be excluded from import (UI shows it greyed out).
+export interface SshConfigHost {
+  alias: string;
+  hostname: string;
+  user: string | null;
+  port: number;
+  identityFile: string | null;
+  alreadyExists: boolean;
 }

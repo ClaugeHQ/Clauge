@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { sshProfiles, activeSshProfile, loadSshProfiles, sshTerminalIds, sshConnStates } from '../stores';
-  import { sshTouchProfile, sshDeleteProfile, sshKillTerminal } from '../commands';
+  import { sshTouchProfile, sshDeleteProfile, sshKillTerminal, sshReadConfigHosts } from '../commands';
   import { profileIdFromTabKey } from '../tabkey';
   import { tabs as tabsStore, closeTab } from '$lib/shared/stores/tabs';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
@@ -30,6 +30,13 @@
   let showAdd = $state(false);
   let showEdit = $state(false);
   let editTarget = $state<SshProfile | null>(null);
+  // Which tab to open the unified add/import modal on. Set to 'import'
+  // by the empty-state callout, otherwise 'manual'.
+  let addInitialView = $state<'manual' | 'import'>('manual');
+  // Number of importable hosts found in ~/.ssh/config (excludes already-imported).
+  // Only used for the empty-state callout — non-zero means "user has hosts in
+  // their ssh_config but no Clauge profiles yet, surface the import path".
+  let importableCount = $state(0);
 
   // Confirm dialog
   let confirmShow = $state(false);
@@ -37,17 +44,52 @@
   let confirmMessage = $state('');
   let confirmAction: (() => Promise<void>) | null = $state(null);
 
+  async function refreshImportableCount() {
+    try {
+      const list = await sshReadConfigHosts();
+      importableCount = list.filter((h) => !h.alreadyExists).length;
+    } catch {
+      importableCount = 0;
+    }
+  }
+
+  // After the add/import modal closes, re-probe the importable count so
+  // the empty-state callout reflects what was just imported (typically
+  // drops to 0 and the callout disappears).
+  let addWasOpen = false;
+  $effect(() => {
+    if (showAdd) {
+      addWasOpen = true;
+    } else if (addWasOpen) {
+      addWasOpen = false;
+      refreshImportableCount();
+    }
+  });
+
   onMount(() => {
     loadSshProfiles();
+    // Probe ~/.ssh/config quietly — only used to enable the empty-state
+    // import callout. No prompt or banner unless the user has zero
+    // profiles AND there are importable hosts.
+    refreshImportableCount();
     // The "+" near tabs in Topbar and the picker's "+ New SSH Profile" both
     // dispatch SSH_EVENT.NEW_PROFILE. Listen here since the modal lives in
     // this component.
-    const onNewProfile = () => { showAdd = true; };
+    const onNewProfile = () => {
+      addInitialView = 'manual';
+      showAdd = true;
+    };
     window.addEventListener(SSH_EVENT.NEW_PROFILE, onNewProfile);
     return () => window.removeEventListener(SSH_EVENT.NEW_PROFILE, onNewProfile);
   });
 
   export function showAddProfile() {
+    addInitialView = 'manual';
+    showAdd = true;
+  }
+
+  function openAddImport() {
+    addInitialView = 'import';
     showAdd = true;
   }
 
@@ -144,6 +186,10 @@
         confirmTitle = 'Delete SSH Profile';
         confirmMessage = `Delete "${profile.name}"? This cannot be undone.`;
         confirmAction = async () => {
+          // Close any open tabs / kill any live sessions for this profile
+          // FIRST, then delete the DB row. The other order would leave the
+          // tabs referencing a phantom profile id with no way to render.
+          disconnectAllForProfile(profile);
           try {
             await sshDeleteProfile(profile.id);
             await loadSshProfiles();
@@ -209,6 +255,11 @@
       {:else}
         <span>No SSH profiles yet</span>
         <button class="nav-empty-btn" onclick={() => (showAdd = true)}>+ New Connection</button>
+        {#if importableCount > 0}
+          <button class="nav-empty-btn import" onclick={openAddImport}>
+            Import {importableCount} {importableCount === 1 ? 'host' : 'hosts'} from SSH config
+          </button>
+        {/if}
       {/if}
     </div>
   {:else}
@@ -255,7 +306,7 @@
   {/if}
 </div>
 
-<NewSshProfileModal bind:show={showAdd} />
+<NewSshProfileModal bind:show={showAdd} initialView={addInitialView} />
 <EditSshProfileModal bind:show={showEdit} bind:profile={editTarget} />
 
 {#if confirmShow}
@@ -308,6 +359,15 @@
     transition: background 0.12s, border-color 0.12s, color 0.12s;
   }
   .nav-empty-btn:hover { background: var(--c); border-color: var(--b2); color: var(--t1); }
+  .nav-empty-btn.import {
+    border-style: dashed;
+    color: var(--t3);
+  }
+  .nav-empty-btn.import:hover {
+    border-style: solid;
+    border-color: var(--ssh, var(--acc));
+    color: var(--ssh, var(--acc));
+  }
 
   .profile-item {
     width: 100%;

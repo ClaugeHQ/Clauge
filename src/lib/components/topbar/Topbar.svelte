@@ -2,7 +2,7 @@
   import { navOpen, aiPanelOpen, aiPanelOpenPerMode, mode } from '$lib/stores/app';
   import { tabs, activeTabId, addTab, closeTab, activateTab, getDraft, markClean, clearDraft } from '$lib/shared/stores/tabs';
   import { activeRequestId, loadRequest, clearActiveRequest, commitRequest } from '$lib/modes/rest/stores';
-  import { sqlIsConnected, activeConnection, disconnectFromDb, initSqlTab, clearSqlTabData, setSqlTabData, sqlScripts, saveSqlScript, updateSqlScript, deleteSqlScript, getSqlTabData, activeConnectionId, selectedDatabase, connectToDatabase, sqlPendingChanges, connectToDb, connectedIds } from '$lib/modes/sql/stores';
+  import { sqlIsConnected, activeConnection, disconnectFromDb, initSqlTab, clearSqlTabData, setSqlTabData, sqlScripts, saveSqlScript, updateSqlScript, deleteSqlScript, getSqlTabData, activeConnectionId, selectedDatabase, connectToDatabase, sqlPendingChanges, connectToDb, connectedIds, connections, loadConnections } from '$lib/modes/sql/stores';
   import { clearNoSqlTabData, initNoSqlTab, openNoSqlCollection, setNoSqlTabData, activeNoSqlConnectionId } from '$lib/modes/nosql/stores';
   import { showToast } from '$lib/shared/primitives/toast';
   import { friendlyError } from '$lib/utils/errors';
@@ -276,24 +276,43 @@
     }
     const tab = addTab(script.name, 'sql', script.id, 'var(--sql)');
     initSqlTab(tab.id);
-    setSqlTabData(tab.id, { query: script.query, database: script.databaseName });
+    // Open the tab with the query content but no database pre-attached.
+    // We promote the script's database below ONLY if its saved connection
+    // still exists; otherwise the dropdown stays empty and the existing
+    // "Connect to a database first" toast on Run is the user's signal.
+    setSqlTabData(tab.id, { query: script.query, database: '' });
     showSqlScriptModal = false;
 
-    // Ensure connection exists — connect main instance first if needed, then per-database
     if (script.connectionId && script.databaseName) {
       try {
+        // Validate the script's connection_id BEFORE setting any active
+        // state. Scripts outlive the connections they were saved with —
+        // delete+recreate gives a new UUID and leaves the script with a
+        // dangling reference. loadConnections() is idempotent (cheap if
+        // already loaded). If the connection is gone, leave the tab
+        // unattached: query is set, dropdown stays empty, user picks a
+        // fresh connection. No toast needed — the empty dropdown is the
+        // signal, and "Connect to a database first" already toasts on
+        // attempted Run.
+        await loadConnections();
+        const conn = get(connections).find(c => c.id === script.connectionId);
+        if (!conn) return;
+
+        // Connection still valid — pre-attach as before.
+        setSqlTabData(tab.id, { database: script.databaseName });
         activeConnectionId.set(script.connectionId);
         selectedDatabase.set(script.databaseName);
 
-        // Connect main instance if not already connected
         if (!get(connectedIds).has(script.connectionId)) {
           await connectToDb(script.connectionId);
         }
-
-        // Connect to specific database
         await connectToDatabase(script.connectionId, script.databaseName);
-      } catch {
-        // Connection will be established when user selects from dropdown
+      } catch (e: any) {
+        // Real connect failure (network, auth, tunnel, etc.) — show this.
+        // The earlier validation already weeded out stale-id cases so
+        // anything that lands here is a genuine error worth surfacing.
+        // The tab stays open so the user can retry via the dropdown.
+        showToast(`Couldn't open ${script.name}: ${friendlyError(e)}`, 'error');
       }
     }
   }

@@ -23,7 +23,7 @@ pub async fn ssh_create_profile(
     accent_color: Option<String>,
     secret: Option<String>,
 ) -> Result<SshProfile, String> {
-    if auth_type != "key" && auth_type != "password" {
+    if auth_type != "key" && auth_type != "password" && auth_type != "agent" {
         return Err(format!("invalid auth_type: {}", auth_type));
     }
     let id = uuid::Uuid::new_v4().to_string();
@@ -92,7 +92,7 @@ pub async fn ssh_update_profile(
             .map_err(|e| e.to_string())?;
     }
     if let Some(ref a) = auth_type {
-        if a != "key" && a != "password" {
+        if a != "key" && a != "password" && a != "agent" {
             return Err(format!("invalid auth_type: {}", a));
         }
         ssh_profiles_repo::update_auth_type(pool.inner(), &id, a)

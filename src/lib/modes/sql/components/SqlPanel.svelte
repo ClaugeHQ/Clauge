@@ -155,6 +155,34 @@
     return $activeConnection?.driver ?? '';
   });
 
+  // Self-healing per-database connection. Whenever the active tab has
+  // a connection + database picked AND the instance is connected, make
+  // sure the per-database pool exists. Without this, opening a script
+  // tab whose database wasn't previously connected lands the user on
+  // a panel that throws "Connect to a database first" until they
+  // manually pick the same database from the dropdown again.
+  //
+  // Runs on:
+  //   - Opening a new script tab (Topbar.handleOpenScript path).
+  //   - Reactivating an already-open script tab.
+  //   - Switching between tabs that target different databases on the
+  //     same instance.
+  // No-ops when:
+  //   - Instance not yet connected (waiting on user's connect action).
+  //   - Per-DB pool already in dbLiveConnections.
+  // connectToDatabase short-circuits internally when the pool exists,
+  // so even if this effect fires more than necessary it stays idempotent.
+  $effect(() => {
+    const conn = $activeConnection;
+    const db = currentDatabase;
+    if (!conn || !db || !isConnected) return;
+    const key = `${conn.id}:${db}`;
+    if (get(dbLiveConnections)[key]) return;
+    connectToDatabase(conn.id, db).catch((e: any) => {
+      showToast(`Couldn't open ${db}: ${friendlyError(e)}`, 'error');
+    });
+  });
+
   // Listen for insert query from nav tree — append to existing query
   $effect(() => {
     const text = $insertQueryText;
@@ -197,6 +225,12 @@
       setSqlTabData(tabId, { loading: true, error: null });
       sqlExecuteQuery(lid, applyRowLimit(exec.query))
         .then((result) => {
+          // No-row statements: toast only, don't open a results tab.
+          if (result.columns.length === 0 && result.rows.length === 0) {
+            setSqlTabData(tabId, { loading: false, error: null });
+            showToast(`Statement executed in ${result.durationMs}ms`, 'success');
+            return;
+          }
           const existing = getSqlTabData(tabId).results || [];
           const label = makeResultLabel(exec.query);
           const newEntry = { label, query: exec.query, result, error: null, connectionId: lid };
@@ -259,6 +293,17 @@
     // Only apply to SELECT queries that don't already have a LIMIT clause
     if (!/^\s*select\b/i.test(trimmed)) return query;
     if (/\bLIMIT\s+\d+/i.test(trimmed)) return query;
+    // ClickHouse grammar requires LIMIT BEFORE FORMAT/SETTINGS clauses;
+    // PostgreSQL also rejects LIMIT after a SETTINGS-style suffix. Rather
+    // than try to splice LIMIT into the right position (and get it wrong
+    // for nested queries / unions / window-frame syntax), skip the
+    // auto-limit when the user has been explicit about either clause —
+    // they're operating outside the "give me the first N rows" default.
+    // Regex anchors at end-of-trimmed-statement and matches a real
+    // FORMAT keyword followed by an identifier (not a string literal,
+    // which ends in a quote, not \w).
+    if (/\bFORMAT\s+\w+\s*$/i.test(trimmed)) return query;
+    if (/\bSETTINGS\b/i.test(trimmed)) return query;
     // Strip trailing line comments so LIMIT isn't appended inside a comment
     trimmed = trimmed.replace(/--[^\n]*$/, '').trimEnd();
     return `${trimmed} LIMIT ${limit}`;
@@ -293,6 +338,16 @@
 
     try {
       const result = await sqlExecuteQuery(lid, applyRowLimit(q));
+
+      // No-row statements (BEGIN/COMMIT/ROLLBACK/VACUUM/INSERT/UPDATE/DELETE/
+      // CREATE/ALTER/DROP, etc.) come back with no columns and no rows.
+      // Showing a "0 rows" panel for those is noise — toast only.
+      if (result.columns.length === 0 && result.rows.length === 0) {
+        setSqlTabData(tabId, { loading: false, error: null });
+        showToast(`Statement executed in ${result.durationMs}ms`, 'success');
+        return;
+      }
+
       const entry: SqlResultEntry = { label, query: q, result, error: null, connectionId: lid };
 
       let updated: SqlResultEntry[];

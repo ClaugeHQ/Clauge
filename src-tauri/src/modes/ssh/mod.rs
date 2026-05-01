@@ -9,6 +9,7 @@
 
 pub mod agent;
 pub mod ai_tools;
+pub mod config_import;
 pub mod models;
 pub mod profiles;
 pub mod terminal;

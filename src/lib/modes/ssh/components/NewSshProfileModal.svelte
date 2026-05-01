@@ -1,14 +1,18 @@
 <script lang="ts">
   import Modal from '$lib/shared/primitives/Modal.svelte';
-  import { sshCreateProfile } from '../commands';
+  import { sshCreateProfile, sshReadConfigHosts, sshImportConfigHosts } from '../commands';
   import { loadSshProfiles, sshProfiles } from '../stores';
   import { showToast } from '$lib/shared/primitives/toast';
-  import type { SshAuthType, SshProfile } from '../types';
+  import type { SshAuthType, SshProfile, SshConfigHost } from '../types';
   import { get } from 'svelte/store';
   import { SSH_EVENT } from '$lib/shared/constants/events';
 
+  type View = 'manual' | 'import';
+
   interface Props {
     show?: boolean;
+    /** Which tab to show when the modal opens. Defaults to 'manual'. */
+    initialView?: View;
     /** Called after a profile is successfully created. Lets callers
      * (e.g. the SQL/NoSQL ConnectionDialog) auto-select the new profile
      * in their picker. Optional — existing usage that just binds `show`
@@ -16,7 +20,14 @@
     onCreated?: (profile: SshProfile) => void;
   }
 
-  let { show = $bindable(false), onCreated }: Props = $props();
+  let { show = $bindable(false), initialView = 'manual', onCreated }: Props = $props();
+
+  let view = $state<View>('manual');
+
+  // Reset to caller's preferred tab each time the modal opens.
+  $effect(() => {
+    if (show) view = initialView;
+  });
 
   // ── Form state ─────────────────────────────────────────────────────────────
   // Empty by default — user types a name explicitly. Avoids the bad pattern of
@@ -113,6 +124,72 @@
     return get(sshProfiles).some((p) => p.name.trim().toLowerCase() === trimmed);
   });
 
+  // ── Import view state ──────────────────────────────────────────────────────
+  let importHosts = $state<SshConfigHost[]>([]);
+  let importLoading = $state(false);
+  let importing = $state(false);
+  let importSelected = $state<Set<string>>(new Set());
+  let importError = $state<string | null>(null);
+
+  async function loadImportHosts() {
+    importLoading = true;
+    importError = null;
+    try {
+      const list = await sshReadConfigHosts();
+      importHosts = list;
+      importSelected = new Set(list.filter((h) => !h.alreadyExists).map((h) => h.alias));
+    } catch (e: any) {
+      importError = String(e);
+      importHosts = [];
+      importSelected = new Set();
+    } finally {
+      importLoading = false;
+    }
+  }
+
+  // Reload the host list whenever the import tab becomes active so it
+  // reflects the current ssh_config + DB state.
+  $effect(() => {
+    if (show && view === 'import') loadImportHosts();
+  });
+
+  let importableCount = $derived(importHosts.filter((h) => !h.alreadyExists).length);
+  let importSkippedCount = $derived(importHosts.filter((h) => h.alreadyExists).length);
+  let importAllSelected = $derived(
+    importableCount > 0 && importSelected.size === importableCount,
+  );
+
+  function importToggle(alias: string, alreadyExists: boolean) {
+    if (alreadyExists) return;
+    const next = new Set(importSelected);
+    if (next.has(alias)) next.delete(alias);
+    else next.add(alias);
+    importSelected = next;
+  }
+
+  function importToggleAll() {
+    if (importAllSelected) {
+      importSelected = new Set();
+    } else {
+      importSelected = new Set(importHosts.filter((h) => !h.alreadyExists).map((h) => h.alias));
+    }
+  }
+
+  async function doImport() {
+    if (importSelected.size === 0) return;
+    importing = true;
+    try {
+      const count = await sshImportConfigHosts(Array.from(importSelected));
+      await loadSshProfiles();
+      showToast(`Imported ${count} ${count === 1 ? 'host' : 'hosts'}`, 'success');
+      show = false;
+    } catch (e: any) {
+      showToast(`Import failed: ${e}`, 'error');
+    } finally {
+      importing = false;
+    }
+  }
+
   let canCreate = $derived(
     name.trim() !== '' &&
       !nameDuplicate &&
@@ -125,6 +202,18 @@
 </script>
 
 <Modal bind:show title="New SSH Connection" width="460px">
+  <div class="ns-tabs" role="tablist">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <button class="ns-tab" class:active={view === 'manual'} role="tab" aria-selected={view === 'manual'} onclick={() => (view = 'manual')}>
+      Add manually
+    </button>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <button class="ns-tab" class:active={view === 'import'} role="tab" aria-selected={view === 'import'} onclick={() => (view = 'import')}>
+      Import from SSH config
+    </button>
+  </div>
+
+  {#if view === 'manual'}
   <div class="ns-form">
     <label class="ns-field">
       <span class="ns-label">Name</span>
@@ -227,6 +316,79 @@
       </button>
     </div>
   </div>
+  {:else}
+  <div class="ns-form">
+    {#if importLoading}
+      <div class="ic-status">Reading SSH config…</div>
+    {:else if importError}
+      <div class="ic-status ic-error">Couldn't read SSH config: {importError}</div>
+    {:else if importHosts.length === 0}
+      <div class="ic-status">
+        No host entries found in <code>~/.ssh/config</code>. Add some there and re-open this dialog.
+      </div>
+    {:else}
+      <div class="ic-summary">
+        <span>{importHosts.length} host{importHosts.length === 1 ? '' : 's'} found</span>
+        {#if importSkippedCount > 0}
+          <span class="ic-dim">· {importSkippedCount} already imported</span>
+        {/if}
+      </div>
+
+      {#if importableCount > 0}
+        <label class="ic-select-all">
+          <input type="checkbox" checked={importAllSelected} onchange={importToggleAll} />
+          <span>Select all importable</span>
+        </label>
+      {/if}
+
+      <div class="ic-list">
+        {#each importHosts as h (h.alias)}
+          <label class="ic-row" class:disabled={h.alreadyExists}>
+            <input
+              type="checkbox"
+              checked={importSelected.has(h.alias)}
+              disabled={h.alreadyExists}
+              onchange={() => importToggle(h.alias, h.alreadyExists)}
+            />
+            <div class="ic-row-body">
+              <div class="ic-row-name">
+                <span>{h.alias}</span>
+                {#if h.alreadyExists}
+                  <span class="ic-badge">already imported</span>
+                {/if}
+              </div>
+              <div class="ic-row-meta">
+                {h.user ? `${h.user}@` : ''}{h.hostname}{h.port !== 22 ? `:${h.port}` : ''}
+                {#if h.identityFile}
+                  <span class="ic-dim"> · key: {h.identityFile}</span>
+                {/if}
+              </div>
+            </div>
+          </label>
+        {/each}
+      </div>
+
+      <p class="ns-helper">
+        Passwords aren't stored in SSH config — password-auth hosts will need a password set in Edit after import.
+      </p>
+    {/if}
+
+    <div class="ns-actions">
+      <button class="ns-btn-cancel" onclick={() => (show = false)}>Cancel</button>
+      <button
+        class="ns-btn-create"
+        disabled={importSelected.size === 0 || importing || importLoading}
+        onclick={doImport}
+      >
+        {#if importing}
+          Importing…
+        {:else}
+          Import {importSelected.size} {importSelected.size === 1 ? 'host' : 'hosts'}
+        {/if}
+      </button>
+    </div>
+  </div>
+  {/if}
 </Modal>
 
 <style>
@@ -291,4 +453,118 @@
   }
   .ns-btn-create:hover:not(:disabled) { filter: brightness(1.1); }
   .ns-btn-create:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Tab switcher (manual vs import) ──────────────────────────────────── */
+  .ns-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--b1);
+  }
+  .ns-tab {
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    color: var(--t3);
+    font-size: 12px;
+    font-family: var(--ui);
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .ns-tab:hover { color: var(--t2); }
+  .ns-tab.active {
+    color: var(--ssh, var(--acc));
+    border-bottom-color: var(--ssh, var(--acc));
+  }
+
+  /* ── Import view ──────────────────────────────────────────────────────── */
+  .ic-status {
+    padding: 16px 4px;
+    color: var(--t3);
+    font-size: 13px;
+    font-family: var(--ui);
+    line-height: 1.5;
+  }
+  .ic-status code {
+    font-family: var(--mono);
+    background: var(--e);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+  .ic-error { color: var(--err); }
+  .ic-summary {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    color: var(--t2);
+    font-family: var(--ui);
+  }
+  .ic-dim { color: var(--t3); }
+  .ic-select-all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--b1);
+    font-size: 12px;
+    color: var(--t2);
+    font-family: var(--ui);
+    cursor: pointer;
+  }
+  .ic-list {
+    max-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ic-list::-webkit-scrollbar { width: 4px; }
+  .ic-list::-webkit-scrollbar-thumb { background: var(--b1); border-radius: 2px; }
+  .ic-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 6px;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .ic-row:hover:not(.disabled) { background: var(--c); }
+  .ic-row.disabled { opacity: 0.5; cursor: not-allowed; }
+  .ic-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+  .ic-row-body { flex: 1; min-width: 0; }
+  .ic-row-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-family: var(--ui);
+    color: var(--t1);
+  }
+  .ic-row-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--t3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ic-badge {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--b1);
+    color: var(--t3);
+    font-family: var(--ui);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
 </style>

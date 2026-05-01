@@ -5,7 +5,6 @@ mod github;
 mod modes;
 mod shared;
 
-use std::str::FromStr;
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -56,11 +55,13 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_http::init())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:clauge.db", db::migrations::get_migrations())
-                .build(),
-        )
+        // tauri-plugin-sql is registered without migrations — the Clauge
+        // database lives in app_data_dir/clauge.db and its schema is
+        // managed end-to-end by `db::migrator` (see src-tauri/migrations/).
+        // The plugin remains available for any frontend SQL access against
+        // user-configured databases (Postgres/MySQL/Mongo via the SQL/NoSQL
+        // modes), but it does NOT touch the Clauge schema.
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -74,152 +75,28 @@ pub fn run() {
             // on macOS, no-op on Linux).
             appearance::window_chrome::apply(app);
 
-            // Initialize sqlx connection pool for Rust commands
+            // ── Database setup ───────────────────────────────────────
+            // 1. Open the SQLite pool.
+            // 2. Run schema migrations (with bootstrap for legacy installs).
+            // 3. One-time import of pre-SQLite ~/.clauge/* data.
+            //
+            // All three steps are encapsulated under `db::*` so this
+            // setup() block stays focused on plumbing.
             let app_data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("failed to get app data dir");
-            std::fs::create_dir_all(&app_data_dir).ok();
-
-            let db_path = app_data_dir.join("clauge.db");
-            let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
             let pool = tauri::async_runtime::block_on(async {
-                let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&db_url)
-                    .expect("invalid db url")
-                    .pragma("foreign_keys", "ON")
-                    .create_if_missing(true);
-                sqlx::sqlite::SqlitePoolOptions::new()
-                    .max_connections(5)
-                    .connect_with(opts)
-                    .await
-                    .expect("failed to connect to database")
-            });
+                db::pool::init(&app_data_dir).await
+            }).expect("failed to open Clauge database");
 
-            // Run schema migrations directly via sqlx
             tauri::async_runtime::block_on(async {
-                for migration in db::migrations::get_migrations() {
-                    for statement in migration.sql.split(';') {
-                        let stmt = statement.trim();
-                        if !stmt.is_empty() {
-                            if let Err(e) = sqlx::query(stmt).execute(&pool).await {
-                                // Ignore "already exists" / "duplicate column" errors from re-running migrations
-                                let err_str = e.to_string();
-                                if !err_str.contains("already exists") && !err_str.contains("duplicate column") {
-                                    eprintln!("Migration v{} statement failed: {}", migration.version, e);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+                db::migrator::run(&pool).await
+            }).expect("failed to apply schema migrations");
 
-            // Migrate existing Clauge data (one-time)
-            // Old Clauge stored: ~/.clauge/sessions.json, ~/.clauge/contexts/*.md, ~/.clauge/session_key
-            // Sessions contain a `contexts: Vec<String>` field with attached context names
             tauri::async_runtime::block_on(async {
-                if let Some(home) = dirs::home_dir() {
-                    let clauge_dir = home.join(".clauge");
-                    let sessions_json = clauge_dir.join("sessions.json");
-                    let migrated_key = "clauge_migration_done";
-                    let already_migrated: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
-                        .bind(migrated_key).fetch_optional(&pool).await.ok().flatten();
-                    if sessions_json.exists() && already_migrated.is_none() {
-                        // Step 1: Import context snippets from ~/.clauge/contexts/*.md
-                        // Do this FIRST so we have context IDs available for session-context linking
-                        let contexts_dir = clauge_dir.join("contexts");
-                        let mut context_name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-                        if contexts_dir.exists() {
-                            if let Ok(entries) = std::fs::read_dir(&contexts_dir) {
-                                for entry in entries.flatten() {
-                                    let path = entry.path();
-                                    if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                                        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-                                        let content = std::fs::read_to_string(&path).unwrap_or_default();
-                                        if name.is_empty() || content.is_empty() { continue; }
-                                        let ctx_id = uuid::Uuid::new_v4().to_string();
-                                        let now = chrono::Utc::now().to_rfc3339();
-                                        if sqlx::query("INSERT OR IGNORE INTO agent_contexts (id, name, content, created_at, updated_at) VALUES (?,?,?,?,?)")
-                                            .bind(&ctx_id).bind(&name).bind(&content).bind(&now).bind(&now)
-                                            .execute(&pool).await.is_ok() {
-                                            context_name_to_id.insert(name, ctx_id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Step 2: Import sessions and link their attached contexts
-                        if let Ok(content) = std::fs::read_to_string(&sessions_json) {
-                            if let Ok(store) = serde_json::from_str::<serde_json::Value>(&content) {
-                                if let Some(profiles) = store.get("profiles").and_then(|v| v.as_array()) {
-                                    for p in profiles {
-                                        let id = p.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-                                        if id.is_empty() { continue; }
-                                        let inserted = sqlx::query("INSERT OR IGNORE INTO agent_sessions (id, title, purpose, project_path, project_name, claude_session_id, context_prompt, worktree_path, worktree_branch, skip_permissions, git_name, git_email, created_at, last_used_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-                                            .bind(id)
-                                            .bind(p.get("title").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .bind(p.get("purpose").and_then(|v| v.as_str()).unwrap_or("Custom"))
-                                            .bind(p.get("projectPath").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .bind(p.get("projectName").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .bind(p.get("claudeSessionId").and_then(|v| v.as_str()))
-                                            .bind(p.get("contextPrompt").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .bind(p.get("worktreePath").and_then(|v| v.as_str()))
-                                            .bind(p.get("worktreeBranch").and_then(|v| v.as_str()))
-                                            .bind(if p.get("skipPermissions").and_then(|v| v.as_bool()).unwrap_or(false) { 1 } else { 0 })
-                                            .bind(p.get("gitName").and_then(|v| v.as_str()))
-                                            .bind(p.get("gitEmail").and_then(|v| v.as_str()))
-                                            .bind(p.get("createdAt").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .bind(p.get("lastUsedAt").and_then(|v| v.as_str()).unwrap_or(""))
-                                            .execute(&pool).await;
-
-                                        // Link attached contexts via junction table
-                                        if inserted.is_ok() {
-                                            if let Some(ctx_names) = p.get("contexts").and_then(|v| v.as_array()) {
-                                                for ctx_name in ctx_names {
-                                                    if let Some(name_str) = ctx_name.as_str() {
-                                                        if let Some(ctx_id) = context_name_to_id.get(name_str) {
-                                                            let _ = sqlx::query("INSERT OR IGNORE INTO agent_session_contexts (session_id, context_id) VALUES (?,?)")
-                                                                .bind(id).bind(ctx_id)
-                                                                .execute(&pool).await;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Step 3: Import session key
-                        let key_path = clauge_dir.join("session_key");
-                        if key_path.exists() {
-                            if let Ok(key) = std::fs::read_to_string(&key_path) {
-                                let key = key.trim();
-                                if !key.is_empty() {
-                                    let _ = sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_session_key', ?)")
-                                        .bind(key).execute(&pool).await;
-                                }
-                            }
-                        }
-
-                        // Step 4: Mark migration done
-                        let _ = sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'true')")
-                            .bind(migrated_key).execute(&pool).await;
-
-                        // Step 5: Archive old files to ~/.clauge/backup/
-                        let backup = clauge_dir.join("backup");
-                        let _ = std::fs::create_dir_all(&backup);
-                        let _ = std::fs::rename(&sessions_json, backup.join("sessions.json"));
-                        if key_path.exists() {
-                            let _ = std::fs::rename(&key_path, backup.join("session_key"));
-                        }
-                        if contexts_dir.exists() {
-                            let _ = std::fs::rename(&contexts_dir, backup.join("contexts"));
-                        }
-                    }
-                }
+                db::legacy_import::run_if_needed(&pool).await;
             });
 
             // Load saved vibrancy material before managing pool (which moves it)
@@ -481,6 +358,8 @@ pub fn run() {
             modes::ssh::terminal::ssh_resize_terminal,
             modes::ssh::terminal::ssh_kill_terminal,
             modes::ssh::tunnel::ssh_tunnel_test,
+            modes::ssh::config_import::ssh_read_config_hosts,
+            modes::ssh::config_import::ssh_import_config_hosts,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

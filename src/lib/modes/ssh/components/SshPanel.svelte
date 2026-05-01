@@ -87,8 +87,10 @@
   let termBg = $state('#0d0d18');
 
   // Last-active tab.key tracked here so the activeAgent-style subscriber
-  // knows whether re-entry is a real switch or noop.
-  let currentTabKey: string | null = null;
+  // knows whether re-entry is a real switch or noop. Must be `$state`
+  // because `activeIsExited` derives off it — non-reactive assignments
+  // wouldn't drive the reconnect banner / term-hidden CSS toggle.
+  let currentTabKey = $state<string | null>(null);
 
   // Per-tab generation: invalidates stale Channel writes after reconnect.
   const generations = new Map<string, number>();
@@ -251,6 +253,14 @@
 
     try {
       const terminalId = await sshSpawnTerminal(profile.id, channel);
+      // Stale-spawn guard: cancelConnect bumps the generation while we're
+      // awaiting. If the user cancelled before Rust finished connecting,
+      // drop the terminal we just got — claiming it would resurrect a
+      // 'connected' state in the nav after the user already cancelled.
+      if (entry.generation !== gen) {
+        sshKillTerminal(terminalId).catch(() => {});
+        return;
+      }
       entry.terminalId = terminalId;
       sshTerminalIds.update((m) => {
         m.set(entry.tabKey, terminalId);
@@ -350,11 +360,24 @@
   // the strategy is: kill the terminal id if it was issued, otherwise just
   // tear down the local tab so the user is unblocked. Backend timeout (15s)
   // is the hard floor.
+  //
+  // Tab keys are `<profileId>#<timestamp>-<counter>`, NOT `profile.id`. Use
+  // `currentTabKey` to match what termEntries / sshTerminalIds / sshConnStates
+  // are actually keyed by, otherwise this whole function operates on a key
+  // nobody else has and the in-flight spawn happily completes and writes
+  // 'connected' to the real key.
   async function cancelConnect() {
-    const profile = get(activeSshProfile);
-    if (!profile) return;
-    const tabKey = profile.id;
+    if (!currentTabKey) return;
+    const tabKey = currentTabKey;
     const entry = termEntries.get(tabKey);
+
+    // Bump generation BEFORE anything else so the in-flight spawnFor's
+    // post-await success block sees a stale gen and skips writing
+    // 'connected' / claiming the terminal.
+    const nextGen = (generations.get(tabKey) ?? 0) + 1;
+    generations.set(tabKey, nextGen);
+    if (entry) entry.generation = nextGen;
+
     if (entry?.terminalId) {
       sshKillTerminal(entry.terminalId).catch(() => {});
     }
@@ -365,11 +388,16 @@
     }
     spawning = false;
     termReady = false;
-    sshConnStates.update((m) => { m.set(tabKey, 'disconnected'); return new Map(m); });
+    // Delete (don't just write 'disconnected') so SshNav's connected check
+    // can't see a stale 'connected' value if a late spawn-success callback
+    // somehow slips through.
+    sshTerminalIds.update((m) => { m.delete(tabKey); return new Map(m); });
+    sshConnStates.update((m) => { m.delete(tabKey); return new Map(m); });
     // Close the tab and unset active profile — return user to home screen.
     const allTabs = get(tabsStore);
     const tab = allTabs.find((t) => t.mode === 'ssh' && t.key === tabKey);
     if (tab) closeTab(tab.id);
+    currentTabKey = null;
     activeSshProfile.set(null);
     showToast('Connection cancelled', 'info');
   }
@@ -608,9 +636,12 @@
     rejectAllSshCaptures('SSH panel unmounted');
   });
 
-  // Reconnect banner state for active tab
+  // Reconnect banner state for the currently active SSH tab.
+  // Lookup MUST use the tab key (profileId#timestamp-N), not profile.id —
+  // exitedTabs/sshTerminalIds/sshConnStates have all been keyed by tabKey
+  // since the multi-tab-per-profile refactor (2026-05-01).
   let activeIsExited = $derived(
-    !!$activeSshProfile && exitedTabs.has($activeSshProfile.id)
+    !!currentTabKey && exitedTabs.has(currentTabKey),
   );
 </script>
 

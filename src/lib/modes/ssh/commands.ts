@@ -1,5 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { SshProfile, SshCreateProfileArgs, SshUpdateProfileArgs } from './types';
+import type {
+  SshProfile,
+  SshCreateProfileArgs,
+  SshUpdateProfileArgs,
+  SshConfigHost,
+} from './types';
 
 // ── Profile CRUD ─────────────────────────────────────────────────────────────
 
@@ -35,6 +40,13 @@ export const sshUpdateProfile = (args: SshUpdateProfileArgs) =>
 export const sshDeleteProfile = (id: string) => invoke<void>('ssh_delete_profile', { id });
 
 export const sshTouchProfile = (id: string) => invoke<void>('ssh_touch_profile', { id });
+
+// ── ~/.ssh/config import ─────────────────────────────────────────────────────
+
+export const sshReadConfigHosts = () => invoke<SshConfigHost[]>('ssh_read_config_hosts');
+
+export const sshImportConfigHosts = (aliases: string[]) =>
+  invoke<number>('ssh_import_config_hosts', { aliases });
 
 // ── Terminal ─────────────────────────────────────────────────────────────────
 
