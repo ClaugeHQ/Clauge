@@ -1,17 +1,53 @@
 name: CI
+
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   check:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libdbus-1-dev \
+            libsecret-1-dev \
+            patchelf \
+            pkg-config
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: bun install
-      - run: cargo check --manifest-path src-tauri/Cargo.toml
-      - run: bun run build
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Frontend build
+        run: bun run build
