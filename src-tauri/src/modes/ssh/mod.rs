@@ -12,5 +12,6 @@ pub mod ai_tools;
 pub mod config_import;
 pub mod models;
 pub mod profiles;
+pub mod ssh_session;
 pub mod terminal;
 pub mod tunnel;

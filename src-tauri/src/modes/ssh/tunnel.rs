@@ -17,35 +17,14 @@
 //! task (via the held `oneshot::Sender`), which in turn drops the
 //! russh `Handle` — closing the SSH session cleanly.
 
-use crate::modes::ssh::models::SshProfile;
-use crate::shared::platform::credential_store::{credential_store, CredentialStore};
-use russh::client::{self, Handle};
+use crate::modes::ssh::ssh_session::{open_authenticated_ssh_session, ClientHandler};
+use russh::client::Handle;
 use russh::ChannelMsg;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-
-// ---------------------------------------------------------------------------
-// russh client handler — accepts any host key in phase 1 (matches terminal.rs)
-// ---------------------------------------------------------------------------
-
-struct ClientHandler;
-
-#[async_trait::async_trait]
-impl client::Handler for ClientHandler {
-    type Error = russh::Error;
-
-    // TODO(ssh-tofu): unify with terminal.rs once host-key TOFU lands.
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -81,24 +60,9 @@ pub async fn open(
     target_host: &str,
     target_port: u16,
 ) -> Result<SshTunnel, String> {
-    // 1. Load the SSH profile from the same table SSH terminal uses.
-    let profile: SshProfile =
-        sqlx::query_as::<_, SshProfile>("SELECT * FROM ssh_profiles WHERE id = ?")
-            .bind(profile_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| format!("ssh profile lookup: {}", e))?;
-
-    // 2. Pull credential (passphrase or password). Missing is fine for
-    // unencrypted keys.
-    let secret: Option<String> = credential_store()
-        .get(&profile.id)
-        .await
-        .map_err(|e| format!("credential lookup: {}", e))?;
-
-    // 3. Connect + auth. Same shape as terminal.rs, kept here verbatim
-    // because lifting it would touch terminal.rs (see module comment).
-    let handle = connect_and_auth(&profile, secret).await?;
+    // 1. Connect + auth via the shared helper (DB lookup, credential
+    // pull, TCP+NODELAY, russh handshake, auth dispatch — all there).
+    let handle = open_authenticated_ssh_session(pool, profile_id).await?;
     let handle = Arc::new(handle);
 
     // 4. Bind a local listener on a kernel-chosen free port.
@@ -112,7 +76,7 @@ pub async fn open(
 
     eprintln!(
         "[ssh-tunnel] open profile={} target={}:{} local=127.0.0.1:{}",
-        profile.id, target_host, target_port, local_port
+        profile_id, target_host, target_port, local_port
     );
 
     // 5. Spawn the accept loop. The russh `Handle` is kept alive inside the
@@ -254,76 +218,12 @@ async fn pump_channel(
 }
 
 // ---------------------------------------------------------------------------
-// SSH connect + auth — same dispatch as modes/ssh/terminal.rs
-// ---------------------------------------------------------------------------
-
-async fn connect_and_auth(
-    profile: &SshProfile,
-    secret: Option<String>,
-) -> Result<Handle<ClientHandler>, String> {
-    let config = Arc::new(client::Config::default());
-    let host = profile.host.clone();
-    let port: u16 = profile.port as u16;
-
-    // 15s connect timeout matches terminal.rs. Manually create the TCP
-    // socket so we can disable Nagle (TCP_NODELAY) — small interactive
-    // packets through tunnels benefit from the same treatment.
-    let socket = tokio::net::TcpStream::connect((host.as_str(), port))
-        .await
-        .map_err(|e| format!("tcp connect: {}", e))?;
-    let _ = socket.set_nodelay(true);
-    let connect_fut = client::connect_stream(config, socket, ClientHandler);
-    let mut handle: Handle<ClientHandler> = match tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        connect_fut,
-    )
-    .await
-    {
-        Ok(Ok(h)) => h,
-        Ok(Err(e)) => return Err(format!("ssh connect: {}", e)),
-        Err(_) => return Err("ssh connect: timed out after 15s".to_string()),
-    };
-
-    let authed = match profile.auth_type.as_str() {
-        "key" => {
-            let key_path = profile
-                .key_path
-                .as_ref()
-                .ok_or_else(|| "key auth requires key_path".to_string())?;
-            let passphrase = secret.as_deref();
-            let keypair = russh_keys::load_secret_key(key_path, passphrase)
-                .map_err(|e| format!("load key: {}", e))?;
-            handle
-                .authenticate_publickey(&profile.username, Arc::new(keypair))
-                .await
-                .map_err(|e| format!("ssh auth publickey: {}", e))?
-        }
-        "password" => {
-            let password = secret
-                .ok_or_else(|| "password auth requires a stored secret".to_string())?;
-            handle
-                .authenticate_password(&profile.username, password)
-                .await
-                .map_err(|e| format!("ssh auth password: {}", e))?
-        }
-        "agent" => {
-            crate::modes::ssh::agent::try_agent_auth(&mut handle, &profile.username).await?
-        }
-        other => return Err(format!("unknown auth_type: {}", other)),
-    };
-    if !authed {
-        return Err("ssh authentication failed".to_string());
-    }
-    Ok(handle)
-}
-
-// ---------------------------------------------------------------------------
 // Tauri command — verifies a tunnel can be opened end-to-end, then drops it.
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn ssh_tunnel_test(
-    pool: State<'_, SqlitePool>,
+    pool: tauri::State<'_, SqlitePool>,
     profile_id: String,
     target_host: String,
     target_port: u16,

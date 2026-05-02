@@ -7,8 +7,14 @@
     message: string;
     confirmText?: string;
     confirmColor?: string;
+    /** Optional third button (e.g. "Don't Save"). When set, the dialog
+     *  shows three buttons: Cancel · {discardText} · {confirmText}. Used
+     *  by REST/SQL "save before close" prompts so they don't have to roll
+     *  their own dialog markup. */
+    discardText?: string;
     onconfirm?: () => void;
     oncancel?: () => void;
+    ondiscard?: () => void;
   }
 
   let {
@@ -17,9 +23,16 @@
     message,
     confirmText = 'Delete',
     confirmColor = 'var(--err)',
+    discardText,
     onconfirm,
-    oncancel
+    oncancel,
+    ondiscard,
   }: Props = $props();
+
+  function discard() {
+    show = false;
+    ondiscard?.();
+  }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && show) {
@@ -51,12 +64,25 @@
   onDestroy(() => {
     window.removeEventListener('keydown', handleKeydown);
   });
+
+  /** Lift the dialog out of any ancestor stacking context (e.g. NavPanel
+   *  whose overlay-mode animation creates a containing block via
+   *  transform). Without this the modal can render clipped or behind the
+   *  panel that triggered it — same fix used by `Modal.svelte`. */
+  function teleportToBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentElement === document.body) node.remove();
+      },
+    };
+  }
 </script>
 
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="q-modal-overlay" onclick={handleOverlayClick}>
+  <div class="q-modal-overlay" use:teleportToBody onclick={handleOverlayClick}>
     <div class="q-confirm">
       <div class="q-modal-hdr">
         <span class="q-modal-title">{title}</span>
@@ -64,6 +90,9 @@
       <div class="q-confirm-body">{message}</div>
       <div class="q-confirm-actions">
         <button class="q-confirm-cancel" onclick={cancel}>Cancel</button>
+        {#if discardText}
+          <button class="q-confirm-cancel" onclick={discard}>{discardText}</button>
+        {/if}
         <button
           class="q-confirm-ok"
           style="background: {confirmColor}"

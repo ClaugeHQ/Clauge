@@ -32,6 +32,8 @@
   import { agentSessionKey, loadAgentUsageLimits, loadAgentClaudePlan, agentSessions, activeAgentSession } from '$lib/modes/agent/stores';
   import { sshProfiles, activeSshProfile, loadSshProfiles } from '$lib/modes/ssh/stores';
   import type { SshProfile } from '$lib/modes/ssh/types';
+  import { explorerConnections, loadExplorerConnections, activeExplorerConnection } from '$lib/modes/explorer/stores';
+  import type { ExplorerConnection } from '$lib/modes/explorer/types';
   import { getSetting } from '$lib/commands/settings';
   import AIPanel from '$lib/components/ai/AIPanel.svelte';
   import { tabs, addTab, activeTabId, activateTab } from '$lib/shared/stores/tabs';
@@ -45,7 +47,7 @@
   import UpdateNotification from '$lib/shared/primitives/UpdateNotification.svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { get } from 'svelte/store';
-  import { SSH_EVENT, AGENT_EVENT, APP_EVENT } from '$lib/shared/constants/events';
+  import { SSH_EVENT, AGENT_EVENT, APP_EVENT, EXPLORER_EVENT } from '$lib/shared/constants/events';
   import { PERIODIC_SYNC_INTERVAL_MS, USAGE_LIMITS_POLL_INTERVAL_MS, SPLASH_FADE_OUT_MS } from '$lib/shared/constants/timings';
   import { DEFAULT_ACCENT_COLOR } from '$lib/shared/constants/colors';
 
@@ -64,6 +66,9 @@
   let showSshPicker = $state(false);
   let sshPickerX = $state(290);
   let sshPickerY = $state(48);
+  let showExplorerPicker = $state(false);
+  let explorerPickerX = $state(290);
+  let explorerPickerY = $state(48);
 
   function handleAgentNewSession() {
     showNewSessionModal = true;
@@ -141,6 +146,57 @@
     window.dispatchEvent(new CustomEvent(SSH_EVENT.NEW_PROFILE));
   }
 
+  // Explorer "+ tab" handler — mirrors SSH. No connections → open the
+  // kind picker (NavPanel hosts it via 'explorer:add-connection'),
+  // otherwise show a picker to choose which connection to open.
+  async function handleExplorerAddTab(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    if (detail?.x) explorerPickerX = detail.x;
+    if (detail?.y) explorerPickerY = detail.y;
+    if (get(explorerConnections).length === 0) {
+      try { await loadExplorerConnections(); } catch { /* ignore */ }
+    }
+    if (get(explorerConnections).length === 0) {
+      window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.ADD_CONNECTION));
+    } else {
+      showExplorerPicker = true;
+    }
+  }
+
+  function openExplorerTabFromPicker(conn: ExplorerConnection) {
+    activeExplorerConnection.set(conn);
+    window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.OPEN_TAB, { detail: conn }));
+    showExplorerPicker = false;
+  }
+
+  function pickerNewExplorerConnection() {
+    showExplorerPicker = false;
+    window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.ADD_CONNECTION));
+  }
+
+  function explorerKindBadge(kind: string): string {
+    switch (kind) {
+      case 'sftp': return 'SFTP';
+      case 'ftp': return 'FTP';
+      case 's3': return 'S3';
+      case 'azure_blob': return 'Azure';
+      default: return kind.toUpperCase();
+    }
+  }
+
+  function explorerSubLine(conn: ExplorerConnection): string {
+    if (conn.kind === 'sftp' || conn.kind === 'ftp') {
+      const u = conn.username ?? '';
+      const h = conn.host ?? '';
+      const portSuffix = conn.port && ((conn.kind === 'sftp' && conn.port !== 22) || (conn.kind === 'ftp' && conn.port !== 21))
+        ? `:${conn.port}` : '';
+      return h ? `${u}${u ? '@' : ''}${h}${portSuffix}` : '';
+    }
+    if (conn.kind === 's3') return conn.s3Bucket ?? '';
+    if (conn.kind === 'azure_blob') return `${conn.azureAccount ?? ''}/${conn.azureContainer ?? ''}`;
+    return '';
+  }
+
   async function handleDragStart(e: MouseEvent) {
     if (e.buttons !== 1) return;
     const win = getCurrentWindow();
@@ -189,6 +245,7 @@
     window.removeEventListener(AGENT_EVENT.SHOW_USAGE_DASHBOARD, handleAgentShowUsageDashboard);
     window.removeEventListener(AGENT_EVENT.ADD_TAB, handleAgentAddTab);
     window.removeEventListener(SSH_EVENT.ADD_TAB, handleSshAddTab);
+    window.removeEventListener(EXPLORER_EVENT.ADD_TAB, handleExplorerAddTab);
     if (syncInterval) clearInterval(syncInterval);
     if (usageLimitsInterval) clearInterval(usageLimitsInterval);
   });
@@ -221,6 +278,7 @@
     window.addEventListener(AGENT_EVENT.SHOW_USAGE_DASHBOARD, handleAgentShowUsageDashboard);
     window.addEventListener(AGENT_EVENT.ADD_TAB, handleAgentAddTab);
     window.addEventListener(SSH_EVENT.ADD_TAB, handleSshAddTab);
+    window.addEventListener(EXPLORER_EVENT.ADD_TAB, handleExplorerAddTab);
 
     // Apply to existing and future inputs/textareas
     document.querySelectorAll('input, textarea').forEach(disableAutocorrect);
@@ -261,6 +319,7 @@
       loadNoSqlConnections(),
       loadAgentSessions(),
       loadAgentContexts(),
+      loadExplorerConnections(),
     ]);
 
     applyAppearanceOnStartup();
@@ -425,6 +484,35 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <button class="session-picker-new" onmousedown={(e) => { e.stopPropagation(); pickerNewSshProfile(); }}>
         + New SSH Profile
+      </button>
+    </div>
+  </div>
+{/if}
+
+{#if showExplorerPicker}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="session-picker-overlay" onmousedown={() => (showExplorerPicker = false)}></div>
+  <div class="session-picker" style="top:{explorerPickerY}px;left:{explorerPickerX}px;">
+    <div class="session-picker-header">Open Explorer Connection</div>
+    <div class="session-picker-list">
+      {#each $explorerConnections as conn (conn.id)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="session-picker-item ssh-picker-item"
+          onmousedown={(e) => { e.stopPropagation(); openExplorerTabFromPicker(conn); }}
+        >
+          <div class="ssh-picker-text">
+            <span class="session-picker-title">{conn.name}</span>
+            <span class="ssh-picker-sub">{explorerSubLine(conn)}</span>
+          </div>
+          <span class="session-picker-badge explorer-badge">{explorerKindBadge(conn.kind)}</span>
+        </div>
+      {/each}
+    </div>
+    <div class="session-picker-footer">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <button class="session-picker-new explorer-new" onmousedown={(e) => { e.stopPropagation(); pickerNewExplorerConnection(); }}>
+        + New Connection
       </button>
     </div>
   </div>
@@ -598,5 +686,15 @@
 
   .session-picker-new:hover {
     background: var(--b1);
+  }
+
+  /* Explorer picker uses the explorer accent so kind/badges and the
+     "new connection" CTA match the rest of the mode. */
+  .explorer-badge {
+    color: var(--explorer);
+    border-color: var(--explorer);
+  }
+  .explorer-new {
+    color: var(--explorer);
   }
 </style>

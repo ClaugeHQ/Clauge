@@ -53,7 +53,26 @@ tauri-plugin-notification = "2"
 russh = "0.45"
 russh-keys = "0.45"
 async-trait = "0.1"
+async-stream = "0.3"
 sha2 = "0.10"
+# Explorer mode (SFTP / FTP / S3 / Azure Blob) — shared deps.
+bytes = "1"
+futures = "0.3"
+regex = "1"
+# SFTP backend rides on the existing russh dependency.
+russh-sftp = "2"
+# S3-family backend (AWS / R2 / MinIO / Wasabi / B2 / GCS-S3compat / Custom).
+# Default features include ListObjectsV2 + XML parsing; no need for quick-xml separately.
+rusty-s3 = "0.9"
+# Azure Blob Storage backend. The legacy `azure_storage` SDK uses its own
+# HTTP stack — proxy support comes from honouring system env vars
+# (HTTPS_PROXY etc.); explicit proxy_url from our settings is best-effort.
+azure_storage = "0.21"
+azure_storage_blobs = "0.21"
+azure_core = "0.21"
+# FTP backend (plain). FTPS-explicit deferred — suppaftp's tokio
+# `into_secure` flow has typing friction we'll resolve in v2.
+suppaftp = { version = "8", features = ["tokio"] }
 # Credential store for Windows + Linux (Win Credential Manager / libsecret).
 # macOS uses a separate shell-out path to /usr/bin/security in
 # shared/platform/credential_store.rs — keeps Keychain access prompts to a

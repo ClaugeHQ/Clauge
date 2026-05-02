@@ -265,6 +265,7 @@
     nosql: 'var(--acc)',
     agent: 'var(--acc)',
     ssh: 'var(--ssh)',
+    explorer: 'var(--explorer)',
     history: 'var(--t2)',
   };
 
@@ -274,6 +275,7 @@
     nosql: 'NoSQL',
     agent: 'Agent',
     ssh: 'SSH',
+    explorer: 'Explorer',
     history: 'History',
   };
 
@@ -283,6 +285,7 @@
     nosql: 'e.g. find pro users inactive 7 days',
     agent: 'Ask about your agent sessions',
     ssh: 'e.g. show disk usage on this server',
+    explorer: 'e.g. list large files in /var/log',
     history: 'Ask about your request history',
   };
 
@@ -292,6 +295,7 @@
     nosql: 'Describe what you\'re looking for and I\'ll generate the MongoDB query, filter, or aggregation pipeline.',
     agent: 'Agent mode has its own built-in AI assistance via Claude Code sessions.',
     ssh: 'Ask for shell commands to run on the connected server. Suggested commands appear as code blocks with an Insert button — destructive ones are blocked.',
+    explorer: 'Browse remote storage with natural language: list, search, read, upload, download, rename, delete. Mutations require your confirmation.',
     history: 'Ask about your request history and I\'ll help you find what you need.',
   };
 
@@ -405,6 +409,10 @@
       const { gatherNosqlContext } = await import('$lib/modes/nosql/ai/context');
       return gatherNosqlContext();
     }
+    if (currentMode === 'explorer') {
+      const { gatherExplorerContext } = await import('$lib/modes/explorer/ai/context');
+      return gatherExplorerContext();
+    }
     const { gatherRestContext } = await import('$lib/modes/rest/ai/context');
     return gatherRestContext();
   }
@@ -486,6 +494,10 @@
       const profile = get(activeSshProfile);
       systemPrompt = buildSshSystemPrompt(profile ? { username: profile.username, host: profile.host } : null);
       tools = SSH_TOOLS;
+    } else if (currentMode === 'explorer') {
+      const { EXPLORER_SYSTEM_PROMPT, EXPLORER_TOOLS } = await import('$lib/modes/explorer/ai/prompt');
+      systemPrompt = EXPLORER_SYSTEM_PROMPT;
+      tools = EXPLORER_TOOLS as unknown as any[];
     } else {
       systemPrompt = REST_SYSTEM_PROMPT;
       tools = REST_TOOLS;

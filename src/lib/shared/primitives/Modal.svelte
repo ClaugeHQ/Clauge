@@ -27,6 +27,20 @@
     // Intentionally no-op — modal closes only via X button or Escape key
   }
 
+  // Teleport the modal subtree to <body> so it always renders relative to
+  // the viewport. Without this, an ancestor with a non-none `transform`
+  // (e.g. NavPanel.overlay's slide-in animation) creates a containing block
+  // and clips the modal's `position: fixed` overlay to the nav-panel area.
+  // This was hitting every modal opened from inside the floating nav.
+  function teleportToBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentElement === document.body) node.remove();
+      },
+    };
+  }
+
   onMount(() => {
     window.addEventListener('keydown', handleKeydown);
   });
@@ -39,7 +53,7 @@
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="q-modal-overlay" onclick={handleOverlayClick}>
+  <div class="q-modal-overlay" use:teleportToBody onclick={handleOverlayClick}>
     <div class="q-modal" style="width: {width}">
       <div class="q-modal-hdr">
         <span class="q-modal-title">{title}</span>

@@ -122,6 +122,7 @@ async fn probe_version(pool: &SqlitePool, version: i64) -> Result<bool, sqlx::Er
         5 => table_exists(pool, "ssh_profiles").await?,
         6 => column_exists(pool, "sql_connections", "ssh_profile_id").await?,
         7 => ssh_profiles_check_includes_agent(pool).await?,
+        8 => table_exists(pool, "explorer_connections").await?,
         _ => false,
     })
 }

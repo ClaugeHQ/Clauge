@@ -50,7 +50,8 @@ pub async fn stream_openai(
     // Detect non-REST modes by content of the system prompt.
     let is_rest_mode = !system_prompt.contains("SQL assistant")
         && !system_prompt.contains("NoSQL assistant")
-        && !system_prompt.contains("SSH operations assistant");
+        && !system_prompt.contains("SSH operations assistant")
+        && !system_prompt.contains("Explorer assistant");
 
     // For REST: keep the legacy heuristic (saves tokens on Groq's tight limits).
     // For SQL/NoSQL/SSH: always include tools and the full system prompt.

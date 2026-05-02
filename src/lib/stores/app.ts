@@ -2,9 +2,9 @@ import { writable } from 'svelte/store';
 import type { AIMessage } from '$lib/types/ai';
 import { STORAGE_KEYS } from '$lib/shared/constants/storage';
 
-export type AppMode = 'agent' | 'rest' | 'sql' | 'nosql' | 'ssh' | 'history';
+export type AppMode = 'agent' | 'rest' | 'sql' | 'nosql' | 'ssh' | 'explorer' | 'history';
 
-const VALID_MODES: AppMode[] = ['agent', 'rest', 'sql', 'nosql', 'ssh'];
+const VALID_MODES: AppMode[] = ['agent', 'rest', 'sql', 'nosql', 'ssh', 'explorer'];
 
 function loadInitialMode(): AppMode {
   try {

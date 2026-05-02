@@ -12,6 +12,7 @@
   import { showToast } from '$lib/shared/primitives/toast';
   import { friendlyError } from '$lib/utils/errors';
   import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+  import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import type { SqlConnectionConfig, SqlConnection, TableInfo, ColumnInfo } from '../types';
   import { descriptorFor } from '../dialects';
@@ -20,7 +21,7 @@
 
   const icons = {
     refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
-    disconnect: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+    disconnect: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
     connect: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>',
     edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     duplicate: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
@@ -49,6 +50,10 @@
   let confirmTitle = $state('');
   let confirmMessage = $state('');
   let confirmDanger = $state(false);
+  /** Per-call button verb. Most destructive flows want "Delete" (the
+   *  default), but DDL ops like Truncate need their own word so the
+   *  button matches the title verb. */
+  let confirmText = $state('Delete');
   let confirmAction: (() => Promise<void>) | null = $state(null);
 
   // Create database dialog
@@ -120,10 +125,11 @@
     showSqlConnectionDialog.set(true);
   }
 
-  function showConfirm(title: string, message: string, danger: boolean, action: () => Promise<void>) {
+  function showConfirm(title: string, message: string, danger: boolean, action: () => Promise<void>, verb?: string) {
     confirmTitle = title;
     confirmMessage = message;
     confirmDanger = danger;
+    confirmText = verb ?? (danger ? 'Delete' : 'Confirm');
     confirmAction = action;
     confirmShow = true;
   }
@@ -428,10 +434,10 @@ ORDER BY ordinal_position;`);
       },
       { label: '', action: () => {}, separator: true },
       {
-        label: 'Remove',
+        label: 'Delete',
         icon: icons.trash,
         danger: true,
-        action: () => showConfirm('Remove Connection', `Remove "${conn.name}"? This cannot be undone.`, true, async () => {
+        action: () => showConfirm('Delete Connection', `Delete "${conn.name}"? This cannot be undone.`, true, async () => {
           try {
             await deleteConnection(conn.id);
             clearConnectionCaches(conn.id);
@@ -493,7 +499,7 @@ ORDER BY ordinal_position;`);
             expandedConnectionId.set(null);
             setTimeout(() => expandedConnectionId.set(connId), 50);
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Drop'),
       },
     ]);
   }
@@ -550,7 +556,7 @@ ORDER BY ordinal_position;`);
               showToast(`Truncated ${table}`, 'success');
             }
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Truncate'),
       },
       {
         label: 'Drop Table',
@@ -569,7 +575,7 @@ ORDER BY ordinal_position;`);
               showToast(`Dropped ${table}`, 'success');
             }
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Drop'),
       },
     ]);
   }
@@ -593,6 +599,20 @@ ORDER BY ordinal_position;`);
 
   function driverLabel(driver: string): string {
     return descriptorFor(driver)?.abbreviation ?? (driver ? driver.substring(0, 2).toUpperCase() : '?');
+  }
+
+  // Brand-accurate identity colors for each SQL engine. Hardcoded by design —
+  // these are visual identifiers tied to the *thing*, not the theme. See
+  // accompanying NoSQL `driverColor` (Mongo green / Redis red) for the same
+  // pattern.
+  function driverColor(driver: string): string {
+    switch (driver) {
+      case 'postgresql': return '#336791';
+      case 'mysql':      return '#00758F';
+      case 'sqlite':     return '#909090';
+      case 'clickhouse': return '#FFCC01';
+      default:           return 'var(--t3)';
+    }
   }
 
   function columnLabel(col: ColumnInfo): string {
@@ -627,10 +647,14 @@ ORDER BY ordinal_position;`);
       {@const hasError = connState === 'error'}
       {@const errorMsg = $sqlConnectionErrors.get(conn.id) ?? ''}
 
-      <!-- Connection Row -->
+      <!-- Connection Row — two-line layout matching SSH/Explorer for visual
+           parity. Top line: chevron + driver-badge (with corner status
+           dot) + connection name. Bottom line: user@host:port (or "Local
+           file" for SQLite) + status text when connecting. -->
       <button
         class="tree-item tree-conn"
         class:active={$activeConnectionId === conn.id}
+        class:connected={isConnected}
         class:connecting={isConnecting}
         class:errored={hasError}
         title={hasError ? errorMsg : ''}
@@ -641,18 +665,31 @@ ORDER BY ordinal_position;`);
           <path d="M9 18l6-6-6-6"/>
         </svg>
         <span
-          class="conn-dot"
+          class="conn-badge-wrap"
           class:connected={isConnected}
           class:connecting={isConnecting}
           class:errored={hasError}
-        ></span>
-        <span class="conn-driver">{driverLabel(conn.driver)}</span>
-        <span class="tree-label">
-          {conn.name}
-          {#if isConnecting}
-            <span class="conn-state-text">Connecting<span class="conn-dots"></span></span>
-          {/if}
+        >
+          <span
+            class="conn-driver"
+            style:color={driverColor(conn.driver)}
+            style:background="color-mix(in srgb, {driverColor(conn.driver)} 12%, transparent)"
+          >{driverLabel(conn.driver)}</span>
         </span>
+        <div class="tree-body">
+          <div class="tree-row-top">
+            <span class="tree-label">{conn.name}</span>
+          </div>
+          <div class="tree-row-bot">
+            {#if isConnecting}
+              <span class="conn-state-text">Connecting<span class="conn-dots"></span></span>
+            {:else if conn.driver === 'sqlite'}
+              <span class="tree-sub">Local file</span>
+            {:else}
+              <span class="tree-sub">{conn.username}{conn.username ? '@' : ''}{conn.host}{conn.port ? `:${conn.port}` : ''}</span>
+            {/if}
+          </div>
+        </div>
         {#if isConnected}
           <span class="conn-action" role="button" tabindex="-1" title="Create Database"
             onclick={(e) => { e.stopPropagation(); openCreateDbDialog(conn.id); }}>
@@ -788,32 +825,26 @@ ORDER BY ordinal_position;`);
   {/if}
 </div>
 
-<!-- Confirm Dialog -->
-{#if confirmShow}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="sql-confirm-overlay" onclick={() => confirmShow = false}>
-    <div class="sql-confirm" onclick={(e) => e.stopPropagation()}>
-      <div class="sql-confirm-title">{confirmTitle}</div>
-      <div class="sql-confirm-msg">{confirmMessage}</div>
-      <div class="sql-confirm-actions">
-        <button class="sql-confirm-btn" onclick={() => confirmShow = false}>Cancel</button>
-        <button class="sql-confirm-btn" class:danger={confirmDanger} class:primary={!confirmDanger} onclick={handleConfirmOk}>
-          {confirmDanger ? 'Confirm' : 'OK'}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
+<!-- Confirm Dialog — shared primitive so SSH/Explorer/SQL/NoSQL all
+     read identically (header bar, body, footer, teleported to body). -->
+<ConfirmDialog
+  bind:show={confirmShow}
+  title={confirmTitle}
+  message={confirmMessage}
+  confirmText={confirmText}
+  confirmColor={confirmDanger ? 'var(--err)' : 'var(--acc)'}
+  onconfirm={handleConfirmOk}
+/>
 
-<!-- Create Database Dialog -->
+<!-- Create Database — input prompt; can't use ConfirmDialog (no input
+     slot) so keeps its own markup, but re-uses the same dialog look. -->
 {#if createDbShow}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="sql-confirm-overlay" onclick={() => createDbShow = false}>
-    <div class="sql-confirm" onclick={(e) => e.stopPropagation()}>
-      <div class="sql-confirm-title">Create Database</div>
-      <div class="sql-confirm-msg">Enter a name for the new database.</div>
+  <div class="sql-prompt-overlay" onclick={() => createDbShow = false}>
+    <div class="sql-prompt" onclick={(e) => e.stopPropagation()}>
+      <div class="sql-prompt-title">Create Database</div>
+      <div class="sql-prompt-msg">Enter a name for the new database.</div>
       <input
         class="create-db-input"
         type="text"
@@ -822,10 +853,10 @@ ORDER BY ordinal_position;`);
         onkeydown={(e) => { if (e.key === 'Enter') handleCreateDb(); if (e.key === 'Escape') createDbShow = false; }}
         autofocus
       />
-      <div class="sql-confirm-actions">
-        <button class="sql-confirm-btn" onclick={() => createDbShow = false}>Cancel</button>
+      <div class="sql-prompt-actions">
+        <button class="sql-prompt-btn" onclick={() => createDbShow = false}>Cancel</button>
         <button
-          class="sql-confirm-btn primary"
+          class="sql-prompt-btn primary"
           disabled={!createDbName.trim() || createDbLoading}
           onclick={handleCreateDb}
         >
@@ -893,21 +924,91 @@ ORDER BY ordinal_position;`);
     flex: 1;
   }
 
+  /* Connection row — two-line layout (top: name, bottom: user@host:port).
+     Bumped from 32px to 44px min-height to match SSH/Explorer parity and
+     to give the new corner-status-dot on the driver badge room to breathe. */
   .tree-conn {
-    height: 32px;
-    padding: 0 8px;
-    gap: 6px;
+    min-height: 44px;
+    height: auto;
+    padding: 6px 8px;
+    gap: 8px;
+    align-items: center;
   }
   .tree-conn.active { background: color-mix(in srgb, var(--acc) 10%, transparent); }
-  /* Connecting: dim the row + suppress clicks. The store ALSO guards against
-     duplicate `sqlConnect` calls, but suppressing pointer events here makes the
-     "this is in flight" state visually obvious. */
-  .tree-conn.connecting { opacity: 0.7; pointer-events: none; }
-  /* Errored: subtle red tint so the row stands out at a glance. The full error
-     message is exposed via the row's `title` attribute (native tooltip). */
+  .tree-conn.connecting { pointer-events: none; }
+  /* Connection status indicator — outline ring around the driver badge
+     (matches its rectangular shape) plus a 6px pulsing dot at the
+     top-right corner. Mirrors the SSH/Explorer icon treatment but with
+     a rectangular outline since the badge isn't square. Idle = no ring,
+     no dot. Goal: zero extra horizontal space (no standalone dot). */
+  .conn-badge-wrap {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .conn-badge-wrap.connected::before,
+  .conn-badge-wrap.connecting::before,
+  .conn-badge-wrap.errored::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 5px;
+    pointer-events: none;
+  }
+  .conn-badge-wrap.connected::before { border: 1px solid color-mix(in srgb, var(--ok, #1dc880) 28%, transparent); }
+  .conn-badge-wrap.connecting::before { border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+  .conn-badge-wrap.errored::before { border: 1px solid color-mix(in srgb, var(--err) 35%, transparent); }
+
+  .conn-badge-wrap.connected::after,
+  .conn-badge-wrap.connecting::after,
+  .conn-badge-wrap.errored::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px var(--n);
+    pointer-events: none;
+  }
+  .conn-badge-wrap.connected::after  { background: var(--ok, #1dc880); animation: badgePulseOk 3s ease-in-out infinite; }
+  .conn-badge-wrap.connecting::after { background: var(--warn);        animation: badgePulseWarn 1.4s ease-in-out infinite; }
+  .conn-badge-wrap.errored::after    { background: var(--err); }
+
+  @keyframes badgePulseOk {
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 2px color-mix(in srgb, var(--ok, #1dc880) 30%, transparent); }
+    50%      { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 5px color-mix(in srgb, var(--ok, #1dc880) 0%, transparent); }
+  }
+  @keyframes badgePulseWarn {
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 2px color-mix(in srgb, var(--warn) 35%, transparent); }
+    50%      { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 5px color-mix(in srgb, var(--warn) 0%, transparent); }
+  }
   .tree-conn.errored { background: color-mix(in srgb, var(--err) 8%, transparent); }
-  .tree-conn .tree-label { font-size: 12px; color: var(--t2); }
+  .tree-conn .tree-label { font-size: 12.5px; color: var(--t2); font-weight: 500; }
   .tree-conn.active .tree-label { color: var(--t1); }
+  .tree-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .tree-row-top, .tree-row-bot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .tree-sub {
+    font-size: 10.5px;
+    font-family: var(--mono);
+    color: var(--t3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tree-conn.active .tree-sub { color: var(--t2); }
 
   .tree-chevron {
     width: 10px; height: 10px;
@@ -923,16 +1024,6 @@ ORDER BY ordinal_position;`);
   }
   .tree-chevron-sm.open { transform: rotate(90deg); }
 
-  .conn-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--t4); flex-shrink: 0; transition: background 0.2s;
-  }
-  .conn-dot.connected { background: var(--acc); box-shadow: 0 0 4px color-mix(in srgb, var(--acc) 40%, transparent); }
-  /* Connecting: amber pulse (matches NoSqlNav). The pulse keeps the dot from
-     looking frozen during long SSH-tunneled connects. */
-  .conn-dot.connecting { background: var(--warn); animation: sql-conn-pulse 1s ease-in-out infinite; }
-  .conn-dot.errored { background: var(--err); box-shadow: 0 0 4px color-mix(in srgb, var(--err) 50%, transparent); }
-  @keyframes sql-conn-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 
   .conn-state-text {
     font-size: 10px; color: var(--t3); font-family: var(--ui);
@@ -945,8 +1036,8 @@ ORDER BY ordinal_position;`);
   }
 
   .conn-driver {
+    /* color + background set inline via driverColor(driver) — see template. */
     font-size: 9px; font-weight: 700;
-    color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent);
     padding: 1px 4px; border-radius: 3px;
     font-family: var(--ui); flex-shrink: 0; letter-spacing: 0.04em;
   }
@@ -1025,37 +1116,37 @@ ORDER BY ordinal_position;`);
     padding: 6px 0; font-size: 10px; color: var(--t4); font-family: var(--ui);
   }
 
-  /* Confirm dialog */
-  .sql-confirm-overlay {
+
+  /* Create-database prompt — has an input field so it can't ride the
+     shared ConfirmDialog primitive. Visually matches the rest of the
+     app's small dialogs. */
+  .sql-prompt-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.4); z-index: 9999;
+    background: rgba(0,0,0,0.6); z-index: 9999;
     display: flex; align-items: center; justify-content: center;
   }
-  .sql-confirm {
-    background: var(--modal-bg, var(--n)); border: 1px solid var(--b1);
-    border-radius: 12px; padding: 24px; min-width: 320px; max-width: 400px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  .sql-prompt {
+    width: 360px;
+    background: var(--modal-bg, var(--n));
+    border: 1px solid var(--b1);
+    border-radius: 10px;
+    padding: 20px 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
-  .sql-confirm-title {
-    font-size: 15px; font-weight: 600; color: var(--t1); font-family: var(--ui);
-    margin-bottom: 8px;
+  .sql-prompt-title { font-size: 16px; font-weight: 600; color: var(--t1); font-family: var(--ui); margin-bottom: 6px; }
+  .sql-prompt-msg { font-size: 13px; color: var(--t2); font-family: var(--ui); line-height: 1.5; margin-bottom: 14px; }
+  .sql-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .sql-prompt-btn {
+    height: 30px; padding: 0 16px;
+    border-radius: 8px; border: 1px solid var(--b1);
+    background: transparent; color: var(--t2);
+    font-size: 12px; font-family: var(--ui); cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
   }
-  .sql-confirm-msg {
-    font-size: 13px; color: var(--t2); font-family: var(--ui); line-height: 1.5;
-    margin-bottom: 20px;
-  }
-  .sql-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .sql-confirm-btn {
-    padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 600;
-    font-family: var(--ui); cursor: default; border: 1px solid var(--b1);
-    background: transparent; color: var(--t2); transition: all 0.12s;
-  }
-  .sql-confirm-btn:hover { background: var(--c); color: var(--t1); }
-  .sql-confirm-btn.primary { background: var(--acc); color: #fff; border-color: transparent; }
-  .sql-confirm-btn.primary:hover { opacity: 0.9; }
-  .sql-confirm-btn.danger { background: var(--err); color: #fff; border-color: transparent; }
-  .sql-confirm-btn.danger:hover { opacity: 0.9; }
-  .sql-confirm-btn:disabled { opacity: 0.4; pointer-events: none; }
+  .sql-prompt-btn:hover { border-color: var(--b2); color: var(--t1); }
+  .sql-prompt-btn.primary { background: var(--acc); color: #fff; border-color: transparent; }
+  .sql-prompt-btn.primary:hover { opacity: 0.9; }
+  .sql-prompt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .create-db-input {
     width: 100%;

@@ -7,16 +7,7 @@
   import { tabs, addTab, activateTab } from '$lib/shared/stores/tabs';
   import { get } from 'svelte/store';
   import { AGENT_EVENT } from '$lib/shared/constants/events';
-
-  // Teleport action: moves element to document.body to escape stacking context
-  function teleport(node: HTMLElement) {
-    document.body.appendChild(node);
-    return {
-      destroy() {
-        if (node.parentElement === document.body) node.remove();
-      }
-    };
-  }
+  import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
 
   interface Props {
     searchQuery?: string;
@@ -28,10 +19,38 @@
   let confirmShow = $state(false);
   let confirmTitle = $state('');
   let confirmMessage = $state('');
+  let confirmDanger = $state(false);
+  let confirmText = $state('Confirm');
   let confirmAction: (() => Promise<void>) | null = $state(null);
 
-  // Collapsed project groups
-  let collapsedProjects = $state<Set<string>>(new Set());
+  /** Set up + show the shared ConfirmDialog. Centralised so the Reset
+   *  vs Delete branches don't have to duplicate state-write boilerplate. */
+  function showConfirm(opts: { title: string; message: string; danger: boolean; confirmText: string; action: () => Promise<void> }) {
+    confirmTitle = opts.title;
+    confirmMessage = opts.message;
+    confirmDanger = opts.danger;
+    confirmText = opts.confirmText;
+    confirmAction = opts.action;
+    confirmShow = true;
+  }
+
+  // Collapsed project groups — persisted across app reloads so the user's
+  // organisation choices survive a restart. localStorage (sync, instant)
+  // is fine here since this is purely device-local UI state.
+  const COLLAPSED_KEY = 'clauge.agent.collapsedProjects';
+  function loadCollapsed(): Set<string> {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_KEY);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr.filter((v): v is string => typeof v === 'string'));
+    } catch { /* corrupt entry — ignore and start fresh */ }
+    return new Set();
+  }
+  function saveCollapsed(set: Set<string>) {
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set])); } catch { /* quota / private mode — silent */ }
+  }
+  let collapsedProjects = $state<Set<string>>(loadCollapsed());
 
   const purposeColors: Record<string, string> = {
     'Brainstorming': '#d2a8ff',
@@ -97,6 +116,7 @@
       next.add(name);
     }
     collapsedProjects = next;
+    saveCollapsed(next);
   }
 
   function contextPercent(sessionId: string): number | null {
@@ -137,28 +157,30 @@
       {
         label: 'Reset Session',
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
-        action: () => {
-          confirmTitle = 'Reset Session';
-          confirmMessage = `Reset "${session.title}"? This will clear the Claude session ID and start fresh.`;
-          confirmAction = async () => {
+        action: () => showConfirm({
+          title: 'Reset Session',
+          message: `Reset "${session.title}"? This will clear the Claude session ID and start fresh.`,
+          danger: false,
+          confirmText: 'Reset',
+          action: async () => {
             window.dispatchEvent(new CustomEvent(AGENT_EVENT.RESET_SESSION, { detail: { session } }));
-          };
-          confirmShow = true;
-        },
+          },
+        }),
       },
       { label: '', action: () => {}, separator: true },
       {
         label: 'Delete',
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
         danger: true,
-        action: () => {
-          confirmTitle = 'Delete Session';
-          confirmMessage = `Delete "${session.title}"? This cannot be undone.`;
-          confirmAction = async () => {
+        action: () => showConfirm({
+          title: 'Delete Session',
+          message: `Delete "${session.title}"? This cannot be undone.`,
+          danger: true,
+          confirmText: 'Delete',
+          action: async () => {
             window.dispatchEvent(new CustomEvent(AGENT_EVENT.DELETE_SESSION, { detail: { session } }));
-          };
-          confirmShow = true;
-        },
+          },
+        }),
       },
     ]);
   }
@@ -244,23 +266,17 @@
   {/if}
 </div>
 
-<!-- Confirm Dialog — teleported to body to avoid nav panel stacking context clipping -->
-{#if confirmShow}
-  <div class="confirm-portal" use:teleport>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="confirm-overlay" onclick={() => confirmShow = false}>
-      <div class="confirm-dialog" onclick={(e) => e.stopPropagation()}>
-        <div class="confirm-title">{confirmTitle}</div>
-        <div class="confirm-msg">{confirmMessage}</div>
-        <div class="confirm-actions">
-          <button class="confirm-btn" onclick={() => confirmShow = false}>Cancel</button>
-          <button class="confirm-btn danger" onclick={handleConfirmOk}>{confirmTitle === 'Delete Session' ? 'Delete' : 'Reset'}</button>
-        </div>
-      </div>
-    </div>
-  </div>
-{/if}
+<!-- Confirm Dialog — shared primitive across all modes (header bar, body,
+     footer with proper dividers; teleports to body so nav stacking
+     contexts can't clip it). -->
+<ConfirmDialog
+  bind:show={confirmShow}
+  title={confirmTitle}
+  message={confirmMessage}
+  confirmText={confirmText}
+  confirmColor={confirmDanger ? 'var(--err)' : 'var(--acc)'}
+  onconfirm={handleConfirmOk}
+/>
 
 <style>
   .agent-nav {
@@ -357,7 +373,12 @@
     transition: background 0.08s;
     text-align: left;
     position: relative;
+    /* Divider between sessions inside a project group. The :last-child
+       rule below clears it on the trailing item so groups don't run into
+       the project header underneath. */
+    border-bottom: 1px solid var(--b-subtle);
   }
+  .session-item:last-child { border-bottom: none; }
   .session-item:hover { background: var(--c); }
   .session-item.active { background: color-mix(in srgb, var(--agent, var(--acc)) 10%, transparent); }
 
@@ -426,11 +447,14 @@
     white-space: nowrap;
   }
 
+  /* WT (worktree) is a single fixed identity tag — like the brand badges
+     (Postgres, S3, Mongo). Kept theme-independent so it doesn't follow the
+     user's accent. */
   .wt-badge {
     font-size: 8px;
     font-family: var(--mono);
     font-weight: 700;
-    color: var(--acc, #7c5cf8);
+    color: #7c5cf8;
     background: rgba(124, 92, 248, 0.12);
     padding: 1px 4px;
     border-radius: 3px;
@@ -465,34 +489,6 @@
   .session-item:hover .session-ellipsis { display: flex; }
   .session-ellipsis:hover { background: rgba(255,255,255,0.08); color: var(--t1); }
 
-  /* Confirm dialog */
-  .confirm-overlay {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.4); z-index: 9999;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .confirm-dialog {
-    background: var(--modal-bg, var(--n)); border: 1px solid var(--b1);
-    border-radius: 12px; padding: 24px; min-width: 320px; max-width: 400px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-  }
-  .confirm-title {
-    font-size: 15px; font-weight: 600; color: var(--t1); font-family: var(--ui);
-    margin-bottom: 8px;
-  }
-  .confirm-msg {
-    font-size: 13px; color: var(--t2); font-family: var(--ui); line-height: 1.5;
-    margin-bottom: 20px;
-  }
-  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .confirm-btn {
-    padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 600;
-    font-family: var(--ui); cursor: default; border: 1px solid var(--b1);
-    background: transparent; color: var(--t2); transition: all 0.12s;
-  }
-  .confirm-btn:hover { background: var(--c); color: var(--t1); }
-  .confirm-btn.danger { background: var(--err); color: #fff; border-color: transparent; }
-  .confirm-btn.danger:hover { opacity: 0.9; }
 
   /* Claude plan badge */
   .plan-badge-row {

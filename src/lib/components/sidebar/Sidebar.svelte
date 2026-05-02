@@ -248,6 +248,10 @@
     <!-- Terminal prompt >_  — universal "shell" icon -->
     <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
   </SidebarButton>
+  <SidebarButton label="Explorer" tip="Explorer (Files)" active={$mode === 'explorer'} dotColor="var(--explorer)" id="sbi-explorer" onclick={() => setMode('explorer')}>
+    <!-- Folder + cloud — "files / storage" -->
+    <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+  </SidebarButton>
 
   <div class="sb-sep"></div>
 
@@ -609,67 +613,6 @@
   .pm-logout { color: var(--err) !important; }
   .pm-logout svg { stroke: var(--err) !important; }
   .pm-logout:hover { background: rgba(240,68,68,0.08) !important; }
-  /* Active mode left-border accent pills */
-  :global(#sbi-agent.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--agent);
-  }
-  :global(#sbi-rest.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--rest);
-  }
-  :global(#sbi-sql.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--sql);
-  }
-  :global(#sbi-nosql.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--nosql);
-  }
-  :global(#sbi-ssh.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--ssh);
-  }
-  :global(#sbi-history.on::before) {
-    content: '';
-    position: absolute;
-    left: -1px;
-    top: 7px;
-    bottom: 7px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--acc);
-  }
   :global(.spin) {
     animation: spin 0.8s linear infinite;
   }

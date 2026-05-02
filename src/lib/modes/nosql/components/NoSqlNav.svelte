@@ -17,6 +17,7 @@
   } from '../stores';
   import { nosqlListDatabases, nosqlListCollections, nosqlCreateCollection, nosqlDropDatabase, nosqlDropCollection, nosqlRenameCollection } from '../commands';
   import { showToast } from '$lib/shared/primitives/toast';
+  import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import { friendlyError } from '$lib/utils/errors';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import type { NoSqlConnection } from '../types';
@@ -24,7 +25,7 @@
   // SVG icon helpers (inline, 14x14, stroke-based)
   const icons = {
     refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
-    disconnect: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+    disconnect: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
     edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
     copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
@@ -53,6 +54,7 @@
   let confirmTitle = $state('');
   let confirmMessage = $state('');
   let confirmDanger = $state(false);
+  let confirmText = $state('Delete');
   let confirmAction: (() => Promise<void>) | null = $state(null);
 
   // Rename/Create dialog state
@@ -158,10 +160,11 @@
     }
   }
 
-  function showConfirm(title: string, message: string, danger: boolean, action: () => Promise<void>) {
+  function showConfirm(title: string, message: string, danger: boolean, action: () => Promise<void>, verb?: string) {
     confirmTitle = title;
     confirmMessage = message;
     confirmDanger = danger;
+    confirmText = verb ?? (danger ? 'Delete' : 'Confirm');
     confirmAction = action;
     confirmShow = true;
   }
@@ -285,13 +288,13 @@
       ...(isConnected ? [{
         label: 'Disconnect',
         icon: icons.disconnect,
-        action: () => showConfirm('Disconnect', `Disconnect from ${conn.name}?`, false, async () => {
+        action: () => showConfirm('Disconnect', `Disconnect from "${conn.name}"?`, false, async () => {
           try {
             await disconnectFromNoSql(conn.id);
             expandedConns = new Set([...expandedConns].filter(id => id !== conn.id));
             showToast(`Disconnected from ${conn.name}`, 'info');
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Disconnect'),
       }] : [{
         label: 'Connect',
         icon: icons.connect,
@@ -316,10 +319,10 @@
       },
       { label: '', action: () => {}, separator: true },
       {
-        label: 'Remove',
+        label: 'Delete',
         icon: icons.trash,
         danger: true,
-        action: () => showConfirm('Remove Connection', `Remove "${conn.name}"? This cannot be undone.`, true, async () => {
+        action: () => showConfirm('Delete Connection', `Delete "${conn.name}"? This cannot be undone.`, true, async () => {
           try {
             await deleteNoSqlConnection(conn.id);
             showToast('Connection removed', 'success');
@@ -368,7 +371,7 @@
             await loadDatabases(connId);
             showToast(`Dropped ${db}`, 'success');
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Drop'),
       },
     ]);
   }
@@ -408,7 +411,7 @@
             await loadCollections(connId, db);
             showToast(`Dropped ${coll}`, 'success');
           } catch (e: any) { showToast(friendlyError(e), 'error'); }
-        }),
+        }, 'Drop'),
       },
     ]);
   }
@@ -442,6 +445,7 @@
       <button
         class="tree-item tree-conn"
         class:active={$activeNoSqlConnectionId === conn.id}
+        class:connected={isConnected}
         class:connecting={isConnecting}
         class:errored={hasError}
         title={hasError ? errorMsg : ''}
@@ -452,20 +456,27 @@
           <path d="M9 18l6-6-6-6"/>
         </svg>
         <span
-          class="conn-dot"
+          class="conn-badge-wrap"
           class:connected={isConnected}
           class:connecting={isConnecting}
           class:errored={hasError}
-        ></span>
-        <span class="conn-driver" style:color={driverColor(conn.driver)} style:background="color-mix(in srgb, {driverColor(conn.driver)} 12%, transparent)">
-          {conn.driver === 'mongodb' ? 'MG' : 'RD'}
+        >
+          <span class="conn-driver" style:color={driverColor(conn.driver)} style:background="color-mix(in srgb, {driverColor(conn.driver)} 12%, transparent)">
+            {conn.driver === 'mongodb' ? 'MG' : 'RD'}
+          </span>
         </span>
-        <span class="tree-label">
-          {conn.name}
-          {#if isConnecting}
-            <span class="nn-connecting-text">Connecting<span class="nn-dots"></span></span>
-          {/if}
-        </span>
+        <div class="tree-body">
+          <div class="tree-row-top">
+            <span class="tree-label">{conn.name}</span>
+          </div>
+          <div class="tree-row-bot">
+            {#if isConnecting}
+              <span class="nn-connecting-text">Connecting<span class="nn-dots"></span></span>
+            {:else}
+              <span class="tree-sub">{conn.host}{conn.port ? `:${conn.port}` : ''}</span>
+            {/if}
+          </div>
+        </div>
         {#if isConnected}
           <span class="conn-action" role="button" tabindex="-1" title="Refresh"
             onclick={async (e) => { e.stopPropagation(); dbCache = new Map([...dbCache].filter(([k]) => k !== conn.id)); collCache = new Map([...collCache].filter(([k]) => !k.startsWith(`${conn.id}:`))); await loadDatabases(conn.id); const dbs = dbCache.get(conn.id) ?? []; for (const db of dbs) { const key = `${conn.id}:${db}`; if (expandedDbs.has(key)) loadCollections(conn.id, db); } }}>
@@ -511,7 +522,7 @@
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </span>
                 <span class="db-action db-action-danger" role="button" tabindex="-1" title="Drop Database"
-                  onclick={(e) => { e.stopPropagation(); const liveId = $nosqlLiveConnectionIds[conn.id]; if (liveId) showConfirm('Drop Database', `Drop "${db}"? All collections and documents will be permanently deleted.`, true, async () => { try { await nosqlDropDatabase(liveId, db); dbCache = new Map([...dbCache].filter(([k]) => k !== conn.id)); collCache = new Map([...collCache].filter(([k]) => !k.startsWith(`${conn.id}:${db}`))); await loadDatabases(conn.id); showToast(`Dropped ${db}`, 'success'); } catch (err) { showToast(friendlyError(err), 'error'); } }); }}>
+                  onclick={(e) => { e.stopPropagation(); const liveId = $nosqlLiveConnectionIds[conn.id]; if (liveId) showConfirm('Drop Database', `Drop "${db}"? All collections and documents will be permanently deleted.`, true, async () => { try { await nosqlDropDatabase(liveId, db); dbCache = new Map([...dbCache].filter(([k]) => k !== conn.id)); collCache = new Map([...collCache].filter(([k]) => !k.startsWith(`${conn.id}:${db}`))); await loadDatabases(conn.id); showToast(`Dropped ${db}`, 'success'); } catch (err) { showToast(friendlyError(err), 'error'); } }, 'Drop'); }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 </span>
               </button>
@@ -552,23 +563,15 @@
   {/if}
 </div>
 
-<!-- Confirm Dialog -->
-{#if confirmShow}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="nn-confirm-overlay" onclick={() => confirmShow = false}>
-    <div class="nn-confirm" onclick={(e) => e.stopPropagation()}>
-      <div class="nn-confirm-title">{confirmTitle}</div>
-      <div class="nn-confirm-msg">{confirmMessage}</div>
-      <div class="nn-confirm-actions">
-        <button class="nn-confirm-btn" onclick={() => confirmShow = false}>Cancel</button>
-        <button class="nn-confirm-btn" class:danger={confirmDanger} class:primary={!confirmDanger} onclick={handleConfirmOk}>
-          {confirmDanger ? 'Delete' : 'Confirm'}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
+<!-- Confirm Dialog — shared primitive for visual parity across all modes. -->
+<ConfirmDialog
+  bind:show={confirmShow}
+  title={confirmTitle}
+  message={confirmMessage}
+  confirmText={confirmText}
+  confirmColor={confirmDanger ? 'var(--err)' : 'var(--acc)'}
+  onconfirm={handleConfirmOk}
+/>
 
 <!-- Rename Dialog -->
 {#if renameShow}
@@ -650,18 +653,88 @@
     flex: 1;
   }
 
+  /* Two-line connection row to match SSH/Explorer parity. */
   .tree-conn {
-    height: 32px;
-    padding: 0 8px;
-    gap: 6px;
+    min-height: 44px;
+    height: auto;
+    padding: 6px 8px;
+    gap: 8px;
+    align-items: center;
   }
   .tree-conn.active { background: color-mix(in srgb, var(--acc) 10%, transparent); }
-  .tree-conn.connecting { opacity: 0.7; pointer-events: none; }
-  /* Errored: subtle red tint so the row stands out at a glance. The full error
-     message is exposed via the row's `title` attribute (native tooltip). */
+  .tree-conn.connecting { pointer-events: none; }
   .tree-conn.errored { background: color-mix(in srgb, var(--err) 8%, transparent); }
-  .tree-conn .tree-label { font-size: 12px; color: var(--t2); }
+  /* Connection status indicator — rectangular outline around the driver
+     badge + 6px pulsing corner dot. Same visual language as SSH/Explorer
+     (ring + dot, dialled-down 3s pulse) just shaped to fit the rectangular
+     badge instead of a square icon container. Idle = both invisible. */
+  .conn-badge-wrap {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .conn-badge-wrap.connected::before,
+  .conn-badge-wrap.connecting::before,
+  .conn-badge-wrap.errored::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 5px;
+    pointer-events: none;
+  }
+  .conn-badge-wrap.connected::before { border: 1px solid color-mix(in srgb, var(--ok, #1dc880) 28%, transparent); }
+  .conn-badge-wrap.connecting::before { border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+  .conn-badge-wrap.errored::before { border: 1px solid color-mix(in srgb, var(--err) 35%, transparent); }
+
+  .conn-badge-wrap.connected::after,
+  .conn-badge-wrap.connecting::after,
+  .conn-badge-wrap.errored::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px var(--n);
+    pointer-events: none;
+  }
+  .conn-badge-wrap.connected::after  { background: var(--ok, #1dc880); animation: nnBadgePulseOk 3s ease-in-out infinite; }
+  .conn-badge-wrap.connecting::after { background: var(--warn);        animation: nnBadgePulseWarn 1.4s ease-in-out infinite; }
+  .conn-badge-wrap.errored::after    { background: var(--err); }
+
+  @keyframes nnBadgePulseOk {
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 2px color-mix(in srgb, var(--ok, #1dc880) 30%, transparent); }
+    50%      { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 5px color-mix(in srgb, var(--ok, #1dc880) 0%, transparent); }
+  }
+  @keyframes nnBadgePulseWarn {
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 2px color-mix(in srgb, var(--warn) 35%, transparent); }
+    50%      { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 5px color-mix(in srgb, var(--warn) 0%, transparent); }
+  }
+  .tree-conn .tree-label { font-size: 12.5px; color: var(--t2); font-weight: 500; }
   .tree-conn.active .tree-label { color: var(--t1); }
+  .tree-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .tree-row-top, .tree-row-bot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .tree-sub {
+    font-size: 10.5px;
+    font-family: var(--mono);
+    color: var(--t3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tree-conn.active .tree-sub { color: var(--t2); }
 
   .tree-chevron {
     width: 10px; height: 10px;
@@ -677,15 +750,6 @@
   }
   .tree-chevron-sm.open { transform: rotate(90deg); }
 
-  .conn-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--t4); flex-shrink: 0;
-    transition: background 0.2s, box-shadow 0.2s;
-  }
-  .conn-dot.connected { background: var(--acc); box-shadow: 0 0 4px color-mix(in srgb, var(--acc) 40%, transparent); }
-  .conn-dot.connecting { background: var(--warn); animation: nn-pulse 1s ease-in-out infinite; }
-  .conn-dot.errored { background: var(--err); box-shadow: 0 0 4px color-mix(in srgb, var(--err) 50%, transparent); }
-  @keyframes nn-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 
   .conn-driver {
     font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px;
@@ -752,7 +816,7 @@
     padding: 6px 0; font-size: 10px; color: var(--t4); font-family: var(--ui);
   }
 
-  /* Confirm / Rename overlay */
+  /* Rename dialog still uses .nn-confirm-* classes below — kept for it. */
   .nn-confirm-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.4); z-index: 9999;

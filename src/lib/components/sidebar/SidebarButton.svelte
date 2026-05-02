@@ -29,9 +29,6 @@
 >
   <span class="sbi-icon">
     {@render children()}
-    {#if dotColor}
-      <span class="sbi-dot" style="background:{dotColor}"></span>
-    {/if}
   </span>
   {#if label}
     <span class="sbi-label">{label}</span>
@@ -99,14 +96,6 @@
   }
   .sbi.on {
     background: color-mix(in srgb, var(--acc) 10%, transparent);
-  }
-  .sbi-dot {
-    position: absolute;
-    top: -1px;
-    right: -2px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
   }
   /* tooltip — only shown when there's no label visible */
   .sbi[data-tip]:not(:has(.sbi-label)):hover::after {

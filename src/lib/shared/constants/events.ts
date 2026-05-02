@@ -48,6 +48,12 @@ export const SSH_EVENT = {
   DUPLICATE_SESSION: 'ssh:duplicate-session',
 } as const;
 
+export const EXPLORER_EVENT = {
+  ADD_TAB: 'explorer:add-tab',
+  ADD_CONNECTION: 'explorer:add-connection',
+  OPEN_TAB: 'explorer:open-tab',
+} as const;
+
 export const AGENT_EVENT = {
   ADD_TAB: 'agent:add-tab',
   CLOSE_TAB_SESSION: 'agent:close-tab-session',

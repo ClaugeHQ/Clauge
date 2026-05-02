@@ -1,36 +1,13 @@
 use crate::modes::agent::models::TerminalOutputPayload;
-use crate::modes::ssh::agent::try_agent_auth;
-use crate::modes::ssh::models::{SshCommand, SshProfile, SshTerminalEntry, SshTerminalState};
-use crate::shared::platform::credential_store::{credential_store, CredentialStore};
+use crate::modes::ssh::models::{SshCommand, SshTerminalEntry, SshTerminalState};
+use crate::modes::ssh::ssh_session::{open_authenticated_ssh_session, ClientHandler};
 use base64::Engine;
-use russh::client::{self, Handle};
+use russh::client::Handle;
 use russh::ChannelMsg;
 use sqlx::SqlitePool;
-use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
 use uuid::Uuid;
-
-// ---------------------------------------------------------------------------
-// russh client handler
-// ---------------------------------------------------------------------------
-
-struct ClientHandler;
-
-#[async_trait::async_trait]
-impl client::Handler for ClientHandler {
-    type Error = russh::Error;
-
-    // TODO(ssh-tofu): record + verify host key fingerprints in the
-    // `ssh_known_hosts` table. See docs/superpowers/specs/2026-04-27-ssh-mode-design.md
-    // ("Host key (TOFU)"). Phase 1 accepts any key on first connect.
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tauri commands
@@ -45,34 +22,6 @@ pub async fn ssh_spawn_terminal(
 ) -> Result<String, String> {
     let terminal_id = Uuid::new_v4().to_string();
 
-    // Fetch profile up-front so we can fail fast with a clean error.
-    let profile: SshProfile =
-        sqlx::query_as::<_, SshProfile>("SELECT * FROM ssh_profiles WHERE id = ?")
-            .bind(&profile_id)
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| format!("profile not found: {}", e))?;
-
-    // Atomically bump last_used_at for THIS connection attempt. Doing it here
-    // (Rust path) instead of relying on the frontend's opportunistic touch
-    // guarantees the stamp is updated for every spawn — no missed updates due
-    // to race conditions or unhandled paths. Best-effort: don't fail spawn if
-    // the bookkeeping write hiccups.
-    // RFC3339 with millisecond precision — WKWebView's Date constructor can
-    // choke on the default 6-digit microsecond fractional seconds.
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let _ = sqlx::query("UPDATE ssh_profiles SET last_used_at = ? WHERE id = ?")
-        .bind(&now)
-        .bind(&profile.id)
-        .execute(pool.inner())
-        .await;
-
-    // Pull credential (passphrase or password). Missing is fine for unencrypted keys.
-    let secret: Option<String> = credential_store()
-        .get(&profile.id)
-        .await
-        .map_err(|e| format!("credential lookup: {}", e))?;
-
     // Set up the command channel BEFORE spawning so we can return its sender via the
     // state map immediately. The russh task owns the receiver.
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel::<SshCommand>();
@@ -80,17 +29,19 @@ pub async fn ssh_spawn_terminal(
     let tid_for_task = terminal_id.clone();
     let on_output_for_task = on_output.clone();
 
-    eprintln!(
-        "[ssh] connect host={} port={} user={} auth={}",
-        profile.host, profile.port, profile.username, profile.auth_type
-    );
+    // Clone the pool handle for the spawned task. State::inner() returns
+    // &SqlitePool; SqlitePool is `Clone` (it's an Arc inside).
+    let pool_clone: SqlitePool = pool.inner().clone();
+    let profile_id_for_task = profile_id.clone();
+
+    eprintln!("[ssh] connect profile={}", profile_id);
 
     // Drive the whole russh session inside this task. Any failure → emit
     // exit:true so the frontend can swap to the reconnect banner.
     tauri::async_runtime::spawn(async move {
         if let Err(err) = run_ssh_session(
-            profile,
-            secret,
+            &pool_clone,
+            &profile_id_for_task,
             tid_for_task.clone(),
             on_output_for_task.clone(),
             cmd_rx,
@@ -168,69 +119,15 @@ pub fn ssh_kill_terminal(
 // ---------------------------------------------------------------------------
 
 async fn run_ssh_session(
-    profile: SshProfile,
-    secret: Option<String>,
+    pool: &SqlitePool,
+    profile_id: &str,
     terminal_id: String,
     on_output: Channel<TerminalOutputPayload>,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<SshCommand>,
 ) -> Result<(), String> {
-    let config = Arc::new(client::Config::default());
-    let handler = ClientHandler;
-
-    let host = profile.host.clone();
-    let port: u16 = profile.port as u16;
-
-    // Connect the TCP socket manually so we can disable Nagle's algorithm.
-    // For interactive SSH (1-byte keystrokes), Nagle + delayed-ACK adds
-    // 40-200ms of artificial latency per character. OpenSSH disables this;
-    // russh doesn't by default, and only exposes it via connect_stream.
-    let socket = tokio::net::TcpStream::connect((host.as_str(), port))
-        .await
-        .map_err(|e| format!("tcp connect: {}", e))?;
-    if let Err(e) = socket.set_nodelay(true) {
-        eprintln!("[ssh] warning: TCP_NODELAY not set ({})", e);
-    }
-    let connect_fut = client::connect_stream(config, socket, handler);
-    let mut handle: Handle<ClientHandler> = match tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        connect_fut,
-    )
-    .await
-    {
-        Ok(Ok(h)) => h,
-        Ok(Err(e)) => return Err(format!("connect: {}", e)),
-        Err(_) => return Err("connect: timed out after 15s".to_string()),
-    };
-
-    // Auth
-    let authed = match profile.auth_type.as_str() {
-        "key" => {
-            let key_path = profile
-                .key_path
-                .as_ref()
-                .ok_or_else(|| "key auth requires key_path".to_string())?;
-            let passphrase = secret.as_deref();
-            let keypair = russh_keys::load_secret_key(key_path, passphrase)
-                .map_err(|e| format!("load key: {}", e))?;
-            handle
-                .authenticate_publickey(&profile.username, Arc::new(keypair))
-                .await
-                .map_err(|e| format!("auth publickey: {}", e))?
-        }
-        "password" => {
-            let password = secret
-                .ok_or_else(|| "password auth requires a stored secret".to_string())?;
-            handle
-                .authenticate_password(&profile.username, password)
-                .await
-                .map_err(|e| format!("auth password: {}", e))?
-        }
-        "agent" => try_agent_auth(&mut handle, &profile.username).await?,
-        other => return Err(format!("unknown auth_type: {}", other)),
-    };
-    if !authed {
-        return Err("authentication failed".to_string());
-    }
+    // Connect + auth via the shared helper. Returns a post-auth Handle that
+    // we layer the PTY + shell on top of.
+    let handle: Handle<ClientHandler> = open_authenticated_ssh_session(pool, profile_id).await?;
 
     // Open a session channel and request an interactive shell over a PTY.
     let mut chan = handle

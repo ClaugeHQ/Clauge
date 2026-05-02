@@ -9,18 +9,16 @@
   import { showToast } from '$lib/shared/primitives/toast';
   import NewSshProfileModal from './NewSshProfileModal.svelte';
   import EditSshProfileModal from './EditSshProfileModal.svelte';
+  import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import type { SshProfile } from '../types';
   import { SSH_EVENT } from '$lib/shared/constants/events';
+  import { mode } from '$lib/stores/app';
+  import { tabs as tabsStore2, addTab, activateTab } from '$lib/shared/stores/tabs';
+  import { explorerConnections, explorerConnStates, loadExplorerConnections } from '$lib/modes/explorer/stores';
+  import { newExplorerTabKey } from '$lib/modes/explorer/tabkey';
+  import { createConnection, openSession } from '$lib/modes/explorer/commands';
+  import type { ExplorerConnection } from '$lib/modes/explorer/types';
 
-  // Teleport: lift modals/confirm dialog to body, escapes nav stacking context.
-  function teleport(node: HTMLElement) {
-    document.body.appendChild(node);
-    return {
-      destroy() {
-        if (node.parentElement === document.body) node.remove();
-      },
-    };
-  }
 
   interface Props {
     searchQuery?: string;
@@ -38,11 +36,23 @@
   // their ssh_config but no Clauge profiles yet, surface the import path".
   let importableCount = $state(0);
 
-  // Confirm dialog
+  // Confirm dialog — single instance drives all SSH confirm prompts
+  // (Disconnect, Delete). Switched from bespoke portal markup to the
+  // shared ConfirmDialog primitive so SSH/Explorer/SQL/NoSQL all read
+  // identically.
   let confirmShow = $state(false);
   let confirmTitle = $state('');
   let confirmMessage = $state('');
+  let confirmDanger = $state(false);
   let confirmAction: (() => Promise<void>) | null = $state(null);
+
+  function showConfirm(title: string, message: string, danger: boolean, action: () => Promise<void>) {
+    confirmTitle = title;
+    confirmMessage = message;
+    confirmDanger = danger;
+    confirmAction = action;
+    confirmShow = true;
+  }
 
   async function refreshImportableCount() {
     try {
@@ -112,6 +122,72 @@
     if (get(activeSshProfile)?.id === profile.id) activeSshProfile.set(null);
   }
 
+  /** Open this SSH profile as an Explorer SFTP tab. Reuses the existing
+   *  ssh_profiles row — finds-or-creates an explorer_connections row that
+   *  references it, then switches to Explorer mode and opens a tab. */
+  async function openSftpForProfile(profile: SshProfile) {
+    try {
+      // Make sure we have the latest connection list.
+      if (get(explorerConnections).length === 0) {
+        try { await loadExplorerConnections(); } catch { /* ignore */ }
+      }
+      let conn = get(explorerConnections).find(
+        (c) => c.kind === 'sftp' && c.sshProfileId === profile.id,
+      );
+      if (!conn) {
+        conn = await createConnection({
+          id: '',
+          name: profile.name,
+          kind: 'sftp',
+          accentColor: null,
+          lastUsedAt: null,
+          createdAt: '',
+          sshProfileId: profile.id,
+          sftpWorkingDir: null,
+          host: null, port: null, username: null, authType: null, keyPath: null,
+          ftpPassive: 1, ftpTls: null,
+          s3Preset: null, s3Endpoint: null, s3Region: null, s3Bucket: null, s3PathStyle: 0,
+          azureAccount: null, azureContainer: null, azureAuthKind: null,
+        } as ExplorerConnection);
+        await loadExplorerConnections();
+      }
+      // Switch to Explorer mode + open a tab on this connection.
+      mode.set('explorer');
+      const allTabs = get(tabsStore2);
+      const existing = allTabs.find(
+        (t) => t.mode === 'explorer' && t.key && t.key.startsWith(`${conn!.id}#`),
+      );
+      if (existing) {
+        activateTab(existing.id);
+        return;
+      }
+      const tabKey = newExplorerTabKey(conn.id);
+      explorerConnStates.update((m) => {
+        const next = new Map(m);
+        next.set(tabKey, 'connecting');
+        return next;
+      });
+      addTab(profile.name, 'explorer', tabKey, `var(--explorer)`);
+      try {
+        await openSession(conn.id, tabKey);
+        explorerConnStates.update((m) => {
+          const next = new Map(m);
+          next.set(tabKey, 'connected');
+          return next;
+        });
+      } catch (err: any) {
+        explorerConnStates.update((m) => {
+          const next = new Map(m);
+          next.set(tabKey, 'error');
+          return next;
+        });
+        showToast(`SFTP connection failed: ${err}`, 'error');
+      }
+    } catch (e: any) {
+      showToast(`Open files failed: ${e}`, 'error');
+    }
+  }
+
   const filteredProfiles = $derived(
     searchQuery
       ? $sshProfiles.filter(
@@ -150,7 +226,12 @@
       items.push({
         label: 'Disconnect',
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
-        action: () => disconnectAllForProfile(profile),
+        action: () => showConfirm(
+          'Disconnect SSH session',
+          `Disconnect from "${profile.name}"? Any open terminal tabs for this connection will be closed.`,
+          false,
+          async () => { disconnectAllForProfile(profile); },
+        ),
       });
       items.push({
         label: 'Duplicate Session',
@@ -169,6 +250,12 @@
 
     items.push({ label: '', action: () => {}, separator: true });
     items.push({
+      label: 'Open files (SFTP)',
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+      action: () => openSftpForProfile(profile),
+    });
+    items.push({ label: '', action: () => {}, separator: true });
+    items.push({
       label: 'Edit',
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
       action: () => {
@@ -182,12 +269,13 @@
       label: 'Delete',
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
       danger: true,
-      action: () => {
-        confirmTitle = 'Delete SSH Profile';
-        confirmMessage = `Delete "${profile.name}"? This cannot be undone.`;
-        confirmAction = async () => {
+      action: () => showConfirm(
+        'Delete SSH Profile',
+        `Delete "${profile.name}"? This cannot be undone.`,
+        true,
+        async () => {
           // Close any open tabs / kill any live sessions for this profile
-          // FIRST, then delete the DB row. The other order would leave the
+          // FIRST, then delete the DB row. The other order would leave
           // tabs referencing a phantom profile id with no way to render.
           disconnectAllForProfile(profile);
           try {
@@ -197,9 +285,8 @@
           } catch (e: any) {
             showToast(String(e), 'error');
           }
-        };
-        confirmShow = true;
-      },
+        },
+      ),
     });
 
     showContextMenu(e.clientX, e.clientY, items);
@@ -309,21 +396,14 @@
 <NewSshProfileModal bind:show={showAdd} initialView={addInitialView} />
 <EditSshProfileModal bind:show={showEdit} bind:profile={editTarget} />
 
-{#if confirmShow}
-  <div class="confirm-portal" use:teleport>
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="confirm-overlay" onclick={() => (confirmShow = false)}>
-      <div class="confirm-dialog" onclick={(e) => e.stopPropagation()}>
-        <div class="confirm-title">{confirmTitle}</div>
-        <div class="confirm-msg">{confirmMessage}</div>
-        <div class="confirm-actions">
-          <button class="confirm-btn" onclick={() => (confirmShow = false)}>Cancel</button>
-          <button class="confirm-btn danger" onclick={handleConfirmOk}>Delete</button>
-        </div>
-      </div>
-    </div>
-  </div>
-{/if}
+<ConfirmDialog
+  bind:show={confirmShow}
+  title={confirmTitle}
+  message={confirmMessage}
+  confirmText={confirmDanger ? 'Delete' : 'Disconnect'}
+  confirmColor={confirmDanger ? 'var(--err)' : 'var(--acc)'}
+  onconfirm={handleConfirmOk}
+/>
 
 <style>
   .ssh-nav {
@@ -396,44 +476,44 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--ssh, var(--acc));
+    color: var(--acc);
     transition: color 0.15s, transform 0.15s;
   }
   .profile-icon svg {
     width: 16px;
     height: 16px;
+    position: relative;
+    z-index: 1;
   }
-  /* Connected state: subtle background ring + pulsing green status dot.
-     Distinguishes "this profile has a live SSH session" from idle profiles
-     when many are listed. */
-  .profile-item.connected .profile-icon {
-    color: var(--ok, #1dc880);
-  }
+  /* Connected state — softer than the original. Border-only ring (no bg
+     fill), tighter pulse spread, slower cadence. Goal: peripherally
+     visible "this is live" without drawing attention away from the row
+     content. Reverted from the unified left-stripe attempt (didn't read
+     well alongside the icon). */
+  .profile-item.connected .profile-icon { color: var(--ok, #1dc880); }
   .profile-item.connected .profile-icon::before {
     content: '';
     position: absolute;
     inset: -2px;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--ok, #1dc880) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--ok, #1dc880) 35%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok, #1dc880) 28%, transparent);
     z-index: 0;
   }
-  .profile-icon svg { position: relative; z-index: 1; }
   .profile-status-dot {
     position: absolute;
-    top: 0px;
-    right: 0px;
-    width: 8px;
-    height: 8px;
+    top: 1px;
+    right: 1px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--ok, #1dc880);
-    box-shadow: 0 0 0 2px var(--n);
+    box-shadow: 0 0 0 1.5px var(--n);
     z-index: 2;
-    animation: profileStatusPulse 2s ease-in-out infinite;
+    animation: profileStatusPulse 3s ease-in-out infinite;
   }
   @keyframes profileStatusPulse {
-    0%, 100% { box-shadow: 0 0 0 2px var(--n), 0 0 0 4px color-mix(in srgb, var(--ok, #1dc880) 50%, transparent); }
-    50%      { box-shadow: 0 0 0 2px var(--n), 0 0 0 8px color-mix(in srgb, var(--ok, #1dc880) 0%, transparent); }
+    0%, 100% { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 2px color-mix(in srgb, var(--ok, #1dc880) 30%, transparent); }
+    50%      { box-shadow: 0 0 0 1.5px var(--n), 0 0 0 5px color-mix(in srgb, var(--ok, #1dc880) 0%, transparent); }
   }
 
   .profile-body {
@@ -482,32 +562,4 @@
   .profile-item:hover .profile-ellipsis { display: flex; }
   .profile-ellipsis:hover { background: rgba(255,255,255,0.08); color: var(--t1); }
 
-  /* Confirm dialog */
-  .confirm-overlay {
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.4); z-index: 9999;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .confirm-dialog {
-    background: var(--modal-bg, var(--n)); border: 1px solid var(--b1);
-    border-radius: 12px; padding: 24px; min-width: 320px; max-width: 400px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-  }
-  .confirm-title {
-    font-size: 15px; font-weight: 600; color: var(--t1); font-family: var(--ui);
-    margin-bottom: 8px;
-  }
-  .confirm-msg {
-    font-size: 13px; color: var(--t2); font-family: var(--ui); line-height: 1.5;
-    margin-bottom: 20px;
-  }
-  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .confirm-btn {
-    padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 600;
-    font-family: var(--ui); cursor: default; border: 1px solid var(--b1);
-    background: transparent; color: var(--t2); transition: all 0.12s;
-  }
-  .confirm-btn:hover { background: var(--c); color: var(--t1); }
-  .confirm-btn.danger { background: var(--err); color: #fff; border-color: transparent; }
-  .confirm-btn.danger:hover { opacity: 0.9; }
 </style>

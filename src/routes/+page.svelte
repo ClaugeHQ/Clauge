@@ -6,6 +6,7 @@
   import SqlPanel from '$lib/modes/sql/components/SqlPanel.svelte';
   import NoSqlPanel from '$lib/modes/nosql/components/NoSqlPanel.svelte';
   import SshPanel from '$lib/modes/ssh/components/SshPanel.svelte';
+  import ExplorerPanel from '$lib/modes/explorer/components/ExplorerPanel.svelte';
   import HistoryViewer from '$lib/modes/rest/components/HistoryViewer.svelte';
 </script>
 
@@ -29,6 +30,8 @@
     <NoSqlPanel />
   {:else if $mode === 'ssh'}
     <SshPanel />
+  {:else if $mode === 'explorer'}
+    <ExplorerPanel />
   {/if}
 </div>
 

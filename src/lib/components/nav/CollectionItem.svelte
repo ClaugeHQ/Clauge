@@ -57,6 +57,16 @@
     }
   });
 
+  // Fetch the request list once on mount so the collection header can
+  // show an accurate count BEFORE the user expands. Without this, the
+  // header reads "0 requests" until first expand and only updates after
+  // — confusing because the actual data is sitting on disk. The list is
+  // typically small (< 100 entries per collection) so eager-loading on
+  // mount has negligible cost.
+  $effect(() => {
+    if (!loaded) loadRequests();
+  });
+
   async function loadRequests() {
     try {
       requests = await cmd.listRequests(collection.id);
@@ -261,19 +271,28 @@
     <div class="drag-handle" title="Drag to reorder">
       <svg viewBox="0 0 24 24" width="10" height="10"><circle cx="8" cy="6" r="1.5" fill="currentColor"/><circle cx="16" cy="6" r="1.5" fill="currentColor"/><circle cx="8" cy="12" r="1.5" fill="currentColor"/><circle cx="16" cy="12" r="1.5" fill="currentColor"/><circle cx="8" cy="18" r="1.5" fill="currentColor"/><circle cx="16" cy="18" r="1.5" fill="currentColor"/></svg>
     </div>
-    <div class="coll-icon" style="background:rgba(79,148,212,0.15);color:#4f94d4">
+    <div class="coll-icon coll-icon-accent">
       <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
     </div>
-    {#if renaming}
-      <InlineInput
-        value={collection.name}
-        placeholder="Collection name..."
-        onsubmit={handleRename}
-        oncancel={cancelRename}
-      />
-    {:else}
-      <span class="ncoll-name">{collection.name}</span>
-    {/if}
+    <div class="ncoll-text">
+      {#if renaming}
+        <InlineInput
+          value={collection.name}
+          placeholder="Collection name..."
+          onsubmit={handleRename}
+          oncancel={cancelRename}
+        />
+      {:else}
+        <div class="ncoll-row-top">
+          <span class="ncoll-name">{collection.name}</span>
+        </div>
+        <div class="ncoll-row-bot">
+          <span class="ncoll-sub">
+            {requests.length} {requests.length === 1 ? 'request' : 'requests'}
+          </span>
+        </div>
+      {/if}
+    </div>
     <button class="coll-add" title="Add request" onclick={handleAddClick}>
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
     </button>
@@ -328,15 +347,39 @@
     opacity: 0.4;
   }
   .ncoll-hdr {
-    padding: 7px 8px;
+    min-height: 44px;
+    padding: 6px 8px;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     cursor: pointer;
     transition: background 0.1s;
     user-select: none;
     position: relative;
   }
+  /* Two-line text block — name on top, "<n> requests · last-modified" on
+     bottom. Sized to match SSH/Explorer nav rows for visual parity. */
+  .ncoll-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ncoll-row-top, .ncoll-row-bot {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .ncoll-sub {
+    font-size: 10.5px;
+    font-family: var(--mono);
+    color: var(--t4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ncoll-hdr.active .ncoll-sub { color: var(--t3); }
   .ncoll-hdr:hover {
     background: var(--n2);
   }
@@ -364,30 +407,37 @@
     cursor: grabbing;
   }
   .coll-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
   }
+  .coll-icon-accent {
+    background: color-mix(in srgb, var(--acc) 15%, transparent);
+    color: var(--acc);
+  }
   .coll-icon svg {
-    width: 10px;
-    height: 10px;
+    width: 13px;
+    height: 13px;
     stroke: currentColor;
     fill: none;
-    stroke-width: 2;
+    stroke-width: 1.8;
     stroke-linecap: round;
   }
   .ncoll-name {
-    font-size: 12px;
+    font-size: 12.5px;
+    font-weight: 500;
     color: var(--t2);
     flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .ncoll-hdr.active .ncoll-name { color: var(--t1); }
   .ncoll-arr {
     width: 12px;
     height: 12px;

@@ -61,12 +61,15 @@
   --t2: #d0d0e4;
   --t3: #b0b0c8;
   --t4: #7878a0;
-  /* Mode colors */
-  --rest: #f06830;
-  --sql: #60a5fa;
-  --nosql: #34d399;
-  --agent: #d2a8ff;
-  --ssh: #06b6d4;
+  /* Mode colors — kept as variables so existing consumers compile, but
+     they all alias the user's system-wide accent so the app honours one
+     theme colour everywhere. Don't reintroduce per-mode hues. */
+  --rest: var(--acc);
+  --sql: var(--acc);
+  --nosql: var(--acc);
+  --agent: var(--acc);
+  --ssh: var(--acc);
+  --explorer: var(--acc);
   --ok: #1dc880;
   --warn: #f5a623;
   --err: #f04444;

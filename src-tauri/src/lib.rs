@@ -117,6 +117,8 @@ pub fn run() {
             app.manage(modes::nosql::client::create_nosql_state());
             app.manage(modes::agent::models::TerminalState::default());
             app.manage(modes::ssh::models::SshTerminalState::default());
+            app.manage(modes::explorer::session::ExplorerSessions::default());
+            app.manage(modes::explorer::transfers::Transfers::default());
             app.manage(shared::ai::types::PendingFrontendTools::default());
             app.manage(shared::updater::state::PendingUpdate::default());
 
@@ -128,6 +130,7 @@ pub fn run() {
             modes::sql::ai_tools::register_tools();
             modes::nosql::ai_tools::register_tools();
             modes::ssh::ai_tools::register_tools();
+            modes::explorer::ai_tools::register_tools();
 
             // Apply vibrancy on macOS — use Sidebar material (what native macOS apps use)
             if let Some(window) = app.get_webview_window("main") {
@@ -197,6 +200,29 @@ pub fn run() {
             shared::updater::commands::check_for_update_in_channel,
             shared::updater::commands::check_latest_version,
             shared::updater::commands::install_pending_update,
+            modes::explorer::connections::explorer_list_connections,
+            modes::explorer::connections::explorer_get_connection,
+            modes::explorer::connections::explorer_create_connection,
+            modes::explorer::connections::explorer_update_connection,
+            modes::explorer::connections::explorer_delete_connection,
+            modes::explorer::connections::explorer_set_secret,
+            modes::explorer::connections::explorer_get_secret,
+            modes::explorer::connections::explorer_delete_secrets,
+            modes::explorer::session::explorer_open_session,
+            modes::explorer::session::explorer_close_session,
+            modes::explorer::session::explorer_fs_list,
+            modes::explorer::session::explorer_fs_stat,
+            modes::explorer::session::explorer_fs_read,
+            modes::explorer::session::explorer_fs_write,
+            modes::explorer::session::explorer_fs_delete,
+            modes::explorer::session::explorer_fs_mkdir,
+            modes::explorer::session::explorer_fs_rename,
+            modes::explorer::session::explorer_fs_search,
+            modes::explorer::session::explorer_fs_home_dir,
+            modes::explorer::session::explorer_fs_get_url,
+            modes::explorer::transfers::explorer_upload_file,
+            modes::explorer::transfers::explorer_download_file,
+            modes::explorer::transfers::explorer_cancel_transfer,
             modes::rest::collections::list_collections,
             modes::rest::collections::create_collection,
             modes::rest::collections::update_collection,

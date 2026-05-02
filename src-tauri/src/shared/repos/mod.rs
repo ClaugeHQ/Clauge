@@ -1,6 +1,7 @@
 pub mod ai_usage;
 pub mod collections;
 pub mod environments;
+pub mod explorer;
 pub mod history;
 pub mod nosql_connections;
 pub mod requests;

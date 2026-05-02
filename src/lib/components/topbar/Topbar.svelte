@@ -5,6 +5,7 @@
   import { sqlIsConnected, activeConnection, disconnectFromDb, initSqlTab, clearSqlTabData, setSqlTabData, sqlScripts, saveSqlScript, updateSqlScript, deleteSqlScript, getSqlTabData, activeConnectionId, selectedDatabase, connectToDatabase, sqlPendingChanges, connectToDb, connectedIds, connections, loadConnections } from '$lib/modes/sql/stores';
   import { clearNoSqlTabData, initNoSqlTab, openNoSqlCollection, setNoSqlTabData, activeNoSqlConnectionId } from '$lib/modes/nosql/stores';
   import { showToast } from '$lib/shared/primitives/toast';
+  import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import { friendlyError } from '$lib/utils/errors';
   import { get } from 'svelte/store';
   import { onMount, onDestroy } from 'svelte';
@@ -54,6 +55,12 @@
       const profile = profiles.find((p) => p.id === tab.key);
       if (profile) activeSshProfile.set(profile);
     }
+    if (tab?.mode === 'explorer' && tab.key) {
+      // ExplorerPanel reacts to $activeTabId on its own — nothing to do
+      // here beyond the activateTab() call above. The session lifetime
+      // is owned by the Rust ExplorerSessions state and gets torn down
+      // when the tab is closed (see doCloseTab).
+    }
     // SQL/NoSQL tabs manage their own state via stores
   }
 
@@ -70,6 +77,16 @@
     }
 
     if (tab.mode === 'ssh') {
+      closeConfirmTabId = tabId;
+      showCloseConfirm = true;
+      return;
+    }
+
+    if (tab.mode === 'explorer') {
+      // Closing an explorer tab tears down the Rust-side session (see
+      // doCloseTab) — same kill-on-close model as SSH/Agent, so prompt
+      // the same way. SQL/NoSQL deliberately don't prompt because their
+      // sessions outlive tabs.
       closeConfirmTabId = tabId;
       showCloseConfirm = true;
       return;
@@ -106,6 +123,13 @@
     if (closingTab?.mode === 'sql') clearSqlTabData(tabId);
     if (closingTab?.mode === 'rest') clearDraft(tabId);
     if (closingTab?.mode === 'nosql') clearNoSqlTabData(tabId);
+    if (closingTab?.mode === 'explorer' && closingTab.key) {
+      // Tear down the Rust-side session for this Explorer tab.
+      // Fire-and-forget — the user is closing the tab regardless of result.
+      import('$lib/modes/explorer/commands').then(({ closeSession }) => {
+        closeSession(closingTab.key as string).catch(() => { /* ignore */ });
+      });
+    }
 
     if (closingTab?.mode === 'ssh' && closingTab.key) {
       // Kill SSH terminal (fire-and-forget)
@@ -195,6 +219,26 @@
     showCloseConfirm = false;
   }
 
+  /** Prompt copy + button labels for the tab-close ConfirmDialog. Driven
+   *  off the closing tab's mode so SSH/Agent/Explorer (sessions die with
+   *  the tab) share a "Disconnect" dialog while REST/SQL (unsaved data)
+   *  show a 3-button "Don't Save / Cancel / Save" variant. */
+  const closeConfirmProps = $derived.by(() => {
+    const tab = $tabs.find((t) => t.id === closeConfirmTabId);
+    const mode = tab?.mode;
+    if (mode === 'agent') {
+      return { title: 'Close this tab?', message: 'This agent session tab will be closed.', confirmText: 'Close', confirmColor: 'var(--acc)', discardText: undefined as string | undefined };
+    }
+    if (mode === 'ssh') {
+      return { title: 'Disconnect SSH session?', message: 'This will close the connection and the tab.', confirmText: 'Disconnect', confirmColor: 'var(--acc)', discardText: undefined as string | undefined };
+    }
+    if (mode === 'explorer') {
+      return { title: 'Close file browser tab?', message: 'The remote connection for this tab will be closed.', confirmText: 'Disconnect', confirmColor: 'var(--acc)', discardText: undefined as string | undefined };
+    }
+    // REST / SQL "save before close" — 3-button.
+    return { title: 'Unsaved changes', message: 'Do you want to save changes before closing?', confirmText: 'Save', confirmColor: 'var(--acc)', discardText: "Don't Save" as string | undefined };
+  });
+
   // SQL script modal state
   let showSqlScriptModal = $state(false);
   let sqlScriptName = $state('');
@@ -221,12 +265,19 @@
 
   // "+" button
   function handleAddTab(btn?: HTMLElement) {
-    const m = get(mode) as 'rest' | 'sql' | 'nosql' | 'agent' | 'ssh';
+    const m = get(mode) as 'rest' | 'sql' | 'nosql' | 'agent' | 'ssh' | 'explorer';
     if (m === 'ssh') {
       // Mirrors agent: no profiles → open create modal; otherwise show picker.
       // The +layout.svelte handler decides which based on profiles count.
       const rect = btn?.getBoundingClientRect();
       window.dispatchEvent(new CustomEvent(SSH_EVENT.ADD_TAB, { detail: { x: rect?.left ?? 290, y: rect?.bottom ?? 48 } }));
+      return;
+    }
+    if (m === 'explorer') {
+      // Same shape as SSH: no connections → kind picker; otherwise show
+      // the connections picker. +layout.svelte makes the call.
+      const rect = btn?.getBoundingClientRect();
+      window.dispatchEvent(new CustomEvent('explorer:add-tab', { detail: { x: rect?.left ?? 290, y: rect?.bottom ?? 48 } }));
       return;
     }
     if (m === 'agent') {
@@ -368,10 +419,8 @@
     if (tabId === undefined) return;
     const allTabs = get(tabs);
     const tab = allTabs.find(t => t.id === tabId);
-    if (tab?.mode === 'agent') {
-      closeConfirmTabId = tabId;
-      showCloseConfirm = true;
-    } else if (tab?.mode === 'ssh') {
+    if (tab?.mode === 'agent' || tab?.mode === 'ssh' || tab?.mode === 'explorer') {
+      // Modes whose remote sessions die when the tab closes — always prompt.
       closeConfirmTabId = tabId;
       showCloseConfirm = true;
     } else if (tab?.mode === 'rest' && (tab.dirty || tab.unsaved)) {
@@ -483,37 +532,28 @@
   </div>
 {/if}
 
-<!-- REST-only close confirmation -->
-{#if showCloseConfirm}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="confirm-overlay" onclick={() => showCloseConfirm = false}>
-    <div class="confirm-dialog" onclick={(e: MouseEvent) => e.stopPropagation()}>
-      {#if $tabs.find(t => t.id === closeConfirmTabId)?.mode === 'agent'}
-        <div class="confirm-title">Close this tab?</div>
-        <div class="confirm-body">This agent session tab will be closed.</div>
-        <div class="confirm-actions">
-          <button class="confirm-btn discard" onclick={() => showCloseConfirm = false}>Cancel</button>
-          <button class="confirm-btn save" onclick={handleDiscardAndClose}>Close</button>
-        </div>
-      {:else if $tabs.find(t => t.id === closeConfirmTabId)?.mode === 'ssh'}
-        <div class="confirm-title">Disconnect SSH session?</div>
-        <div class="confirm-body">This will close the connection and the tab.</div>
-        <div class="confirm-actions">
-          <button class="confirm-btn discard" onclick={() => showCloseConfirm = false}>Cancel</button>
-          <button class="confirm-btn save" onclick={handleDiscardAndClose}>Disconnect</button>
-        </div>
-      {:else}
-        <div class="confirm-title">Unsaved Changes</div>
-        <div class="confirm-body">Do you want to save changes before closing?</div>
-        <div class="confirm-actions">
-          <button class="confirm-btn discard" onclick={handleDiscardAndClose}>Don't Save</button>
-          <button class="confirm-btn save" onclick={handleSaveAndClose}>Save</button>
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
+<!-- Tab-close confirmation — single primitive for every mode. Props are
+     computed reactively from the closing tab's mode (see `closeConfirmProps`).
+     Replaces four bespoke branches that diverged from the manual-disconnect
+     dialog used elsewhere; now everything reads identically. -->
+<ConfirmDialog
+  bind:show={showCloseConfirm}
+  title={closeConfirmProps.title}
+  message={closeConfirmProps.message}
+  confirmText={closeConfirmProps.confirmText}
+  confirmColor={closeConfirmProps.confirmColor}
+  discardText={closeConfirmProps.discardText}
+  onconfirm={() => {
+    if (closeConfirmProps.discardText) {
+      handleSaveAndClose();
+    } else {
+      handleDiscardAndClose();
+    }
+  }}
+  ondiscard={() => {
+    handleDiscardAndClose();
+  }}
+/>
 
 <style>
   .topbar {
@@ -733,7 +773,8 @@
   }
   .ai-toggle-btn.active svg { stroke: var(--acc); }
 
-  /* REST-only confirmation dialog */
+  /* Backdrop reused by the SQL Script modal — the close-confirm dialog
+     itself moved to the shared ConfirmDialog primitive. */
   .confirm-overlay {
     position: fixed;
     inset: 0;
@@ -743,56 +784,6 @@
     align-items: center;
     justify-content: center;
   }
-  .confirm-dialog {
-    background: var(--modal-bg, #101016);
-    border: 1px solid var(--b1);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
-    width: 340px;
-    padding: 20px;
-  }
-  .confirm-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--t1);
-    font-family: var(--ui);
-    margin-bottom: 8px;
-  }
-  .confirm-body {
-    font-size: 12px;
-    color: var(--t2);
-    font-family: var(--ui);
-    margin-bottom: 16px;
-  }
-  .confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  .confirm-btn {
-    height: 30px;
-    padding: 0 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-family: var(--ui);
-    cursor: default;
-  }
-  .confirm-btn.discard {
-    border: 1px solid var(--b1);
-    background: transparent;
-    color: var(--t2);
-  }
-  .confirm-btn.discard:hover {
-    border-color: var(--b2);
-    color: var(--t1);
-  }
-  .confirm-btn.save {
-    border: none;
-    background: var(--acc);
-    color: #fff;
-    font-weight: 600;
-  }
-  .confirm-btn.save:hover { opacity: 0.85; }
 
   /* SQL Script Modal */
   .sql-script-modal {
