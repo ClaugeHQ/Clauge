@@ -1,7 +1,7 @@
 {
 	"name": "clauge",
 	"private": true,
-	"version": "3.0.0-alpha.6",
+	"version": "3.0.0-alpha.7",
 	"description": "Clauge — An AI-powered cross-platform desktop super-app for developers",
 	"author": "Anshuman <ansxuman@gmail.com>",
 	"license": "SEE LICENSE IN LICENSE",
