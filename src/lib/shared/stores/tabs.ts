@@ -39,9 +39,20 @@ export function addTab(label: string, mode: 'rest' | 'sql' | 'nosql' | 'agent' |
 
 export function closeTab(id: number) {
   tabs.update(t => {
+    const closingTab = t.find(x => x.id === id);
     const filtered = t.filter(x => x.id !== id);
     if (get(activeTabId) === id && filtered.length > 0) {
-      activeTabId.set(filtered[filtered.length - 1].id);
+      // Prefer the most recent tab of the same mode as the closing tab —
+      // keeps the user in their current mental context. Fall back to the
+      // most recent tab overall (cross-mode); callers that care about
+      // the resulting mode should realign $mode after this returns.
+      const sameMode = closingTab
+        ? filtered.filter(x => x.mode === closingTab.mode)
+        : [];
+      const next = sameMode.length > 0
+        ? sameMode[sameMode.length - 1]
+        : filtered[filtered.length - 1];
+      activeTabId.set(next.id);
     } else if (filtered.length === 0) {
       activeTabId.set(-1);
     }

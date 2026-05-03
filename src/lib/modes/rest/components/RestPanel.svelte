@@ -24,6 +24,11 @@
   let sslPromptShow = $state(false);
   let sslPromptReason = $state('');
 
+  // Empty state guard: matches what other mode panels do
+  // (SqlPanel.activeSqlTab, NoSqlPanel.activeNoSqlTab) — render the
+  // editor only when the active tab is actually a REST tab.
+  const activeRestTab = $derived($tabs.find(t => t.id === $activeTabId && t.mode === 'rest'));
+
   // Per-tab caches. Plain Maps — they don't need to be reactive themselves;
   // we project the active tab's slot into reactive `$state` below.
   const responseCache = new Map<number, HttpResponse | null>();
@@ -205,7 +210,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if $tabs.length === 0 || $activeTabId === -1}
+{#if !activeRestTab}
   <div class="rest-empty">
     <div class="rest-empty-icon">
       <svg viewBox="0 0 24 24" width="40" height="40"><path d="M12 5v14M5 12h14" stroke="var(--t4)" fill="none" stroke-width="1.5" stroke-linecap="round"/></svg>

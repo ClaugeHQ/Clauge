@@ -83,25 +83,17 @@ function handleKeydown(e: KeyboardEvent) {
     return;
   }
 
-  // Cmd+1-9: switch tabs (like browser tabs)
+  // Cmd+1-9: switch to Nth tab in the topbar (global, across all modes).
+  // Activation flips mode + runs side effects via the shared helper, so
+  // the user lands on the correct panel regardless of current mode.
   if (meta && !isInput && e.key >= '1' && e.key <= '9') {
     e.preventDefault();
-    const currentMode = get(mode);
     const allTabs = get(tabs);
-    const modeTabs = allTabs.filter(t => t.mode === currentMode);
     const idx = parseInt(e.key) - 1;
-    if (idx < modeTabs.length) {
-      const tab = modeTabs[idx];
-      import('$lib/shared/stores/tabs').then(({ activateTab }) => {
-        activateTab(tab.id);
-        // For agent tabs, also set active session
-        if (tab.mode === 'agent' && tab.key) {
-          import('$lib/modes/agent/stores').then(({ agentSessions, activeAgentSession }) => {
-            const sessions = get(agentSessions);
-            const session = sessions.find((s: any) => s.id === tab.key);
-            if (session) activeAgentSession.set(session);
-          });
-        }
+    if (idx < allTabs.length) {
+      const tab = allTabs[idx];
+      import('$lib/utils/tabActivation').then(({ activateTabAcrossMode }) => {
+        activateTabAcrossMode(tab.id);
       });
     }
   }

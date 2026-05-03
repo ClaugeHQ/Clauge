@@ -17,6 +17,7 @@
   import { profileIdFromTabKey } from '$lib/modes/ssh/tabkey';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import { SSH_EVENT, AGENT_EVENT, APP_EVENT } from '$lib/shared/constants/events';
+  import { activateTabAcrossMode } from '$lib/utils/tabActivation';
 
   // SQL disconnect
   async function handleSqlDisconnect() {
@@ -35,33 +36,12 @@
   let closeConfirmTabId = $state(-1);
 
 
-  const filteredTabs = $derived($tabs.filter(t => t.mode === $mode));
+  // Topbar shows ALL tabs across modes. Click flips mode + activates +
+  // runs mode-specific side effects via the shared helper.
+  const filteredTabs = $derived($tabs);
 
   function handleTabClick(tabId: number) {
-    activateTab(tabId);
-    const allTabs = get(tabs);
-    const tab = allTabs.find(t => t.id === tabId);
-    if (tab?.mode === 'rest') {
-      if (tab.key) loadRequest(tab.key);
-      else clearActiveRequest();
-    }
-    if (tab?.mode === 'agent' && tab.key) {
-      const sessions = get(agentSessions);
-      const session = sessions.find((s: any) => s.id === tab.key);
-      if (session) activeAgentSession.set(session);
-    }
-    if (tab?.mode === 'ssh' && tab.key) {
-      const profiles = get(sshProfiles);
-      const profile = profiles.find((p) => p.id === tab.key);
-      if (profile) activeSshProfile.set(profile);
-    }
-    if (tab?.mode === 'explorer' && tab.key) {
-      // ExplorerPanel reacts to $activeTabId on its own — nothing to do
-      // here beyond the activateTab() call above. The session lifetime
-      // is owned by the Rust ExplorerSessions state and gets torn down
-      // when the tab is closed (see doCloseTab).
-    }
-    // SQL/NoSQL tabs manage their own state via stores
+    activateTabAcrossMode(tabId);
   }
 
   function handleTabClose(e: MouseEvent, tabId: number) {
@@ -140,16 +120,13 @@
       // Let SshPanel clean up its xterm + maps via window event
       window.dispatchEvent(new CustomEvent(SSH_EVENT.CLOSE_TAB, { detail: { tabKey: closingTab.key } }));
 
-      // Promote next SSH tab if any, else clear active profile
+      // If no SSH tabs will remain, clear active profile so the panel
+      // resets cleanly. When a sibling SSH tab remains, closeTab below
+      // promotes it and SshPanel's activeTabId subscriber sets the
+      // active profile from there.
       const remaining = get(tabs).filter((t) => t.id !== tabId);
-      const nextSshTab = remaining.find((t) => t.mode === 'ssh');
-      if (nextSshTab?.key) {
-        const profiles = get(sshProfiles);
-        const profile = profiles.find((p) => p.id === profileIdFromTabKey(nextSshTab.key as string));
-        if (profile) activeSshProfile.set(profile);
-      } else {
-        activeSshProfile.set(null);
-      }
+      const anySshLeft = remaining.some((t) => t.mode === 'ssh');
+      if (!anySshLeft) activeSshProfile.set(null);
     }
 
     if (closingTab?.mode === 'agent' && closingTab.key) {
@@ -164,13 +141,9 @@
       // Let AgentPanel clean up terminal entries
       window.dispatchEvent(new CustomEvent(AGENT_EVENT.CLOSE_TAB_SESSION, { detail: { sessionId: closingTab.key } }));
 
-      const remaining = get(tabs).filter(t => t.id !== tabId);
-      const nextAgentTab = remaining.find(t => t.mode === 'agent');
-      if (nextAgentTab?.key) {
-        const sessions = get(agentSessions);
-        const session = sessions.find((s: any) => s.id === nextAgentTab.key);
-        if (session) activeAgentSession.set(session);
-      } else {
+      const remaining = get(tabs).filter((t) => t.id !== tabId);
+      const anyAgentLeft = remaining.some((t) => t.mode === 'agent');
+      if (!anyAgentLeft) {
         agentShellOpen.set(false);
         activeAgentSession.set(null);
       }
@@ -178,15 +151,26 @@
 
     closeTab(tabId);
 
-    // After close, update REST state if needed
-    const remaining = get(tabs);
-    const currentTabId = get(activeTabId);
-    const activeTab = remaining.find(t => t.id === currentTabId);
-    if (activeTab?.mode === 'rest') {
-      if (activeTab.key) loadRequest(activeTab.key);
-      else clearActiveRequest();
-    } else if (!activeTab) {
+    // After close, realign $mode + run side effects if the new active
+    // tab is in a different mode than current $mode. closeTab prefers
+    // a same-mode sibling, so this only fires when the closed tab was
+    // the last of its mode — at which point we cross over to whatever
+    // tab took its place. activateTabAcrossMode handles REST loadRequest
+    // / Agent activeAgentSession; SSH/SQL/NoSQL/Explorer panels self-heal
+    // via their own activeTabId subscribers.
+    const newActiveId = get(activeTabId);
+    if (newActiveId === -1) {
       clearActiveRequest();
+      return;
+    }
+    const newActive = get(tabs).find(t => t.id === newActiveId);
+    if (newActive && newActive.mode !== get(mode)) {
+      activateTabAcrossMode(newActive.id);
+    } else if (newActive?.mode === 'rest') {
+      // Same-mode REST close: ensure the editor loads the new active
+      // request (closeTab doesn't run side effects on its own).
+      if (newActive.key) loadRequest(newActive.key);
+      else clearActiveRequest();
     }
   }
 
@@ -440,33 +424,40 @@
 </script>
 
 <header class="topbar">
-  {#if $mode !== 'history'}
-    <div class="tabs">
-      {#each filteredTabs as tab (tab.id)}
-        <button
-          class="tab"
-          class:on={$activeTabId === tab.id}
-          onclick={() => handleTabClick(tab.id)}
-          oncontextmenu={(e: MouseEvent) => handleTabContextMenu(e, tab)}
-        >
-          {#if tab.mode === 'rest' && (tab.dirty || tab.unsaved)}
-            <span class="dirty-dot"></span>
-          {/if}
-          {#if tab.mode === 'agent'}
-            <img src="/code-no-action.svg" alt="" class="tab-agent-icon" />
-          {/if}
-          <span class="td" style="background:{tab.dot}"></span>
-          <span class="tab-label">{tab.label}</span>
-          <span
-            class="tab-close"
-            onclick={(e: MouseEvent) => { if (e.detail < 2) handleTabClose(e, tab.id); }}
-            role="button"
-            tabindex="-1"
-          >&times;</span>
-        </button>
-      {/each}
-    </div>
+  <div class="tabs">
+    {#each filteredTabs as tab (tab.id)}
+      <button
+        class="tab"
+        class:on={$activeTabId === tab.id}
+        class:tab-dirty={tab.mode === 'rest' && (tab.dirty || tab.unsaved)}
+        onclick={() => handleTabClick(tab.id)}
+        oncontextmenu={(e: MouseEvent) => handleTabContextMenu(e, tab)}
+      >
+        {#if tab.mode === 'agent'}
+          <img src="/code-no-action.svg" alt="" class="tab-agent-icon" />
+        {:else if tab.mode === 'rest'}
+          <svg class="tab-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+        {:else if tab.mode === 'sql'}
+          <svg class="tab-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="2.5"/><path d="M4 5v14c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/></svg>
+        {:else if tab.mode === 'nosql'}
+          <svg class="tab-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3a2 2 0 00-2 2v4a2 2 0 01-2 2H3a1 1 0 000 2h1a2 2 0 012 2v4a2 2 0 002 2"/><path d="M16 3a2 2 0 012 2v4a2 2 0 002 2h1a1 1 0 010 2h-1a2 2 0 00-2 2v4a2 2 0 01-2 2"/></svg>
+        {:else if tab.mode === 'ssh'}
+          <svg class="tab-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        {:else if tab.mode === 'explorer'}
+          <svg class="tab-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        {/if}
+        <span class="tab-label">{tab.label}</span>
+        <span
+          class="tab-close"
+          onclick={(e: MouseEvent) => { if (e.detail < 2) handleTabClose(e, tab.id); }}
+          role="button"
+          tabindex="-1"
+        >&times;</span>
+      </button>
+    {/each}
+  </div>
 
+  {#if $mode !== 'history'}
     <button class="tab-add" title="New tab" onclick={(e) => { handleAddTab(e.currentTarget as HTMLElement); }}>+</button>
   {/if}
 
@@ -601,32 +592,27 @@
     background: rgba(255,255,255,0.06);
     color: var(--t1);
   }
-  .tab .td {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
   .tab-agent-icon {
     width: 12px;
     height: 12px;
     flex-shrink: 0;
     opacity: 0.7;
   }
-  .dirty-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--acc);
+  .tab-mode-icon {
+    width: 12px;
+    height: 12px;
     flex-shrink: 0;
-    margin-right: -2px;
+    opacity: 0.7;
+    color: var(--t3);
   }
+  .tab.on .tab-mode-icon { color: var(--t1); opacity: 0.9; }
   .tab-label {
     max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .tab.tab-dirty .tab-label { font-style: italic; }
   .tab-close {
     font-size: 14px;
     color: var(--t3);

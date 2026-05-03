@@ -18,7 +18,9 @@ on:
           - all
           - macos
           - windows
+          - windows-arm
           - linux
+          - linux-arm
         default: all
 
 jobs:
@@ -36,13 +38,17 @@ jobs:
           MAC_AARCH64='{"platform":"macos-latest","args":"--target aarch64-apple-darwin","rust-targets":"aarch64-apple-darwin","label":"macos-aarch64"}'
           MAC_X86='{"platform":"macos-latest","args":"--target x86_64-apple-darwin","rust-targets":"x86_64-apple-darwin","label":"macos-x86_64"}'
           WIN='{"platform":"windows-latest","args":"","rust-targets":"","label":"windows-x64"}'
+          WIN_ARM='{"platform":"windows-11-arm","args":"--target aarch64-pc-windows-msvc","rust-targets":"aarch64-pc-windows-msvc","label":"windows-arm64"}'
           LINUX='{"platform":"ubuntu-22.04","args":"","rust-targets":"","label":"linux-x64"}'
+          LINUX_ARM='{"platform":"ubuntu-22.04-arm","args":"","rust-targets":"","label":"linux-arm64"}'
 
           case "${{ inputs.platforms }}" in
-            macos)   INCLUDES="[$MAC_AARCH64,$MAC_X86]" ;;
-            windows) INCLUDES="[$WIN]" ;;
-            linux)   INCLUDES="[$LINUX]" ;;
-            *)       INCLUDES="[$MAC_AARCH64,$MAC_X86,$WIN,$LINUX]" ;;
+            macos)       INCLUDES="[$MAC_AARCH64,$MAC_X86]" ;;
+            windows)     INCLUDES="[$WIN]" ;;
+            windows-arm) INCLUDES="[$WIN_ARM]" ;;
+            linux)       INCLUDES="[$LINUX]" ;;
+            linux-arm)   INCLUDES="[$LINUX_ARM]" ;;
+            *)           INCLUDES="[$MAC_AARCH64,$MAC_X86,$WIN,$WIN_ARM,$LINUX,$LINUX_ARM]" ;;
           esac
 
           echo "includes=$INCLUDES" >> "$GITHUB_OUTPUT"
