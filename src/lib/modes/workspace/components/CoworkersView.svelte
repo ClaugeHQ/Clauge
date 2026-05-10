@@ -43,11 +43,7 @@
       <span class="cv-count">{$coworkers.length} {$coworkers.length === 1 ? 'persona' : 'personas'}</span>
       <button class="cv-new" onclick={openNew}>+ New coworker</button>
     </div>
-    <p class="cv-sub">
-      Personas you can tag on cards. Each one is built on top of an agent CLI (today: Claude) and
-      gets a custom system prompt at spawn — so <strong>@alex</strong> the brainstormer answers very
-      differently from <strong>@matt</strong> the developer.
-    </p>
+    <p class="cv-sub">Agent personas with custom roles and instructions. Assign them to cards to get focused, consistent responses.</p>
   </header>
 
   <div class="cv-body">
@@ -57,7 +53,7 @@
           <circle cx="9" cy="8" r="3.5"/><path d="M2.5 19a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="6" r="2.6"/><path d="M14 13a4.5 4.5 0 0 1 8.5 2"/>
         </svg>
         <h3>No coworkers yet</h3>
-        <p>Create one or two personas with distinct roles, then tag them on cards. Try a “Brainstormer” for early discussion and a “Developer” for the build.</p>
+        <p>Create a persona, give it a role and instructions, then assign it to a card.</p>
         <button class="cv-cta" onclick={openNew}>+ Create your first coworker</button>
       </div>
     {:else}

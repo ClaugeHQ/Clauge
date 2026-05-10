@@ -53,24 +53,45 @@
     bind:this={menuEl}
     style="left: {$contextMenu.x}px; top: {$contextMenu.y}px"
   >
-    {#each $contextMenu.items as item}
-      {#if item.separator}
-        <div class="ctx-sep"></div>
-      {:else}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="ctx-item"
-          class:danger={item.danger}
-          onclick={() => { closeContextMenu(); item.action(); }}
-        >
-          {#if item.icon}
-            <span class="ctx-icon">{@html item.icon}</span>
-          {/if}
-          {item.label}
-        </div>
-      {/if}
-    {/each}
+    <div class="ctx-items" class:ctx-scrollable={$contextMenu.scrollable}>
+      {#each $contextMenu.items as item}
+        {#if item.separator}
+          <div class="ctx-sep"></div>
+        {:else}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="ctx-item"
+            class:danger={item.danger}
+            onclick={() => { closeContextMenu(); item.action(); }}
+          >
+            {#if item.icon}
+              <span class="ctx-icon">{@html item.icon}</span>
+            {/if}
+            {#if item.sub}
+              <span class="ctx-item-body">
+                <span class="ctx-item-label">{item.label}</span>
+                <span class="ctx-item-sub">{item.sub}</span>
+              </span>
+            {:else}
+              {item.label}
+            {/if}
+          </div>
+        {/if}
+      {/each}
+    </div>
+    {#if $contextMenu.stickyFooter}
+      {@const footer = $contextMenu.stickyFooter}
+      <div class="ctx-sep"></div>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="ctx-item" onclick={() => { closeContextMenu(); footer.action(); }}>
+        {#if footer.icon}
+          <span class="ctx-icon">{@html footer.icon}</span>
+        {/if}
+        {footer.label}
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -87,6 +108,16 @@
     min-width: 180px;
     padding: 4px 0;
     animation: fadeIn 0.1s ease;
+    display: flex;
+    flex-direction: column;
+  }
+  .ctx-items {
+    display: contents;
+  }
+  .ctx-scrollable {
+    display: block;
+    max-height: 320px;
+    overflow-y: auto;
   }
 
   @keyframes fadeIn {
@@ -130,5 +161,25 @@
     width: 16px;
     text-align: center;
     flex-shrink: 0;
+  }
+
+  .ctx-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .ctx-item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ctx-item-sub {
+    font-size: 10.5px;
+    color: var(--t4);
+    font-family: var(--mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

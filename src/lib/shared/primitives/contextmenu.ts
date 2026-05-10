@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 
 export interface ContextMenuItem {
   label: string;
+  sub?: string;
   icon?: string;
   action: () => void;
   danger?: boolean;
@@ -13,6 +14,8 @@ export interface ContextMenuState {
   x: number;
   y: number;
   items: ContextMenuItem[];
+  scrollable?: boolean;
+  stickyFooter?: ContextMenuItem;
 }
 
 export const contextMenu = writable<ContextMenuState>({
@@ -22,8 +25,13 @@ export const contextMenu = writable<ContextMenuState>({
   items: []
 });
 
-export function showContextMenu(x: number, y: number, items: ContextMenuItem[]): void {
-  contextMenu.set({ show: true, x, y, items });
+export function showContextMenu(
+  x: number,
+  y: number,
+  items: ContextMenuItem[],
+  opts?: { scrollable?: boolean; stickyFooter?: ContextMenuItem },
+): void {
+  contextMenu.set({ show: true, x, y, items, ...opts });
 }
 
 export function closeContextMenu(): void {

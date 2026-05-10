@@ -19,17 +19,6 @@ import { currentUserActor } from './attribution';
 export const workspaces = writable<Workspace[]>([]);
 export const activeWorkspaceId = writable<string | null>(null);
 
-/** Inbox view selection — when true, the main panel renders InboxView
- *  instead of routing to a workspace tab. Toggled by clicking the
- *  pinned "Inbox" row at the top of WorkspaceNav. */
-export const inboxOpen = writable<boolean>(false);
-
-/** Co-workers panel selection — when true, the main panel renders
- *  CoworkersView. Toggled by clicking the pinned "Co-workers" row in
- *  WorkspaceNav (sits below Inbox). Mutually exclusive with inboxOpen
- *  via the toggling code in WorkspaceNav. */
-export const coworkersOpen = writable<boolean>(false);
-
 /** All coworker rows — loaded on app boot, refreshed on CRUD. */
 export const coworkers = writable<WorkspaceCoworker[]>([]);
 
@@ -184,14 +173,25 @@ export function isCardUnread(card: {
 }
 
 /** Recompute the unread count by fetching the inbox and counting
- *  items whose updated_at is newer than the last-read timestamp. */
+ *  items that haven't been seen yet. An item is considered read if
+ *  either: (a) the inbox was opened after this update, OR (b) for
+ *  card items, the card drawer was opened at or after this update
+ *  (reuses the per-card cardLastSeenAt map, which markCardSeen()
+ *  populates whenever a user opens a card drawer). Notes don't have
+ *  per-item tracking so they only clear via (a). */
 export async function refreshInboxUnread() {
   try {
     const items = await cmd.workspaceInboxList(50);
     const since = get(inboxLastReadAt);
+    const seenMap = get(cardLastSeenAt);
     const count = items.filter(it => {
       const t = new Date(it.updatedAt).getTime();
-      return Number.isFinite(t) && t > since;
+      if (!Number.isFinite(t) || t <= since) return false;
+      if (it.kind === 'card') {
+        const seen = seenMap[it.id];
+        if (seen && seen >= it.updatedAt) return false;
+      }
+      return true;
     }).length;
     inboxUnreadCount.set(count);
   } catch { /* ignore */ }

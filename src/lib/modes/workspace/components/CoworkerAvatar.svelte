@@ -75,6 +75,7 @@
     flex-shrink: 0;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.05);
+    contain: layout paint;
   }
   .ca-ring {
     box-shadow: 0 0 0 1px var(--b1);

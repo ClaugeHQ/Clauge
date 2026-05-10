@@ -81,12 +81,6 @@
   let editingWorkspace = $state<import('$lib/modes/workspace/types').Workspace | null>(null);
   let editSessionTarget = $state<AgentSession | null>(null);
   let showSessionPicker = $state(false);
-  let showSshPicker = $state(false);
-  let sshPickerX = $state(290);
-  let sshPickerY = $state(48);
-  let showExplorerPicker = $state(false);
-  let explorerPickerX = $state(290);
-  let explorerPickerY = $state(48);
 
   function handleAgentNewSession() {
     showNewSessionModal = true;
@@ -134,9 +128,6 @@
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1.6"/><line x1="8.5" y1="8.5" x2="15.5" y2="8.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/><line x1="8.5" y1="15.5" x2="13" y2="15.5"/></svg>';
     const boardIcon =
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="6" width="3.5" height="12" rx="0.6"/><rect x="10.25" y="6" width="3.5" height="7" rx="0.6"/><rect x="16.5" y="6" width="3.5" height="10" rx="0.6"/></svg>';
-    const plusIcon =
-      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
-
     const { tabs: tabsStore, addTab, activateTab } = await import('$lib/shared/stores/tabs');
     const openItem = (kind: 'note' | 'board', id: string, label: string) => {
       const key = `${kind}:${id}`;
@@ -168,14 +159,14 @@
       });
       if (idx < ws.length - 1) items.push({ label: '', action: () => {}, separator: true });
     });
-    // Single create-new entry pinned at the bottom.
-    items.push({ label: '', action: () => {}, separator: true });
-    items.push({
-      label: 'Create new workspace',
-      icon: plusIcon,
-      action: () => { showNewWorkspaceModal = true; },
+    showContextMenu(x, y, items, {
+      scrollable: true,
+      stickyFooter: {
+        label: 'Create new workspace',
+        icon: plusIcon,
+        action: () => { showNewWorkspaceModal = true; },
+      },
     });
-    showContextMenu(x, y, items);
   }
 
   async function handleNewNote(e: Event) {
@@ -269,60 +260,71 @@
     window.dispatchEvent(new CustomEvent(AGENT_EVENT.NEW_SESSION));
   }
 
-  // SSH "+ tab" handler — mirrors agent. No profiles → open create modal,
-  // otherwise show a small picker to choose which profile to open.
+  const sshIcon =
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>';
+  const folderIcon =
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  const plusIcon =
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+
   async function handleSshAddTab(e: Event) {
     const detail = (e as CustomEvent).detail;
-    if (detail?.x) sshPickerX = detail.x;
-    if (detail?.y) sshPickerY = detail.y;
-    // Make sure the in-memory profiles list is fresh before deciding.
+    const x = detail?.x ?? 290;
+    const y = detail?.y ?? 48;
     if (get(sshProfiles).length === 0) {
       try { await loadSshProfiles(); } catch { /* ignore */ }
     }
     if (get(sshProfiles).length === 0) {
       window.dispatchEvent(new CustomEvent(SSH_EVENT.NEW_PROFILE));
-    } else {
-      showSshPicker = true;
+      return;
     }
+    const items = get(sshProfiles).map((profile: SshProfile) => ({
+      label: profile.name,
+      sub: `${profile.username}@${profile.host}${profile.port !== 22 ? `:${profile.port}` : ''}`,
+      icon: sshIcon,
+      action: () => {
+        activeSshProfile.set(profile);
+        window.dispatchEvent(new CustomEvent(SSH_EVENT.OPEN_TAB, { detail: profile }));
+      },
+    }));
+    showContextMenu(x, y, items, {
+      scrollable: true,
+      stickyFooter: {
+        label: 'New SSH Profile',
+        icon: plusIcon,
+        action: () => window.dispatchEvent(new CustomEvent(SSH_EVENT.NEW_PROFILE)),
+      },
+    });
   }
 
-  function openSshTabFromPicker(profile: SshProfile) {
-    activeSshProfile.set(profile);
-    window.dispatchEvent(new CustomEvent(SSH_EVENT.OPEN_TAB, { detail: profile }));
-    showSshPicker = false;
-  }
-
-  function pickerNewSshProfile() {
-    showSshPicker = false;
-    window.dispatchEvent(new CustomEvent(SSH_EVENT.NEW_PROFILE));
-  }
-
-  // Explorer "+ tab" handler — mirrors SSH. No connections → open the
-  // kind picker (NavPanel hosts it via 'explorer:add-connection'),
-  // otherwise show a picker to choose which connection to open.
   async function handleExplorerAddTab(e: Event) {
     const detail = (e as CustomEvent).detail;
-    if (detail?.x) explorerPickerX = detail.x;
-    if (detail?.y) explorerPickerY = detail.y;
+    const x = detail?.x ?? 290;
+    const y = detail?.y ?? 48;
     if (get(explorerConnections).length === 0) {
       try { await loadExplorerConnections(); } catch { /* ignore */ }
     }
     if (get(explorerConnections).length === 0) {
       window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.ADD_CONNECTION));
-    } else {
-      showExplorerPicker = true;
+      return;
     }
-  }
-
-  function openExplorerTabFromPicker(conn: ExplorerConnection) {
-    activeExplorerConnection.set(conn);
-    window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.OPEN_TAB, { detail: conn }));
-    showExplorerPicker = false;
-  }
-
-  function pickerNewExplorerConnection() {
-    showExplorerPicker = false;
-    window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.ADD_CONNECTION));
+    const items = get(explorerConnections).map((conn: ExplorerConnection) => ({
+      label: conn.name,
+      sub: explorerSubLine(conn) || explorerKindBadge(conn.kind),
+      icon: folderIcon,
+      action: () => {
+        activeExplorerConnection.set(conn);
+        window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.OPEN_TAB, { detail: conn }));
+      },
+    }));
+    showContextMenu(x, y, items, {
+      scrollable: true,
+      stickyFooter: {
+        label: 'New Connection',
+        icon: plusIcon,
+        action: () => window.dispatchEvent(new CustomEvent(EXPLORER_EVENT.ADD_CONNECTION)),
+      },
+    });
   }
 
   function explorerKindBadge(kind: string): string {
@@ -689,62 +691,6 @@
   </div>
 {/if}
 
-{#if showSshPicker}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="session-picker-overlay" onmousedown={() => (showSshPicker = false)}></div>
-  <div class="session-picker" style="top:{sshPickerY}px;left:{sshPickerX}px;">
-    <div class="session-picker-header">Open SSH Connection</div>
-    <div class="session-picker-list">
-      {#each $sshProfiles as profile (profile.id)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="session-picker-item ssh-picker-item"
-          onmousedown={(e) => { e.stopPropagation(); openSshTabFromPicker(profile); }}
-        >
-          <div class="ssh-picker-text">
-            <span class="session-picker-title">{profile.name}</span>
-            <span class="ssh-picker-sub">{profile.username}@{profile.host}{profile.port !== 22 ? `:${profile.port}` : ''}</span>
-          </div>
-        </div>
-      {/each}
-    </div>
-    <div class="session-picker-footer">
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <button class="session-picker-new" onmousedown={(e) => { e.stopPropagation(); pickerNewSshProfile(); }}>
-        + New SSH Profile
-      </button>
-    </div>
-  </div>
-{/if}
-
-{#if showExplorerPicker}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="session-picker-overlay" onmousedown={() => (showExplorerPicker = false)}></div>
-  <div class="session-picker" style="top:{explorerPickerY}px;left:{explorerPickerX}px;">
-    <div class="session-picker-header">Open Explorer Connection</div>
-    <div class="session-picker-list">
-      {#each $explorerConnections as conn (conn.id)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="session-picker-item ssh-picker-item"
-          onmousedown={(e) => { e.stopPropagation(); openExplorerTabFromPicker(conn); }}
-        >
-          <div class="ssh-picker-text">
-            <span class="session-picker-title">{conn.name}</span>
-            <span class="ssh-picker-sub">{explorerSubLine(conn)}</span>
-          </div>
-          <span class="session-picker-badge explorer-badge">{explorerKindBadge(conn.kind)}</span>
-        </div>
-      {/each}
-    </div>
-    <div class="session-picker-footer">
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <button class="session-picker-new explorer-new" onmousedown={(e) => { e.stopPropagation(); pickerNewExplorerConnection(); }}>
-        + New Connection
-      </button>
-    </div>
-  </div>
-{/if}
 
 <Toast />
 <ContextMenu />
@@ -872,37 +818,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* SSH picker: stacked name + user@host */
-  .ssh-picker-item .ssh-picker-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .ssh-picker-item .session-picker-title {
-    flex: 0 0 auto;
-  }
-  .ssh-picker-sub {
-    font-size: 11px;
-    font-family: var(--mono);
-    color: var(--t3);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .session-picker-badge {
-    font-size: 10px;
-    font-family: var(--ui);
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid;
-    opacity: 0.85;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
   .session-picker-footer {
     border-top: 1px solid var(--b1);
     padding: 6px 8px;
@@ -924,15 +839,5 @@
 
   .session-picker-new:hover {
     background: var(--b1);
-  }
-
-  /* Explorer picker uses the explorer accent so kind/badges and the
-     "new connection" CTA match the rest of the mode. */
-  .explorer-badge {
-    color: var(--explorer);
-    border-color: var(--explorer);
-  }
-  .explorer-new {
-    color: var(--explorer);
   }
 </style>

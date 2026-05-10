@@ -7,20 +7,46 @@
   // the project field. NavPanel + button dispatches NEW_WORKSPACE.
 
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import {
     workspaces, loadWorkspaces,
-    inboxOpen, refreshInboxUnread, markInboxRead, inboxUnreadCount,
-    coworkers, coworkersOpen, loadCoworkers,
+    refreshInboxUnread, markInboxRead, inboxUnreadCount,
+    coworkers, loadCoworkers,
   } from '../stores';
   import WorkspaceItem from './WorkspaceItem.svelte';
   import { WORKSPACE_EVENT } from '$lib/shared/constants/events';
   import { mode } from '$lib/stores/app';
+  import { tabs as sharedTabs, activeTabId, addTab, activateTab } from '$lib/shared/stores/tabs';
 
   interface Props {
     searchQuery?: string;
   }
 
   let { searchQuery = '' }: Props = $props();
+
+  const inboxActive = $derived(
+    $mode === 'workspace' && !!$sharedTabs.find(t => t.id === $activeTabId && t.key === 'inbox'),
+  );
+  const coworkersActive = $derived(
+    $mode === 'workspace' && !!$sharedTabs.find(t => t.id === $activeTabId && t.key === 'coworkers'),
+  );
+
+  function openInbox() {
+    const key = 'inbox';
+    const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
+    if (existing) activateTab(existing.id);
+    else addTab('Inbox', 'workspace', key, 'var(--acc)');
+    mode.set('workspace');
+    markInboxRead();
+  }
+
+  function openCoworkers() {
+    const key = 'coworkers';
+    const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
+    if (existing) activateTab(existing.id);
+    else addTab('Co-workers', 'workspace', key, 'var(--acc)');
+    mode.set('workspace');
+  }
 
   onMount(() => {
     loadWorkspaces();
@@ -48,8 +74,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="ws-inbox-row"
-    class:active={$inboxOpen && $mode === 'workspace'}
-    onclick={() => { coworkersOpen.set(false); inboxOpen.set(true); mode.set('workspace'); markInboxRead(); }}
+    class:active={inboxActive}
+    onclick={openInbox}
   >
     <span class="ws-inbox-ico">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
@@ -68,8 +94,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="ws-inbox-row"
-    class:active={$coworkersOpen && $mode === 'workspace'}
-    onclick={() => { inboxOpen.set(false); coworkersOpen.set(true); mode.set('workspace'); }}
+    class:active={coworkersActive}
+    onclick={openCoworkers}
   >
     <span class="ws-inbox-ico">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

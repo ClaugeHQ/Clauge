@@ -17,7 +17,6 @@
     deleteNote,
     deleteBoard,
     updateWorkspace,
-    inboxOpen,
   } from '../stores';
   import {
     workspaceNoteCreate,
@@ -78,7 +77,6 @@
 
   function openNote(n: WorkspaceNote) {
     activeWorkspaceId.set(workspace.id);
-    inboxOpen.set(false);
     const key = `note:${n.id}`;
     const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
     if (existing) activateTab(existing.id);
@@ -88,7 +86,6 @@
 
   function openBoard(b: WorkspaceBoard) {
     activeWorkspaceId.set(workspace.id);
-    inboxOpen.set(false);
     const key = `board:${b.id}`;
     const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
     if (existing) activateTab(existing.id);

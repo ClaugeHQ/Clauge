@@ -9,7 +9,7 @@
   // the entry switch + onboarding state.
 
   import { tabs as sharedTabs, activeTabId } from '$lib/shared/stores/tabs';
-  import { activeWorkspace, workspaces, inboxOpen, coworkersOpen } from '../stores';
+  import { activeWorkspace, workspaces } from '../stores';
   import NoteView from './NoteView.svelte';
   import BoardView from './BoardView.svelte';
   import InboxView from './InboxView.svelte';
@@ -19,6 +19,8 @@
   const activeWorkspaceTab = $derived($sharedTabs.find(t => t.id === $activeTabId && t.mode === 'workspace'));
   const activeKind = $derived.by(() => {
     const k = activeWorkspaceTab?.key ?? '';
+    if (k === 'inbox') return 'inbox' as const;
+    if (k === 'coworkers') return 'coworkers' as const;
     if (k.startsWith('note:')) return 'note' as const;
     if (k.startsWith('board:')) return 'board' as const;
     return null;
@@ -42,10 +44,10 @@
   }
 </script>
 
-{#if $coworkersOpen}
-  <CoworkersView />
-{:else if $inboxOpen}
+{#if activeKind === 'inbox'}
   <InboxView />
+{:else if activeKind === 'coworkers'}
+  <CoworkersView />
 {:else if activeKind === 'note' && activeId}
   <NoteView noteId={activeId} />
 {:else if activeKind === 'board' && activeId}
@@ -56,7 +58,7 @@
       <rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/>
     </svg>
     <h2>Welcome to Workspaces</h2>
-    <p>Notes and Kanban boards, scoped to a project (optional). Both you and your agent can read and edit anything you create here.</p>
+    <p>Organize notes and Kanban boards around your projects. Your agents can read and write here through the MCP server, keeping everything in sync with your work.</p>
     <button class="ws-cta" onclick={newWorkspace}>+ Create your first workspace</button>
   </div>
 {:else}
@@ -65,12 +67,12 @@
       <rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/>
     </svg>
     <h2>{$activeWorkspace?.name ?? 'No workspace selected'}</h2>
-    <p>Open a note or board from the side panel, or create something new.</p>
+    <p>Select a note or board from the side panel, or create something new below.</p>
     <div class="ws-cta-row">
       <button class="ws-cta-secondary" onclick={newNote}>+ New Note</button>
       <button class="ws-cta-secondary" onclick={newBoard}>+ New Board</button>
     </div>
-    <p class="ws-hint">Boards moved to <strong>Review</strong> by an agent show a "Pending review" badge so you can approve before they reach Done.</p>
+    <p class="ws-hint">Cards moved to <strong>Review</strong> by an agent show a pending badge — approve them before they advance to Done.</p>
   </div>
 {/if}
 

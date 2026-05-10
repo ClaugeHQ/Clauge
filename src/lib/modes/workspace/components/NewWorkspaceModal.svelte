@@ -101,7 +101,7 @@
       <input
         class="nw-input"
         type="text"
-        placeholder="e.g. clauge-mobile"
+        placeholder="e.g. Project X"
         bind:value={name}
       />
     </label>
@@ -113,7 +113,7 @@
         <input
           class="nw-input nw-input-flex"
           type="text"
-          placeholder="Optional — bind to a project folder"
+          placeholder="Path to a project directory (optional)"
           bind:value={projectPath}
         />
         <button class="nw-browse" onclick={pickFolder}>Browse</button>
@@ -124,7 +124,7 @@
 
       {#if knownProjects.length > 0}
         <div class="nw-recent">
-          <span class="nw-recent-label">Recent projects from your agent sessions</span>
+          <span class="nw-recent-label">Recent projects</span>
           <div class="nw-chips">
             {#each knownProjects as p (p.path)}
               <button
@@ -184,7 +184,7 @@
     border-radius: var(--radius-md, 6px);
     padding: 7px 10px;
     color: var(--t1);
-    font-family: var(--mono);
+    font-family: var(--ui);
     font-size: 12.5px;
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;

@@ -9,7 +9,7 @@
   import type { InboxItem } from '../types';
   import { describeActor, formatAttribution } from '../attribution';
   import { tabs as sharedTabs, addTab, activateTab } from '$lib/shared/stores/tabs';
-  import { activeWorkspaceId, markInboxRead, inboxOpen } from '../stores';
+  import { activeWorkspaceId, markInboxRead } from '../stores';
   import { mode } from '$lib/stores/app';
 
   let items = $state<InboxItem[]>([]);
@@ -45,10 +45,6 @@
     if (existing) activateTab(existing.id);
     else addTab(label, 'workspace', key, dot);
     mode.set('workspace');
-    // Close the inbox view so the panel switches to the opened note/board.
-    // Without this the WorkspacePanel keeps rendering InboxView even though
-    // a workspace tab is active — which looks like "click does nothing".
-    inboxOpen.set(false);
   }
 
   function relTime(iso: string): string {

@@ -33,9 +33,14 @@
   let role = $state('');
   let systemPrompt = $state('');
   let avatarSeed = $state('');
-  let avatarStyle = $state('personas');
+  let avatarStyle = $state('bottts');
+  let provider = $state('claude');
   let saving = $state(false);
   let confirmingDelete = $state(false);
+
+  const PROVIDER_OPTIONS = [
+    { id: 'claude', label: 'Claude', color: '#d4a96a' },
+  ];
 
   /** Available styles + their human labels for the picker. Only the
    *  collections we ship; user-friendly subset of dicebear's catalogue. */
@@ -77,7 +82,8 @@
       role         = existing?.role ?? '';
       systemPrompt = existing?.systemPrompt ?? '';
       avatarSeed   = existing?.avatarSeed ?? '';
-      avatarStyle  = existing?.avatarStyle ?? 'personas';
+      avatarStyle  = existing?.avatarStyle ?? 'bottts';
+      provider     = existing?.provider ?? 'claude';
       confirmingDelete = false;
     }
   });
@@ -105,7 +111,7 @@
             name: name.trim(),
             role: role.trim(),
             systemPrompt: systemPrompt.trim(),
-            provider: existing!.provider,
+            provider,
             avatarSeed: seedToSave,
             avatarStyle,
           })
@@ -113,7 +119,7 @@
             name: name.trim(),
             role: role.trim(),
             systemPrompt: systemPrompt.trim(),
-            provider: 'claude',
+            provider,
             avatarSeed: seedToSave,
             avatarStyle,
             actor: currentUserActor(),
@@ -147,13 +153,25 @@
     if (!show) return;
     if (e.key === 'Escape') { e.preventDefault(); show = false; onclose?.(); }
   }
+
+  /** Move the overlay to <body> so it renders relative to the viewport and
+   *  DOM mutations inside the modal can't trigger repaints in the ancestor
+   *  workspace layout (header, sidebar, footer). */
+  function teleportToBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentElement === document.body) node.remove();
+      },
+    };
+  }
 </script>
 
 <svelte:window onkeydown={handleKey} />
 
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="cm-overlay" onclick={() => { show = false; onclose?.(); }}>
+  <div class="cm-overlay" use:teleportToBody onclick={() => { show = false; onclose?.(); }}>
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="cm-modal" onclick={(e) => e.stopPropagation()}>
       <div class="cm-head">
@@ -189,7 +207,7 @@
               class="cm-input"
               bind:value={name}
               oninput={onNameInput}
-              placeholder="alex"
+              placeholder="e.g. alex"
               spellcheck="false"
               autocapitalize="none"
               autofocus
@@ -203,7 +221,7 @@
             <input
               class="cm-input"
               bind:value={role}
-              placeholder="Brainstormer / Developer / Reviewer"
+              placeholder="e.g. Code Reviewer, Technical Lead"
               spellcheck="false"
             />
           </label>
@@ -222,13 +240,21 @@
           ></textarea>
         </label>
 
-        <!-- ─── Provider (locked for v1) ─── -->
+        <!-- ─── Provider ─── -->
         <div class="cm-field">
           <span class="cm-label">Powered by</span>
-          <div class="cm-provider-locked" title="More agents coming">
-            <span class="cm-provider-dot" style="background:#d4a96a"></span>
-            Claude
-            <span class="cm-provider-soon">· more agents coming</span>
+          <div class="cm-provider-list">
+            {#each PROVIDER_OPTIONS as p}
+              <button
+                class="cm-provider-pill"
+                class:selected={provider === p.id}
+                onclick={() => provider = p.id}
+                type="button"
+              >
+                <span class="cm-provider-dot" style="background:{p.color}"></span>
+                {p.label}
+              </button>
+            {/each}
           </div>
         </div>
       </div>
@@ -259,7 +285,7 @@
     background: rgba(0, 0, 0, 0.55);
     z-index: 300;
     display: flex; align-items: center; justify-content: center;
-    animation: fadeIn 0.15s ease;
+    animation: fadeIn 0.15s ease both;
   }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .cm-modal {
@@ -271,7 +297,7 @@
     border-radius: 10px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     display: flex; flex-direction: column;
-    animation: slideUp 0.18s ease;
+    animation: slideUp 0.18s ease both;
   }
   @keyframes slideUp { from { transform: translateY(8px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 
@@ -356,26 +382,54 @@
     width: 100%;
   }
   .cm-input:focus, .cm-textarea:focus { border-color: var(--acc); }
+  select.cm-input {
+    -webkit-appearance: none;
+    appearance: none;
+    padding-right: 28px;
+    cursor: default;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23b0b0c8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='3 5 6 8 9 5'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 10px;
+  }
+  select.cm-input option {
+    background: var(--n);
+    color: var(--t1);
+  }
   .cm-textarea {
     min-height: 100px;
     line-height: 1.5;
     resize: vertical;
   }
 
-  .cm-provider-locked {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 7px 10px;
+  .cm-provider-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .cm-provider-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 20px;
     border: 1px solid var(--b1);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
+    background: transparent;
+    color: var(--t2);
     font-family: var(--ui);
     font-size: 12px;
-    color: var(--t2);
+    cursor: default;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .cm-provider-pill:hover { border-color: var(--b2); color: var(--t1); }
+  .cm-provider-pill.selected {
+    border-color: var(--acc);
+    background: color-mix(in srgb, var(--acc) 12%, transparent);
+    color: var(--t1);
   }
   .cm-provider-dot {
-    width: 8px; height: 8px; border-radius: 50%;
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   }
-  .cm-provider-soon { color: var(--t4); font-size: 10.5px; }
 
   .cm-foot {
     display: flex; align-items: center; gap: 8px;
