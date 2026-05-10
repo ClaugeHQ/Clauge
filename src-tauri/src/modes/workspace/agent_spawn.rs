@@ -244,13 +244,13 @@ pub async fn drawer_chat_turn(
     .map_err(|e| format!("DB error inserting agent reply: {e}"))?;
     let _ = session_repo::update_session_last_used(pool, &session.id, &reply_now).await;
 
-    // 6b. Server-side Todo → Doing fallback. Persona prompt asks the
-    //     agent to move the card itself, but Claude follows ~70% of
-    //     the time. Belt-and-braces: if the card is sitting in a
-    //     "todo"/"backlog" column AND there's a "doing"/"in progress"
-    //     column on the same board, move it. Best-effort; failures
-    //     are logged but never fail the turn.
-    let _ = auto_advance_to_doing(pool, card_id, &reply_actor, &reply_now).await;
+    // 6b. Server-side Todo → In Review fallback. Persona prompt asks
+    //     the agent to move the card itself, but Claude follows ~70%
+    //     of the time. Belt-and-braces: if the card is sitting in a
+    //     Todo-class column AND the board has an "In Review" column,
+    //     move it. Best-effort; failures are logged but never fail
+    //     the turn.
+    let _ = auto_advance_to_active(pool, card_id, &reply_actor, &reply_now).await;
 
     emit_updated(app, card_id);
 
@@ -417,20 +417,16 @@ async fn resolve_claim_and_project(
     Ok((row.0, row.1, project_path))
 }
 
-/// If the card lives in a column whose name matches a Todo-class
-/// pattern (todo / backlog / inbox / new / pending) AND the same
-/// board has a column whose name matches a Doing-class pattern
-/// (doing / in progress / wip / active), move the card into the
-/// Doing column at position 0. Silent no-op when either side
-/// doesn't match — keeps the bias toward "do nothing" when the
-/// user's column naming is non-standard.
-async fn auto_advance_to_doing(
+/// If the card lives in a "Todo" or "Backlog" column AND the same
+/// board has an "In Review" column, move the card there at position
+/// 0. Columns are seeded from `repo::DEFAULT_BOARD_COLUMNS` and can't
+/// be renamed, so exact-name matching is enough.
+async fn auto_advance_to_active(
     pool: &SqlitePool,
     card_id: &str,
     actor: &str,
     now: &str,
 ) -> Result<(), sqlx::Error> {
-    // Pull the card's current column + its sibling columns.
     let row: Option<(String, String, String)> = sqlx::query_as(
         "SELECT col.id, col.name, col.board_id \
          FROM workspace_board_cards c \
@@ -444,37 +440,24 @@ async fn auto_advance_to_doing(
         Some(r) => r,
         None => return Ok(()),
     };
-    if !is_todo_class(&cur_col_name) {
+    if cur_col_name != "Todo" && cur_col_name != "Backlog" {
         return Ok(());
     }
-    let candidates: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, name FROM workspace_board_columns WHERE board_id = ?",
+    let target: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM workspace_board_columns WHERE board_id = ? AND name = 'In Review'",
     )
     .bind(&board_id)
-    .fetch_all(pool)
+    .fetch_optional(pool)
     .await?;
-    let doing = candidates.iter().find(|(_, n)| is_doing_class(n));
-    let target_id = match doing {
-        Some((id, _)) => id,
+    let target_id = match target {
+        Some((id,)) => id,
         None => return Ok(()),
     };
-    if *target_id == cur_col_id {
+    if target_id == cur_col_id {
         return Ok(());
     }
-    repo::move_card(pool, card_id, target_id, 0, 0, actor, now).await?;
+    repo::move_card(pool, card_id, &target_id, 0, 0, actor, now).await?;
     Ok(())
-}
-
-fn is_todo_class(name: &str) -> bool {
-    let n = name.to_lowercase();
-    n.contains("todo") || n.contains("backlog") || n.contains("inbox")
-        || n == "new" || n.contains("pending")
-}
-fn is_doing_class(name: &str) -> bool {
-    let n = name.to_lowercase();
-    n.contains("doing") || n.contains("in progress") || n.contains("in-progress")
-        || n.contains("in review") || n.contains("in-review")
-        || n.contains("wip") || n.contains("active")
 }
 
 async fn create_hidden_session_and_claim(
@@ -647,7 +630,7 @@ fn build_persona_prompt(
     }
     // Identity + workflow + lineage block. Tells the agent:
     //   • who it is (so it attributes MCP writes correctly)
-    //   • when to move the card through columns (Todo → Doing → Review)
+    //   • when to move the card through columns (Todo → In Review → Review)
     //   • when to create a worktree (only if it's about to write code)
     //   • how to mark sub-cards (parentCardId)
     // Without this, work happens silently and the kanban drifts from
@@ -666,7 +649,7 @@ fn build_persona_prompt(
          \n\
          Card status: this card lives in a kanban column. If it's currently in a \
          column called 'Todo' (or similar) and you've started actively engaging, \
-         move it to 'Doing' via cards_move. When you're handing back for the user \
+         move it to 'In Review' via cards_move. When you're handing back for the user \
          to review, move it to 'Review'. Use boards_read to discover the column ids.\n\
          \n\
          Code work: if (and only if) this turn requires you to modify files in the \

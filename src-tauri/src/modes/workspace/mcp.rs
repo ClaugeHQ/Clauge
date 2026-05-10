@@ -395,13 +395,13 @@ fn tool_descriptors() -> Value {
         },
         {
             "name": "cards_request_changes",
-            "description": "Send a card back from Review with structured feedback. Appends the feedback to the description (under a 'Review feedback' marker), clears the Pending-review flag, and (if columnId is provided) moves the card there — typically the 'Doing' column.",
+            "description": "Send a card back from Review with structured feedback. Appends the feedback to the description (under a 'Review feedback' marker), clears the Pending-review flag, and (if columnId is provided) moves the card there — typically the 'In Review' column.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "id": { "type": "string" },
                     "feedback": { "type": "string" },
-                    "columnId": { "type": "string", "description": "Optional column to move the card to (e.g. the Doing column)." }
+                    "columnId": { "type": "string", "description": "Optional column to move the card to (e.g. the In Review column)." }
                 },
                 "required": ["id", "feedback"]
             }
@@ -719,22 +719,14 @@ async fn upsert_workspace_for_project(
     .await
     .map_err(map_db)?;
 
-    // Default board with the standard 5 columns so the new workspace
-    // is immediately useful. Same shape as workspace_create() in
-    // commands.rs — kept inline here to avoid threading state across
-    // module boundaries.
+    // Default board seeded from the shared `repo::DEFAULT_BOARD_COLUMNS`
+    // constant — keeps the agent-spawned board layout in lockstep with
+    // the UI-created one. See `commands::create_default_board`.
     let board_id = uuid::Uuid::new_v4().to_string();
     repo::insert_board(pool, &board_id, &id, "Tasks", "manual", None, 0, &now)
         .await
         .map_err(map_db)?;
-    let columns: &[(&str, &str)] = &[
-        ("Backlog", "#5b6776"),
-        ("Todo", "#6aa9ff"),
-        ("In Review", "#f4c150"),
-        ("Review", "#a78bfa"),
-        ("Done", "#2ee08a"),
-    ];
-    for (idx, (col_name, col_color)) in columns.iter().enumerate() {
+    for (idx, (col_name, col_color)) in repo::DEFAULT_BOARD_COLUMNS.iter().enumerate() {
         repo::insert_column(
             pool,
             &uuid::Uuid::new_v4().to_string(),

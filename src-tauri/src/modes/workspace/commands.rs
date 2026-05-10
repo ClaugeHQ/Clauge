@@ -19,24 +19,13 @@ fn is_git_repo(path: &str) -> bool {
     std::path::Path::new(path).join(".git").exists()
 }
 
-/// True when a column name represents the "needs human approval"
-/// safety gate — i.e. just "Review" / "For Review" / "Needs Review"
-/// / "Approval" — but NOT "In Review", which is the active-work
-/// column where agents normally chat. Used to decide if an agent
-/// move into a column should auto-flag `review_pending=1`.
+/// True for the canonical "Review" safety-gate column (NOT "In Review",
+/// which is the active-work column). Columns are seeded from
+/// `repo::DEFAULT_BOARD_COLUMNS` and can't be renamed by the user, so
+/// exact equality is enough. Used to decide if an agent move into a
+/// column should auto-flag `review_pending=1`.
 pub fn is_review_only_column(name: &str) -> bool {
-    let n = name.trim().to_lowercase();
-    if n.contains("in review") || n.contains("in-review") {
-        return false;
-    }
-    n == "review"
-        || n.starts_with("review ")
-        || n.ends_with(" review")
-        || n.contains("for review")
-        || n.contains("needs review")
-        || n.contains("approval")
-        || n.contains(" qa")
-        || n == "qa"
+    name == "Review"
 }
 
 /// Discovered subproject — used when the workspace folder isn't a git
@@ -118,18 +107,6 @@ fn walk_for_repos(
     }
 }
 
-/// Default board column shape applied to every board on creation.
-/// Five columns; "Review" is the safety gate — agents move work here,
-/// the user (or a future review-agent) clears it to Done. Names + colors
-/// match the workspace prototype's palette.
-const DEFAULT_COLUMNS: &[(&str, &str)] = &[
-    ("Backlog", "#5b6776"),
-    ("Todo", "#6aa9ff"),
-    ("In Review", "#f4c150"),
-    ("Review", "#a78bfa"),
-    ("Done", "#2ee08a"),
-];
-
 fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
@@ -162,7 +139,7 @@ async fn create_default_board(
     )
     .await
     .map_err(|e| e.to_string())?;
-    for (idx, (col_name, col_color)) in DEFAULT_COLUMNS.iter().enumerate() {
+    for (idx, (col_name, col_color)) in repo::DEFAULT_BOARD_COLUMNS.iter().enumerate() {
         repo::insert_column(
             pool,
             &new_id(),
@@ -614,10 +591,9 @@ pub async fn workspace_card_move(
     let review_pending = if is_user {
         0
     } else {
-        // Look up the destination column's name and decide if it counts
-        // as a review column. "Review" is the canonical name for the
-        // safety gate but the user can rename a column; matching by
-        // case-insensitive substring keeps the behaviour intuitive.
+        // Agent moving into the "Review" safety-gate column flags
+        // pending review. "In Review" is the active-work column and
+        // does NOT trigger the flag.
         let row: Option<(String,)> = sqlx::query_as(
             "SELECT name FROM workspace_board_columns WHERE id = ?",
         )
@@ -626,9 +602,6 @@ pub async fn workspace_card_move(
         .await
         .map_err(|e| e.to_string())?;
         match row {
-            // Review-class match — exact "review" / "for review" /
-            // "needs review" etc. but NOT "in review" (which is now
-            // the active-work column where agents normally live).
             Some((name,)) if is_review_only_column(&name) => 1,
             _ => 0,
         }

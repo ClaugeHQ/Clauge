@@ -5,6 +5,20 @@ use crate::modes::workspace::models::{
     WorkspaceCardComment, WorkspaceNote,
 };
 
+/// Default board column shape applied to every newly-created board.
+/// "In Review" is the active-work column where agents normally chat;
+/// "Review" is the safety gate the user clears to Done. Single source
+/// of truth — both `commands::workspace_create` (UI path) and
+/// `mcp::upsert_workspace_for_project` (agent path) seed boards from
+/// here so the two paths can never drift.
+pub const DEFAULT_BOARD_COLUMNS: &[(&str, &str)] = &[
+    ("Backlog", "#5b6776"),
+    ("Todo", "#6aa9ff"),
+    ("In Review", "#f4c150"),
+    ("Review", "#a78bfa"),
+    ("Done", "#2ee08a"),
+];
+
 // ---------------------------------------------------------------------------
 // workspaces
 // ---------------------------------------------------------------------------

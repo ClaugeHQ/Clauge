@@ -247,28 +247,22 @@
 
   async function requestChanges(card: WorkspaceBoardCard) {
     // Request changes = clear review_pending + move back to the
-    // active-work column ("In Review" by default; older boards may
-    // still have "Doing"). Same matcher Rust uses for is_doing_class.
-    const isDoingCol = (n: string) => {
-      const s = n.toLowerCase();
-      return s.includes('doing') || s.includes('in review') || s.includes('in-review')
-          || s.includes('in progress') || s.includes('in-progress')
-          || s.includes('wip') || s.includes('active');
-    };
-    const doing = columns.find(c => isDoingCol(c.name))
-      ?? columns.find(c => c.name.toLowerCase().includes('todo'))
+    // "In Review" active-work column. Same matcher Rust uses for
+    // is_active_class.
+    const active = columns.find(c => c.name.trim().toLowerCase() === 'in review')
+      ?? columns.find(c => c.name.trim().toLowerCase() === 'todo')
       ?? columns[0];
-    if (!doing) return;
+    if (!active) return;
     try {
       await workspaceCardClearReview(card.id, currentUserActor());
       await workspaceCardMove({
         id: card.id,
-        columnId: doing.id,
+        columnId: active.id,
         position: 0,
         actor: currentUserActor(),
       });
       await loadBoardContents(boardId);
-      showToast(`Moved back to ${doing.name}`, 'success');
+      showToast(`Moved back to ${active.name}`, 'success');
     } catch (e) {
       showToast(`Request changes failed: ${e}`, 'error');
     }
