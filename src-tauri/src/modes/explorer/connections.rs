@@ -42,6 +42,7 @@ pub async fn explorer_create_connection(
     repo::insert(pool.inner(), &connection)
         .await
         .map_err(|e| format!("create connection: {}", e))?;
+    crate::cloud::scheduler::bump("explorer");
     Ok(connection)
 }
 
@@ -52,7 +53,9 @@ pub async fn explorer_update_connection(
 ) -> Result<(), String> {
     repo::update(pool.inner(), &connection)
         .await
-        .map_err(|e| format!("update connection: {}", e))
+        .map_err(|e| format!("update connection: {}", e))?;
+    crate::cloud::scheduler::bump("explorer");
+    Ok(())
 }
 
 #[tauri::command]
@@ -62,7 +65,9 @@ pub async fn explorer_delete_connection(
 ) -> Result<(), String> {
     repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| format!("delete connection: {}", e))
+        .map_err(|e| format!("delete connection: {}", e))?;
+    crate::cloud::scheduler::bump("explorer");
+    Ok(())
 }
 
 /// Store a secret for an explorer connection (S3 access keys, Azure shared

@@ -30,17 +30,21 @@
 
     async function handleOAuthCallback(e: Event) {
         if (get(settings)["onboarding_complete"]) return;
-        const { token } = (e as CustomEvent<{ token: string }>).detail;
+        const detail = (e as CustomEvent<{ provider: "github" | "google"; code: string }>).detail;
+        if (!detail?.code || !detail?.provider) return;
         ghConnecting = true;
         try {
-            const { githubConnectWithToken, gistCheckExists } =
-                await import("$lib/commands/github");
-            const { setConnected, markSynced, showSyncRestorePrompt } =
-                await import("$lib/stores/github");
+            const { cloudExchangeCode, cloudCheckRemoteExists } =
+                await import("$lib/commands/cloud");
+            const { setConnected, markSynced, showSyncRestorePrompt, setLastSyncedForKinds } =
+                await import("$lib/stores/cloud");
             const { showToast } = await import("$lib/shared/primitives/toast");
-            const username = await githubConnectWithToken(token);
-            setConnected(username);
-            showToast(`Connected as ${username}`, "success");
+            const status = await cloudExchangeCode(detail.provider, detail.code);
+            if (status.user) {
+                setConnected(status.user, status.providers, status.activeProvider, status.plan);
+                setLastSyncedForKinds(status.lastSynced);
+                showToast(`Connected as ${status.user.displayName || status.user.slug}`, "success");
+            }
             const { collections } = await import("$lib/modes/rest/stores");
             const { connections: sqlConns } =
                 await import("$lib/modes/sql/stores");
@@ -52,8 +56,8 @@
                 get(nosqlConnections).length === 0;
             if (localEmpty) {
                 try {
-                    const gistExists = await gistCheckExists();
-                    if (gistExists) showSyncRestorePrompt.set(true);
+                    const remoteHas = await cloudCheckRemoteExists();
+                    if (remoteHas) showSyncRestorePrompt.set(true);
                     else markSynced();
                 } catch {
                     markSynced();
@@ -104,11 +108,13 @@
         }
     }
 
-    async function handleGitHubConnect() {
+    async function handleConnect(provider: "github" | "google") {
         ghConnecting = true;
         try {
-            const { githubGetOauthUrl } = await import("$lib/commands/github");
-            const url = await githubGetOauthUrl();
+            const { cloudGithubLoginUrl, cloudGoogleLoginUrl } = await import("$lib/commands/cloud");
+            const url = provider === "github"
+                ? await cloudGithubLoginUrl()
+                : await cloudGoogleLoginUrl();
             try {
                 const { openUrl } = await import("@tauri-apps/plugin-opener");
                 await openUrl(url);
@@ -122,6 +128,9 @@
             showToast(friendlyError(e), "error");
         }
     }
+
+    const handleGitHubConnect = () => handleConnect("github");
+    const handleGoogleConnect = () => handleConnect("google");
 
     /** Skip sign-in — marks onboarding complete without connecting an
      *  account. The user can connect later from Settings → About; their
@@ -200,7 +209,7 @@
                         Continue with GitHub
                     </button>
 
-                    <button class="ob-btn-google" disabled>
+                    <button class="ob-btn-google" onclick={handleGoogleConnect} disabled={ghConnecting}>
                         <svg
                             width="18"
                             height="18"
@@ -225,7 +234,6 @@
                             />
                         </svg>
                         Continue with Google
-                        <span class="ob-soon">Soon</span>
                     </button>
 
                     <!-- "or" divider — quiet, frames the skip option as a real

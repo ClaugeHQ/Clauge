@@ -57,6 +57,8 @@ pub async fn ssh_create_profile(
         }
     }
 
+    crate::cloud::scheduler::bump("ssh");
+
     ssh_profiles_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -153,6 +155,8 @@ pub async fn ssh_update_profile(
             .map_err(|e| e.to_string())?;
     }
 
+    crate::cloud::scheduler::bump("ssh");
+
     ssh_profiles_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -167,7 +171,9 @@ pub async fn ssh_delete_profile(
     let _ = credential_store().delete(&id).await;
     ssh_profiles_repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("ssh");
+    Ok(())
 }
 
 #[tauri::command]

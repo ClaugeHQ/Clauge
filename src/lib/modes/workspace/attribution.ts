@@ -8,15 +8,15 @@
 //   'claude' | 'codex' | …  — agent CLI id (matches CliRunner.id())
 
 import { get } from 'svelte/store';
-import { githubConnected, githubUsername, githubAvatarUrl } from '$lib/stores/github';
+import { cloudConnected, cloudUser, cloudDisplayHandle } from '$lib/stores/cloud';
 
 /** The actor string for the currently signed-in human user. Read at
- *  the call site so a mid-session GitHub login flips attribution from
+ *  the call site so a mid-session cloud login flips attribution from
  *  'user' to 'user:<login>' immediately. */
 export function currentUserActor(): string {
-  if (get(githubConnected)) {
-    const u = get(githubUsername);
-    if (u && u.trim()) return `user:${u.trim()}`;
+  if (get(cloudConnected)) {
+    const u = get(cloudDisplayHandle);
+    if (u?.handle && u.handle.trim()) return `user:${u.handle.trim()}`;
   }
   return 'user';
 }
@@ -33,8 +33,8 @@ export function describeActor(actor: string): {
   }
   if (actor.startsWith('user:')) {
     const login = actor.slice(5).trim();
-    const me = get(githubUsername);
-    const avatar = me === login ? get(githubAvatarUrl) : null;
+    const me = get(cloudDisplayHandle);
+    const avatar = me?.handle === login ? (get(cloudUser)?.avatarUrl ?? null) : null;
     return { kind: 'user', label: login || 'You', agentId: null, avatarUrl: avatar };
   }
   // Anything else is the agent's CLI id (claude / codex / gemini / …).

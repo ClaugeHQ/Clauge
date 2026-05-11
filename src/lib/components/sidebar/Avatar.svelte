@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { githubConnected, githubUsername, githubAvatarUrl } from '$lib/stores/github';
+  import { cloudConnected, cloudUser, cloudDisplayHandle } from '$lib/stores/cloud';
 </script>
 
 <div class="avatar-connected">
-  <button class="avatar" title={$githubConnected ? `${$githubUsername}` : 'Profile'}>
-    {#if $githubConnected && $githubAvatarUrl}
-      <img class="avatar-img" src={$githubAvatarUrl} alt={$githubUsername ?? ''} />
-    {:else if $githubConnected}
-      <span class="avatar-letter">{($githubUsername ?? 'U').charAt(0).toUpperCase()}</span>
+  <button class="avatar" title={$cloudConnected ? `${$cloudDisplayHandle?.handle ?? ''}` : 'Profile'}>
+    {#if $cloudConnected && $cloudUser?.avatarUrl}
+      <img class="avatar-img" src={$cloudUser.avatarUrl} alt={$cloudDisplayHandle?.handle ?? ''} />
+    {:else if $cloudConnected}
+      <span class="avatar-letter">{($cloudDisplayHandle?.handle ?? 'U').charAt(0).toUpperCase()}</span>
     {:else}
       <span class="avatar-letter">CL</span>
     {/if}
   </button>
-  {#if $githubConnected}
+  {#if $cloudConnected}
     <span class="avatar-dot"></span>
   {/if}
 </div>

@@ -2,8 +2,8 @@
 name = "app"
 version = "3.0.0-alpha.11"
 description = "Clauge — An AI-powered cross-platform desktop super-app for developers"
-authors = ["Anshuman <ansxuman@gmail.com>"]
-license = "BUSL-1.1"
+authors = ["Anshuman <support@clauge.in>"]
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 repository = "https://github.com/ansxuman/Clauge"
 edition = "2021"
 rust-version = "1.77.2"
@@ -48,6 +48,8 @@ portable-pty = "0.9.0"
 parking_lot = "0.12"
 base64 = "0.22"
 dirs = "5"
+flate2 = "1"
+hex = "0.4"
 tauri-plugin-notification = "2"
 # SSH client (pure-Rust, cross-platform)
 russh = "0.45"

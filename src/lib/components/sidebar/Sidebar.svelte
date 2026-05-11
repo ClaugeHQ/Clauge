@@ -3,8 +3,8 @@
   import { mode, navOpen, aiPanelOpen, activeModal } from '$lib/stores/app';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { isMac, isLinux } from '$lib/utils/platform';
-  import { githubConnected, githubUsername, githubAvatarUrl, syncing, lastSyncedAt, setSyncing, setLastSynced, setDisconnected, showSyncRestorePrompt, markSynced } from '$lib/stores/github';
-  import { gistSyncPush, gistSyncPull, githubDisconnect } from '$lib/commands/github';
+  import { cloudConnected, cloudUser, cloudDisplayHandle, syncing, setSyncing, setDisconnected, showSyncRestorePrompt, markSynced } from '$lib/stores/cloud';
+  import { cloudSyncPushNow, cloudSyncRestore, cloudLogout } from '$lib/commands/cloud';
   import { loadCollections } from '$lib/modes/rest/stores';
   import { loadEnvironments } from '$lib/modes/rest/stores';
   import { loadConnections as loadSqlConnections, loadSqlScripts } from '$lib/modes/sql/stores';
@@ -140,15 +140,12 @@
     if ($syncing) return;
     setSyncing(true);
     try {
-      const msg = await gistSyncPush();
-      console.info('[Clauge Sync]', msg);
-      if (!msg.includes('Skipped')) {
+      const pushed = await cloudSyncPushNow();
+      if (pushed.length) {
         markSynced();
-        setLastSynced(new Date().toISOString());
-        showToast('Synced to cloud', 'success');
+        showToast(`Synced ${pushed.length} ${pushed.length === 1 ? 'domain' : 'domains'}`, 'success');
       } else {
-        // Push was skipped (empty data) — offer restore
-        showRestoreConfirm = true;
+        showToast('Already up to date', 'info');
       }
     } catch (e) {
       showToast(friendlyError(e), 'error');
@@ -161,8 +158,7 @@
     showRestoreConfirm = false;
     setSyncing(true);
     try {
-      const msg = await gistSyncPull();
-      console.info('[Clauge Sync]', msg);
+      await cloudSyncRestore();
       await Promise.all([
         loadCollections(),
         loadEnvironments(),
@@ -171,14 +167,9 @@
         loadSqlScripts(),
       ]);
       markSynced();
-      setLastSynced(new Date().toISOString());
       showToast('Restored from cloud', 'success');
     } catch (e: any) {
-      if (String(e).includes('empty') || String(e).includes('No Clauge sync gist')) {
-        showToast('Cloud backup is empty — nothing to restore', 'info');
-      } else {
-        showToast(friendlyError(e), 'error');
-      }
+      showToast(friendlyError(e), 'error');
     } finally {
       setSyncing(false);
     }
@@ -198,9 +189,9 @@
   async function handleLogout() {
     profileMenuOpen = false;
     try {
-      await githubDisconnect();
+      await cloudLogout();
       setDisconnected();
-      showToast('Logged out', 'info');
+      showToast('Signed out', 'info');
     } catch (e) {
       showToast(friendlyError(e), 'error');
     }
@@ -218,7 +209,7 @@
   function handleProfileAction(action: string) {
     profileMenuOpen = false;
     switch (action) {
-      case 'sync': activeModal.set('github'); break;
+      case 'sync': activeModal.set('settings:account'); break;
       case 'settings': activeModal.set('settings'); break;
       case 'check-updates': handleCheckForUpdates(); break;
       case 'whats-new': openExternal('https://clauge.in/changelog.html'); break;
@@ -295,27 +286,24 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="profile-menu" onclick={(e: MouseEvent) => e.stopPropagation()}>
-          {#if $githubConnected}
+          {#if $cloudConnected}
             <div class="pm-sync-status">
               <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/><path d="M7.5 12l3 3 6-6"/></svg>
               <span class="pm-sync-label">All Data Synced</span>
-              {#if $lastSyncedAt}
-                <span class="pm-sync-time">· {formatSyncTime($lastSyncedAt)}</span>
-              {/if}
             </div>
             <button class="pm-item" onclick={() => { handleSyncNow(); }}>
               <svg class:pm-spinning={$syncing} viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
               {$syncing ? 'Syncing...' : 'Sync Now'}
             </button>
-            <button class="pm-item" onclick={() => openExternal(`https://github.com/${$githubUsername}`)}>
-              <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-              <span class="pm-gh-user">@{$githubUsername}</span>
-              <svg class="pm-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <button class="pm-item" onclick={() => handleProfileAction('sync')}>
+              <svg class="gh-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 7v10M7 12h10"/></svg>
+              <span class="pm-gh-user">{$cloudDisplayHandle?.handle ?? 'Signed in'}</span>
+              <svg class="pm-external" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           {:else}
             <button class="pm-item" onclick={() => handleProfileAction('sync')}>
-              <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-              Connect GitHub
+              <svg class="gh-icon" viewBox="0 0 24 24"><path d="M18 8a6 6 0 11-12 0 6 6 0 0112 0z"/><path d="M3 21v-2a4 4 0 014-4h10a4 4 0 014 4v2"/></svg>
+              Sign in to sync
             </button>
           {/if}
           <div class="pm-sep"></div>
@@ -344,11 +332,11 @@
             Buy Me a Coffee
             <svg class="pm-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </button>
-          {#if $githubConnected}
+          {#if $cloudConnected}
             <div class="pm-sep"></div>
             <button class="pm-item pm-logout" onclick={handleLogout}>
               <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              Logout
+              Sign out
             </button>
           {/if}
         </div>

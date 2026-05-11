@@ -1,6 +1,7 @@
 <script lang="ts">
     import Modal from "$lib/shared/primitives/Modal.svelte";
     import ConfirmDialog from "$lib/shared/primitives/ConfirmDialog.svelte";
+    import AccountTabContent from "$lib/components/settings/AccountTabContent.svelte";
     import { getVersion } from "@tauri-apps/api/app";
     import {
         activeModal,
@@ -91,6 +92,7 @@
     // + Updater + ClickHouse). 'rest' holds REST-only knobs (timeout, redirects,
     // SSL verify, max body).
     type SettingsTab =
+        | "account"
         | "general"
         | "appearance"
         | "shortcuts"
@@ -123,6 +125,7 @@
         const modal = $activeModal;
         if (
             modal === "settings" ||
+            modal === "settings:account" ||
             modal === "settings:ai" ||
             modal === "settings:agent" ||
             modal === "settings:agent:usage" ||
@@ -131,6 +134,7 @@
             modal === "settings:workspace"
         ) {
             show = true;
+            if (modal === "settings:account") activeTab = "account";
             if (modal === "settings:ai") activeTab = "ai";
             if (modal === "settings:agent") activeTab = "agent";
             if (modal === "settings:agent:usage") {
@@ -419,6 +423,12 @@
         | { kind: "header"; label: string };
 
     const tabs: TabsItem[] = [
+        {
+            kind: "tab",
+            key: "account",
+            label: "Account",
+            icon: '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        },
         {
             kind: "tab",
             key: "general",
@@ -1034,7 +1044,9 @@
 
         <!-- Content pane -->
         <div class="stg-content">
-            {#if activeTab === "general"}
+            {#if activeTab === "account"}
+                <AccountTabContent />
+            {:else if activeTab === "general"}
                 <div class="stg-card-stack">
                     <!-- Proxy card -->
                     <section class="stg-card">

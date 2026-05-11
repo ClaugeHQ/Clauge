@@ -1143,6 +1143,8 @@ pub async fn sql_save_connection(
     .await
     .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("sql");
+
     sql_conn_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -1166,7 +1168,9 @@ pub async fn sql_delete_saved_connection(
     use crate::shared::repos::sql_connections as sql_conn_repo;
     sql_conn_repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("sql");
+    Ok(())
 }
 
 #[tauri::command]
@@ -1191,6 +1195,8 @@ pub async fn sql_update_saved_connection(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    crate::cloud::scheduler::bump("sql");
 
     sql_conn_repo::get_by_id(pool.inner(), &id)
         .await
@@ -1226,6 +1232,8 @@ pub async fn sql_save_script(
     .await
     .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("sql");
+
     sql_conn_repo::get_script_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -1254,6 +1262,8 @@ pub async fn sql_update_script(
         .await
         .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("sql");
+
     sql_conn_repo::get_script_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -1267,5 +1277,7 @@ pub async fn sql_delete_script(
     use crate::shared::repos::sql_connections as sql_conn_repo;
     sql_conn_repo::delete_script(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("sql");
+    Ok(())
 }

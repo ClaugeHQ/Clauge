@@ -44,6 +44,8 @@ pub async fn create_environment(
     .await
     .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     environments_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -59,6 +61,8 @@ pub async fn update_environment(
     environments_repo::update(pool.inner(), &id, &name, &color)
         .await
         .map_err(|e| e.to_string())?;
+
+    crate::cloud::scheduler::bump("rest");
 
     environments_repo::get_by_id(pool.inner(), &id)
         .await
@@ -85,6 +89,7 @@ pub async fn delete_environment(
         let _ = environments_repo::promote_first_to_default(pool.inner()).await;
     }
 
+    crate::cloud::scheduler::bump("rest");
     Ok(())
 }
 
@@ -159,6 +164,8 @@ pub async fn set_env_variable(
         id
     };
 
+    crate::cloud::scheduler::bump("rest");
+
     environments_repo::get_variable_by_id(pool.inner(), &final_id)
         .await
         .map_err(|e| e.to_string())
@@ -176,6 +183,8 @@ pub async fn update_env_variable(
         .await
         .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     environments_repo::get_variable_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -188,7 +197,9 @@ pub async fn delete_env_variable(
 ) -> Result<(), String> {
     environments_repo::delete_variable_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("rest");
+    Ok(())
 }
 
 #[tauri::command]

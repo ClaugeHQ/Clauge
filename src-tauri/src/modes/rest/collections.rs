@@ -27,6 +27,8 @@ pub async fn create_collection(
         .await
         .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     collections_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -43,6 +45,8 @@ pub async fn update_collection(
         .await
         .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     collections_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -52,7 +56,9 @@ pub async fn update_collection(
 pub async fn delete_collection(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     collections_repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("rest");
+    Ok(())
 }
 
 #[tauri::command]
@@ -65,5 +71,6 @@ pub async fn reorder_collections(
             .await
             .map_err(|e| e.to_string())?;
     }
+    crate::cloud::scheduler::bump("rest");
     Ok(())
 }

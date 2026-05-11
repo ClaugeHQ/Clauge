@@ -44,4 +44,4 @@ export {
   deleteHistoryEntry,
 } from '$lib/modes/rest/stores';
 export * from './settings';
-export * from './github';
+export * from './cloud';

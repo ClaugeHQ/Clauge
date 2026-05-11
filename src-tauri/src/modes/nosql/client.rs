@@ -1081,6 +1081,8 @@ pub async fn nosql_save_connection(
     .await
     .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("nosql");
+
     nosql_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -1104,7 +1106,9 @@ pub async fn nosql_delete_saved_connection(
     use crate::shared::repos::nosql_connections as nosql_repo;
     nosql_repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("nosql");
+    Ok(())
 }
 
 #[tauri::command]
@@ -1131,6 +1135,8 @@ pub async fn nosql_update_saved_connection(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    crate::cloud::scheduler::bump("nosql");
 
     nosql_repo::get_by_id(pool.inner(), &id)
         .await

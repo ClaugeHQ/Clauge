@@ -92,6 +92,8 @@ pub async fn create_request(
     .await
     .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     requests_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -144,6 +146,8 @@ pub async fn update_request(
         .await
         .map_err(|e| e.to_string())?;
 
+    crate::cloud::scheduler::bump("rest");
+
     requests_repo::get_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -153,7 +157,9 @@ pub async fn update_request(
 pub async fn delete_request(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     requests_repo::delete_by_id(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("rest");
+    Ok(())
 }
 
 #[tauri::command]
@@ -230,6 +236,8 @@ pub async fn duplicate_request(
         .map_err(|e| e.to_string())?;
     }
 
+    crate::cloud::scheduler::bump("rest");
+
     requests_repo::get_by_id(pool.inner(), &new_id)
         .await
         .map_err(|e| e.to_string())
@@ -248,6 +256,8 @@ pub async fn move_request(
     requests_repo::move_to_collection(pool.inner(), &id, &target_collection_id, max_order.0 + 1)
         .await
         .map_err(|e| e.to_string())?;
+
+    crate::cloud::scheduler::bump("rest");
 
     requests_repo::get_by_id(pool.inner(), &id)
         .await
@@ -281,6 +291,8 @@ pub async fn update_request_headers(
         .map_err(|e| e.to_string())?;
     }
 
+    crate::cloud::scheduler::bump("rest");
+
     requests_repo::list_headers(pool.inner(), &request_id)
         .await
         .map_err(|e| e.to_string())
@@ -312,6 +324,8 @@ pub async fn update_request_params(
         .await
         .map_err(|e| e.to_string())?;
     }
+
+    crate::cloud::scheduler::bump("rest");
 
     requests_repo::list_params(pool.inner(), &request_id)
         .await

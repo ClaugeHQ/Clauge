@@ -1,7 +1,7 @@
 mod appearance;
+mod cloud;
 mod commands;
 mod db;
-mod github;
 mod modes;
 mod shared;
 
@@ -125,6 +125,30 @@ pub fn run() {
             app.manage(modes::explorer::transfers::Transfers::default());
             app.manage(shared::ai::types::PendingFrontendTools::default());
             app.manage(shared::updater::state::PendingUpdate::default());
+
+            // ── Cloud auth + sync scheduler ──────────────────────────
+            // Holds provider tokens (loaded from OS keyring) and the per-kind
+            // dirty set used by auto-sync. Spawned once, lives for app lifetime.
+            app.manage(cloud::auth::AuthState::default());
+            app.manage(cloud::scheduler::Scheduler::default());
+
+            // Load tokens from keyring (+ one-time migration from legacy
+            // settings.github_token row). If a token resolves to a logged-in
+            // session, enable the scheduler so subsequent mutations push.
+            {
+                let pool_for_auth = app.state::<sqlx::SqlitePool>().inner().clone();
+                let auth_state = app.state::<cloud::auth::AuthState>();
+                if let Err(e) = tauri::async_runtime::block_on(async {
+                    cloud::auth::load_from_keyring(&auth_state, &pool_for_auth).await
+                }) {
+                    log::warn!("[cloud] load_from_keyring: {}", e);
+                }
+                if auth_state.is_connected() {
+                    app.state::<cloud::scheduler::Scheduler>().enable();
+                }
+            }
+
+            cloud::scheduler::spawn(app.handle().clone());
 
             // Register every mode's AI tools into the shared dispatch registry.
             // Adding a new tool to a mode = one new function + one entry in
@@ -285,14 +309,20 @@ pub fn run() {
             appearance::vibrancy::get_appearance,
             appearance::vibrancy::set_appearance,
             appearance::vibrancy::get_available_themes,
-            github::oauth::github_connect,
-            github::oauth::github_disconnect,
-            github::oauth::github_get_status,
-            github::oauth::github_get_oauth_url,
-            github::oauth::github_connect_with_token,
-            github::gist::gist_check_exists,
-            github::gist::gist_sync_push,
-            github::gist::gist_sync_pull,
+            cloud::commands::cloud_get_status,
+            cloud::commands::cloud_github_login_url,
+            cloud::commands::cloud_google_login_url,
+            cloud::commands::cloud_exchange_code,
+            cloud::commands::cloud_link_provider,
+            cloud::commands::cloud_unlink_provider,
+            cloud::commands::cloud_update_profile,
+            cloud::commands::cloud_check_remote_exists,
+            cloud::commands::cloud_sync_push_now,
+            cloud::commands::cloud_sync_restore,
+            cloud::commands::cloud_local_has_data,
+            cloud::commands::cloud_logout,
+            cloud::commands::cloud_wipe_remote,
+            cloud::commands::cloud_delete_account,
             modes::rest::import_export::export_collection,
             modes::rest::import_export::export_all_collections,
             modes::rest::import_export::import_clauge,

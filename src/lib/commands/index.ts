@@ -45,12 +45,16 @@ export {
 } from './settings';
 
 export {
-  githubConnect,
-  githubDisconnect,
-  githubGetStatus,
-  gistSyncPush,
-  gistSyncPull,
-} from './github';
+  cloudGetStatus,
+  cloudGithubLoginUrl,
+  cloudGoogleLoginUrl,
+  cloudExchangeCode,
+  cloudSyncPushNow,
+  cloudSyncRestore,
+  cloudLogout,
+  cloudWipeRemote,
+  cloudDeleteAccount,
+} from './cloud';
 
 export {
   sqlConnect,

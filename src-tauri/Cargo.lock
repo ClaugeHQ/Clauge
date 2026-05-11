@@ -137,7 +137,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "3.0.0-alpha.10"
+version = "3.0.0-alpha.11"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -150,7 +150,9 @@ dependencies = [
  "chrono",
  "cocoa",
  "dirs 5.0.1",
+ "flate2",
  "futures",
+ "hex",
  "image",
  "keyring",
  "log",

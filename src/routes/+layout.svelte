@@ -8,7 +8,7 @@
   import ContextMenu from '$lib/shared/primitives/ContextMenu.svelte';
   import EnvManagerModal from '$lib/components/env/EnvManagerModal.svelte';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
-  import GitHubConnect from '$lib/components/github/GitHubConnect.svelte';
+  import CloudConnect from '$lib/components/cloud/CloudConnect.svelte';
   import { loadAgentSessions, loadAgentContexts } from '$lib/modes/agent/stores';
   import { getPurposeColor } from '$lib/modes/agent/ai/prompt';
   import NewSessionModal from '$lib/modes/agent/components/NewSessionModal.svelte';
@@ -34,8 +34,8 @@
   import SqlConnectionDialog from '$lib/modes/sql/components/ConnectionDialog.svelte';
   import NoSqlConnectionDialog from '$lib/modes/nosql/components/ConnectionDialog.svelte';
   import { loadSettings, loadAppearance, appearance } from '$lib/stores/settings';
-  import { setConnected, setLastSynced, hasSyncedOnce, markSynced, showSyncRestorePrompt } from '$lib/stores/github';
-  import { githubGetStatus, gistCheckExists, gistSyncPush, gistSyncPull } from '$lib/commands/github';
+  import { setConnected, hasSyncedOnce, markSynced, showSyncRestorePrompt, setLastSyncedForKinds } from '$lib/stores/cloud';
+  import { cloudGetStatus, cloudCheckRemoteExists, cloudSyncPushNow } from '$lib/commands/cloud';
   import { activeModal, aiPanelOpen, mode } from '$lib/stores/app';
   import { agentSessionKey, agentCodexToken, agentFooterProvider, loadAgentUsageLimits, loadAgentClaudePlan, agentSessions, activeAgentSession } from '$lib/modes/agent/stores';
   import { sshProfiles, activeSshProfile, loadSshProfiles } from '$lib/modes/ssh/stores';
@@ -58,14 +58,14 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { get } from 'svelte/store';
   import { SSH_EVENT, AGENT_EVENT, APP_EVENT, EXPLORER_EVENT, WORKSPACE_EVENT } from '$lib/shared/constants/events';
-  import { PERIODIC_SYNC_INTERVAL_MS, USAGE_LIMITS_POLL_INTERVAL_MS, SPLASH_FADE_OUT_MS } from '$lib/shared/constants/timings';
+  import { USAGE_LIMITS_POLL_INTERVAL_MS, SPLASH_FADE_OUT_MS } from '$lib/shared/constants/timings';
   import { DEFAULT_ACCENT_COLOR } from '$lib/shared/constants/colors';
 
   let { children } = $props();
 
   let showSaveDialog = $state(false);
   let saveDialogTabId = $state(-1);
-  let syncInterval: ReturnType<typeof setInterval> | null = null;
+  let _syncIntervalRemovedInPart2: null = null;
   let usageLimitsInterval: ReturnType<typeof setInterval> | null = null;
   let deepLinkUnlisten: (() => void) | null = null;
   // Tracks the last dispatched OAuth token to prevent double-firing
@@ -405,7 +405,7 @@
     window.removeEventListener(WORKSPACE_EVENT.ADD_TAB, handleWorkspaceAddTab);
     window.removeEventListener(WORKSPACE_EVENT.EDIT_WORKSPACE, handleEditWorkspace);
     deepLinkUnlisten?.();
-    if (syncInterval) clearInterval(syncInterval);
+    // Periodic sync removed in Part 2 — Rust scheduler handles auto-push now.
     if (usageLimitsInterval) clearInterval(usageLimitsInterval);
   });
 
@@ -537,10 +537,14 @@
       function dispatchOAuth(urls: string[]) {
         for (const url of urls) {
           if (!url.includes('oauth-callback')) continue;
-          const token = new URL(url).searchParams.get('token');
-          if (!token || token === lastDispatchedToken) continue;
-          lastDispatchedToken = token;
-          window.dispatchEvent(new CustomEvent(APP_EVENT.OAUTH_CALLBACK, { detail: { token } }));
+          const params = new URL(url).searchParams;
+          const provider = (params.get('provider') as 'github' | 'google') || 'github';
+          const code = params.get('code');
+          if (!code || code === lastDispatchedToken) continue;
+          lastDispatchedToken = code;
+          window.dispatchEvent(
+            new CustomEvent(APP_EVENT.OAUTH_CALLBACK, { detail: { provider, code } }),
+          );
         }
       }
 
@@ -556,63 +560,37 @@
 
     // No default tab — user creates tabs by clicking "+" or opening a request
 
-    // Check GitHub connection status on startup
+    // Cloud sync: pull status, decide first-sign-in flow. Auto-push is driven
+    // by the Rust scheduler (debounced 5s after any mutation), no JS interval.
     try {
-      const userInfo = await githubGetStatus();
-      if (userInfo) {
-        setConnected(userInfo.username, userInfo.avatarUrl);
+      const status = await cloudGetStatus();
+      if (status.connected && status.user) {
+        setConnected(status.user, status.providers, status.activeProvider, status.plan);
+        setLastSyncedForKinds(status.lastSynced);
 
-        // Check if local has no user-created data (stores are loaded by this point)
         const localEmpty = get(collections).length === 0
           && get(sqlConnections).length === 0
           && get(nosqlConnections).length === 0;
 
         if (localEmpty && !get(hasSyncedOnce)) {
-          // First time with no user data — check if cloud has data to restore
+          // First boot of a fresh device on an existing account.
           try {
-            const gistExists = await gistCheckExists();
-            if (gistExists) {
-              showSyncRestorePrompt.set(true);
-            } else {
-              // No cloud data either — mark synced so future pushes work
-              markSynced();
-            }
+            const remoteHas = await cloudCheckRemoteExists();
+            if (remoteHas) showSyncRestorePrompt.set(true);
+            else markSynced();
           } catch (e) {
-            console.warn('[Clauge Sync] Cloud check failed:', e);
+            console.warn('[Cloud] remote check failed:', e);
             markSynced();
           }
-        } else if (get(hasSyncedOnce)) {
-          // Returning user with local data — auto-push
-          gistSyncPush().then((msg) => {
-            console.info('[Clauge Sync]', msg);
-            if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
-          }).catch((e) => {
-            console.error('[Clauge Sync] Auto-push failed:', e);
-          });
-        } else {
-          // First time with data locally — mark synced and push
+        } else if (!get(hasSyncedOnce)) {
+          // Local has data but we've never synced — fire a one-shot push so
+          // the server starts in lockstep with this device.
           markSynced();
-          gistSyncPush().then((msg) => {
-            console.info('[Clauge Sync]', msg);
-            if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
-          }).catch((e) => {
-            console.error('[Clauge Sync] Auto-push failed:', e);
-          });
+          cloudSyncPushNow().catch((e) => console.warn('[Cloud] initial push failed:', e));
         }
-
-        // Periodic sync every 5 minutes (only if synced before and data exists)
-        syncInterval = setInterval(async () => {
-          if (!get(hasSyncedOnce)) return;
-          try {
-            const msg = await gistSyncPush();
-            if (!msg.includes('Skipped')) setLastSynced(new Date().toISOString());
-          } catch (e) {
-            console.error('[Clauge Sync] Periodic push failed:', e);
-          }
-        }, PERIODIC_SYNC_INTERVAL_MS);
       }
     } catch (e) {
-      console.warn('GitHub status check failed:', e);
+      console.warn('[Cloud] status check failed:', e);
     }
 
     // Check for updates silently on startup and show What's New if version changed
@@ -709,7 +687,7 @@
 <ContextMenu />
 <EnvManagerModal />
 <SettingsModal />
-<GitHubConnect />
+<CloudConnect />
 <ShortcutsOverlay show={$activeModal === 'shortcuts'} onclose={() => activeModal.set(null)} />
 <SaveRequestDialog bind:show={showSaveDialog} tabId={saveDialogTabId} />
 <Onboarding />
