@@ -1,1 +1,10 @@
+# Cloudflare Pages redirect rules. Evaluated top-to-bottom; first match wins.
+
+# /worker/* is reserved for the Cloudflare Worker (auth + sync API).
+# Anything that leaks through to Pages is a misconfiguration — return 404.
 /worker/*  /  404
+
+# Catch-all 404. Serves the branded 404.html with a real HTTP 404 status
+# (instead of Cloudflare Pages' default 200), so SEO crawlers correctly
+# treat unknown URLs as missing rather than as a real page.
+/*  /404.html  404

@@ -3,26 +3,135 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+        <!-- ─── Primary SEO ──────────────────────────────────────────── -->
         <title>Clauge — The AI-powered super-app for developers</title>
         <meta
             name="description"
-            content="One window. One keyboard. One AI that knows what you're doing. Clauge replaces the dev tools you keep flipping between."
+            content="One window. One keyboard. One AI that knows what you're doing. Clauge replaces the dev tools you keep flipping between — Claude Code sessions, REST, SQL, NoSQL, SSH, and remote files all in one shell."
         />
-        <meta name="theme-color" content="#07070b" />
+        <meta
+            name="keywords"
+            content="Clauge, AI coding assistant, Claude Code, developer super app, REST client, SQL client, NoSQL client, SSH client, Tauri app, terminal, developer tools"
+        />
+        <meta name="author" content="Clauge" />
+        <meta name="publisher" content="Clauge" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <meta name="googlebot" content="index, follow" />
+        <link rel="canonical" href="https://clauge.in/" />
 
+        <!-- Browser chrome / color scheme. Two theme-color entries let
+             Safari/Chrome pick the right address-bar tint per user mode. -->
+        <meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="application-name" content="Clauge" />
+        <meta name="apple-mobile-web-app-title" content="Clauge" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+        <!-- ─── Open Graph (Facebook, LinkedIn, Slack, Discord) ──────── -->
+        <!-- NOTE: og:image SHOULD be a 1200×630 PNG/JPG for proper card
+             rendering. Most platforms (Facebook, LinkedIn, Slack) won't
+             render SVGs in link previews. Create `og-image.png` at the
+             repo root (1200×630) and swap the URL below once it exists. -->
         <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Clauge" />
+        <meta property="og:locale" content="en_US" />
+        <meta property="og:url" content="https://clauge.in/" />
         <meta
             property="og:title"
             content="Clauge — The AI-powered super-app for developers"
         />
         <meta
             property="og:description"
-            content="One window. One keyboard. One AI that knows what you're doing."
+            content="One window. One keyboard. One AI that knows what you're doing. Clauge replaces the dev tools you keep flipping between."
         />
-        <meta property="og:image" content="clauge-mark.svg" />
-        <meta name="twitter:card" content="summary_large_image" />
+        <meta property="og:image" content="https://clauge.in/clauge-mark.svg" />
+        <meta property="og:image:type" content="image/svg+xml" />
+        <meta property="og:image:alt" content="Clauge — AI-powered super-app for developers" />
 
+        <!-- ─── Twitter / X card ─────────────────────────────────────── -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <!-- Add your Twitter / X handle when you have one, e.g.:
+             <meta name="twitter:site" content="@clauge_app" />
+             <meta name="twitter:creator" content="@ansxuman" /> -->
+        <meta
+            name="twitter:title"
+            content="Clauge — The AI-powered super-app for developers"
+        />
+        <meta
+            name="twitter:description"
+            content="One window. One keyboard. One AI that knows what you're doing. Clauge replaces the dev tools you keep flipping between."
+        />
+        <meta name="twitter:image" content="https://clauge.in/clauge-mark.svg" />
+        <meta name="twitter:image:alt" content="Clauge — AI-powered super-app for developers" />
+
+        <!-- ─── Icons ────────────────────────────────────────────────── -->
+        <!-- SVG icon works in all modern browsers and scales to any size.
+             If you later generate raster favicons (recommended for older
+             Android / iOS launchers), uncomment and ship:
+               apple-touch-icon.png   (180×180)
+               favicon-32x32.png      (32×32)
+               favicon-16x16.png      (16×16)
+               favicon.ico            (multi-size, root)
+               site.webmanifest       (PWA manifest)
+             A tool like realfavicongenerator.net does all of these from
+             one source SVG/PNG in 30 seconds. -->
         <link rel="icon" type="image/svg+xml" href="clauge-mark.svg" />
+        <!-- <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" /> -->
+        <!-- <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" /> -->
+        <!-- <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" /> -->
+        <!-- <link rel="manifest" href="/site.webmanifest" /> -->
+
+        <!-- ─── Structured data (Google rich results) ────────────────── -->
+        <!-- Two graphs: the Organization that publishes Clauge, and the
+             SoftwareApplication for the app itself. Google merges them via
+             the shared `@id` URL so the knowledge panel / search card has
+             the right name, logo, and download link. -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "Organization",
+                        "@id": "https://clauge.in/#org",
+                        "name": "Clauge",
+                        "url": "https://clauge.in/",
+                        "logo": "https://clauge.in/clauge-mark.svg",
+                        "sameAs": [
+                            "https://github.com/ansxuman/Clauge"
+                        ]
+                    },
+                    {
+                        "@type": "SoftwareApplication",
+                        "@id": "https://clauge.in/#app",
+                        "name": "Clauge",
+                        "url": "https://clauge.in/",
+                        "image": "https://clauge.in/clauge-mark.svg",
+                        "description": "An AI-powered super-app for developers — Claude Code session manager, REST client, SQL client, NoSQL client, SSH client, and remote file browser, all in one cross-platform desktop shell.",
+                        "applicationCategory": "DeveloperApplication",
+                        "operatingSystem": "macOS, Windows, Linux",
+                        "publisher": { "@id": "https://clauge.in/#org" },
+                        "offers": {
+                            "@type": "Offer",
+                            "price": "0",
+                            "priceCurrency": "USD"
+                        }
+                    },
+                    {
+                        "@type": "WebSite",
+                        "@id": "https://clauge.in/#website",
+                        "url": "https://clauge.in/",
+                        "name": "Clauge",
+                        "publisher": { "@id": "https://clauge.in/#org" }
+                    }
+                ]
+            }
+        </script>
+
+        <!-- ─── Fonts + stylesheets ──────────────────────────────────── -->
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link

@@ -8,8 +8,59 @@
             name="description"
             content="Clauge Terms of Service — the agreement between you and Clauge for using the desktop app and cloud sync."
         />
-        <meta name="theme-color" content="#07070b" />
+        <meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <meta name="color-scheme" content="dark light" />
         <meta name="robots" content="index, follow" />
+        <meta name="author" content="Clauge" />
+        <link rel="canonical" href="https://clauge.in/terms.html" />
+
+        <!-- Open Graph -->
+        <meta property="og:type" content="article" />
+        <meta property="og:site_name" content="Clauge" />
+        <meta property="og:locale" content="en_US" />
+        <meta property="og:url" content="https://clauge.in/terms.html" />
+        <meta property="og:title" content="Terms of Service — Clauge" />
+        <meta
+            property="og:description"
+            content="The agreement between you and Clauge for using the desktop app and cloud sync."
+        />
+        <meta property="og:image" content="https://clauge.in/clauge-mark.svg" />
+        <meta property="og:image:alt" content="Clauge logo" />
+
+        <!-- Twitter / X card -->
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Terms of Service — Clauge" />
+        <meta
+            name="twitter:description"
+            content="The agreement between you and Clauge for using the desktop app and cloud sync."
+        />
+        <meta name="twitter:image" content="https://clauge.in/clauge-mark.svg" />
+
+        <!-- Structured data -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "WebPage",
+                        "@id": "https://clauge.in/terms.html#webpage",
+                        "url": "https://clauge.in/terms.html",
+                        "name": "Terms of Service — Clauge",
+                        "description": "Clauge's terms of service.",
+                        "isPartOf": { "@id": "https://clauge.in/#website" },
+                        "about": { "@id": "https://clauge.in/#org" }
+                    },
+                    {
+                        "@type": "BreadcrumbList",
+                        "itemListElement": [
+                            { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://clauge.in/" },
+                            { "@type": "ListItem", "position": 2, "name": "Terms of Service", "item": "https://clauge.in/terms.html" }
+                        ]
+                    }
+                ]
+            }
+        </script>
 
         <link rel="icon" type="image/svg+xml" href="clauge-mark.svg" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

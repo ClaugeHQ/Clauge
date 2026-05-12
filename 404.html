@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page not found — Clauge</title>
+    <meta name="description" content="That page doesn't exist on clauge.in. Head back home or check the changelog for what's new." />
+    <meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+    <!-- Don't let 404 pages dilute the index — Google should never show
+         them in search results, but bots should still follow links back. -->
+    <meta name="robots" content="noindex, follow" />
+
+    <link rel="icon" type="image/svg+xml" href="clauge-mark.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="style.css" />
+
+    <style>
+        .nf-hero {
+            min-height: calc(100vh - 80px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px 20px;
+        }
+        .nf-code {
+            font-family: var(--font-mono, ui-monospace, monospace);
+            font-size: clamp(80px, 14vw, 160px);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 1;
+            background: linear-gradient(120deg, #ffffff 0%, var(--purple, #9d5cff) 60%, var(--cyan, #4fd8ff) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin: 0 0 12px;
+        }
+        .nf-title {
+            font-family: var(--font-display, system-ui);
+            font-size: clamp(24px, 3.2vw, 36px);
+            letter-spacing: -0.02em;
+            margin: 0 0 12px;
+        }
+        .nf-sub {
+            color: var(--text-muted, #a1a1aa);
+            max-width: 480px;
+            margin: 0 auto 28px;
+            font-size: 15px;
+            line-height: 1.55;
+        }
+        .nf-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="bg-field" aria-hidden="true"></div>
+
+    <header class="header" id="site-header">
+        <div class="container header-inner">
+            <a class="brand" href="/" aria-label="Clauge home">
+                <img src="clauge-mark.svg" alt="" />
+                <span>Clauge</span>
+            </a>
+            <nav class="nav" aria-label="Primary">
+                <a href="/#what-it-does">What it does</a>
+                <a href="/#ai">The AI</a>
+                <a href="/#themes">Themes</a>
+                <a href="/pricing.html">Pricing</a>
+                <a href="/changelog.html">Changelog</a>
+                <a href="/enterprise.html">Enterprise</a>
+                <a href="https://github.com/ansxuman/Clauge" target="_blank" rel="noopener" class="cta">
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                    <span>GitHub</span>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main" class="container nf-hero">
+        <div class="nf-code" aria-hidden="true">404</div>
+        <h1 class="nf-title">This page doesn't exist</h1>
+        <p class="nf-sub">
+            The link might be broken, or the page might have moved. Try the
+            homepage, or jump into the changelog to see what's new.
+        </p>
+        <div class="nf-actions">
+            <a href="/" class="cta">
+                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                <span>Back to home</span>
+            </a>
+            <a href="/changelog.html" class="cta">
+                <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                <span>Changelog</span>
+            </a>
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Clauge — https://clauge.in
+# Allow everything by default; the per-page <meta name="robots"> takes
+# precedence where it disagrees (e.g. /worker/ if we ever expose it).
+
+User-agent: *
+Allow: /
+
+# Worker paths under /auth/ and /api/ are handled by the Cloudflare
+# Worker, not Cloudflare Pages. They return JSON / redirects and should
+# not be indexed as web pages.
+Disallow: /auth/
+Disallow: /api/
+Disallow: /worker/
+
+Sitemap: https://clauge.in/sitemap.xml

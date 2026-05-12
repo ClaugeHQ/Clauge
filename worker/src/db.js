@@ -77,6 +77,53 @@ export async function upsertUserWithIdentity(env, provider, providerUserId, prof
     return { userId: existing.user_id, isNew: false };
   }
 
+  // Email-merge: if a Clauge user already exists with this verified email,
+  // attach the new identity to that user instead of creating a duplicate
+  // account. Both Google (id_token.email_verified) and GitHub (/user.email
+  // primary verified) hand us verified emails, so this is safe.
+  if (profile.email) {
+    const byEmail = await env.CLAUGE_DB
+      .prepare('SELECT user_id FROM users WHERE primary_email = ? COLLATE NOCASE')
+      .bind(profile.email)
+      .first();
+
+    if (byEmail) {
+      const targetUserId = byEmail.user_id;
+      const dupProvider = await env.CLAUGE_DB
+        .prepare('SELECT 1 FROM oauth_identities WHERE user_id = ? AND provider = ?')
+        .bind(targetUserId, provider)
+        .first();
+
+      // Only merge if this user has no identity row for the same provider
+      // yet (avoids the weird case where two providers of the same kind
+      // somehow share an email but have different provider_user_ids).
+      if (!dupProvider) {
+        await env.CLAUGE_DB
+          .prepare(`INSERT INTO oauth_identities (provider, provider_user_id, user_id, provider_login, email)
+                    VALUES (?, ?, ?, ?, ?)`)
+          .bind(provider, String(providerUserId), targetUserId, profile.providerLogin || null, profile.email || null)
+          .run();
+        await env.CLAUGE_DB
+          .prepare(`UPDATE users
+                       SET display_name = COALESCE(display_name, ?),
+                           first_name   = COALESCE(first_name, ?),
+                           last_name    = COALESCE(last_name, ?),
+                           avatar_url   = COALESCE(avatar_url, ?),
+                           updated_at   = CURRENT_TIMESTAMP
+                     WHERE user_id = ?`)
+          .bind(
+            profile.displayName || null,
+            profile.firstName   || null,
+            profile.lastName    || null,
+            profile.avatarUrl   || null,
+            targetUserId,
+          )
+          .run();
+        return { userId: targetUserId, isNew: false };
+      }
+    }
+  }
+
   // New user — generate a slug from the provider's best handle, then create both rows.
   const slug = await generateUniqueSlug(env, [
     profile.slugSeed,
