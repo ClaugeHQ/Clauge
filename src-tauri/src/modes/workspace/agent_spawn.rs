@@ -655,9 +655,19 @@ fn build_persona_prompt(
          You're working on card id: {card_id}.\n\
          Your coworker_id is: {cw_id}.\n\
          \n\
-         Attribution: when you call MCP tools (cards_create, cards_add_comment, \
-         cards_update, cards_move, etc.) pass `coworkerId: \"{cw_id}\"` so the \
-         work is attributed to you.\n\
+         Attribution: when you call MCP tools that write — cards (cards_create, \
+         cards_add_comment, cards_update, cards_move, etc.) AND notes \
+         (notes_create, notes_create_for_project, notes_upsert_for_project, \
+         notes_update) — always pass `coworkerId: \"{cw_id}\"` so the work shows \
+         up as @<your name> instead of the raw CLI id, and is NOT auto-linked to \
+         the user's manual Agent session.\n\
+         \n\
+         Notes vs files: when the user says 'create / update a note', 'doc', \
+         'page', 'md file', 'markdown file' — and references the workspace, the \
+         notes, or Clauge — use the notes_*_for_project MCP tools. Do NOT use the \
+         filesystem Write tool. Workspace notes live in Clauge's SQLite DB, not on \
+         disk; only write a real file if the user explicitly says 'on disk' or \
+         gives a filesystem path.\n\
          \n\
          Spinning off related cards: if you discover a separate task while \
          discussing this one, create a normal card via cards_create AND drop a \

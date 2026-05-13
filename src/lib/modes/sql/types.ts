@@ -47,6 +47,9 @@ export interface SqlResultEntry {
   result: SqlQueryResult | null;
   error: string | null;
   connectionId?: string;  // live pool ID — used when AI auto-connects to a different database
+  /** Epoch ms when this statement started executing. Drives the DML
+   *  Statistics panel (Start / Finish = startedAt + result.durationMs). */
+  startedAt?: number;
 }
 
 /** Per-tab binding: which `(connection, database)` this tab queries. */

@@ -28,6 +28,9 @@
     connectingLabel?: string;
     connectError?: string | null;
     elapsedMs?: number;
+    /** Epoch ms when this statement was kicked off — used by the DML
+     *  Statistics panel to show Start / Finish times. */
+    startedAt?: number;
     oncancel?: () => void;
     onretry?: () => void;
   }
@@ -44,9 +47,39 @@
     connectingLabel = '',
     connectError = null,
     elapsedMs = 0,
+    startedAt,
     oncancel,
     onretry,
   }: Props = $props();
+
+  function dmlVerb(q: string): string {
+    const m = q.trim().match(/^\s*(\w+)/);
+    if (!m) return 'Affected';
+    const v = m[1].toUpperCase();
+    if (v === 'UPDATE') return 'Updated';
+    if (v === 'INSERT') return 'Inserted';
+    if (v === 'DELETE') return 'Deleted';
+    return 'Affected';
+  }
+
+  function fmtTs(ts: number): string {
+    return new Date(ts).toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZoneName: 'short',
+    });
+  }
+
+  function fmtExec(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(3)}s`;
+  }
 
   // Virtual scrolling — only the rows in the visible viewport (+ overscan)
   // are in the DOM. Spacer rows above/below maintain the correct scroll height.
@@ -530,11 +563,35 @@
       <div class="rt-empty-text">Execute a query to see results</div>
     </div>
   {:else if result.columns.length === 0}
-    <div class="rt-empty">
-      <div class="rt-affected">
-        {result.affectedRows} row{result.affectedRows !== 1 ? 's' : ''} affected
+    <div class="rt-stats">
+      <div class="rt-stats-head">
+        <div class="rt-stats-col-name">Name</div>
+        <div class="rt-stats-col-value">Value</div>
       </div>
-      <div class="rt-duration">{result.durationMs}ms</div>
+      <div class="rt-stats-row">
+        <div class="rt-stats-col-name">{dmlVerb(query)} Rows</div>
+        <div class="rt-stats-col-value">{result.affectedRows}</div>
+      </div>
+      <div class="rt-stats-row">
+        <div class="rt-stats-col-name">Execute time</div>
+        <div class="rt-stats-col-value">{fmtExec(result.durationMs)}</div>
+      </div>
+      {#if startedAt}
+        <div class="rt-stats-row">
+          <div class="rt-stats-col-name">Start time</div>
+          <div class="rt-stats-col-value">{fmtTs(startedAt)}</div>
+        </div>
+        <div class="rt-stats-row">
+          <div class="rt-stats-col-name">Finish time</div>
+          <div class="rt-stats-col-value">{fmtTs(startedAt + result.durationMs)}</div>
+        </div>
+      {/if}
+      {#if query}
+        <div class="rt-stats-row rt-stats-row-query">
+          <div class="rt-stats-col-name">Query</div>
+          <pre class="rt-stats-col-value rt-stats-query">{query}</pre>
+        </div>
+      {/if}
     </div>
   {:else}
     <div
@@ -789,6 +846,46 @@
 
   .rt-affected { font-size: 14px; color: var(--acc); font-family: var(--mono); font-weight: 600; }
   .rt-duration { font-size: 11px; color: var(--t3); font-family: var(--mono); }
+
+  /* DataGrip-style Statistics panel for DML (INSERT/UPDATE/DELETE/DDL). */
+  .rt-stats {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--t2);
+  }
+  .rt-stats-head {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    padding: 6px 14px;
+    background: var(--c);
+    color: var(--t3);
+    font-weight: 600;
+    border-bottom: 1px solid var(--b1);
+    position: sticky;
+    top: 0;
+  }
+  .rt-stats-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    padding: 6px 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--b1) 50%, transparent);
+  }
+  .rt-stats-row:hover { background: color-mix(in srgb, var(--c) 50%, transparent); }
+  .rt-stats-col-name { color: var(--t3); }
+  .rt-stats-col-value { color: var(--t1); white-space: pre-wrap; word-break: break-word; }
+  .rt-stats-row-query { align-items: flex-start; }
+  .rt-stats-query {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font: inherit;
+    color: var(--t1);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   .rt-no-rows td {
     padding: 36px 16px;
     text-align: center;

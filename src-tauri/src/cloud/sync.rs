@@ -214,18 +214,36 @@ pub async fn pull_kind(
     Ok(())
 }
 
-/// Pull every kind that has a remote blob.
+/// Pull every kind that has a remote blob. FK-aware order — kinds that
+/// other kinds reference must apply first, or SQLite raises a foreign
+/// key constraint failure on insert (e.g. an `explorer_connections` row
+/// with `ssh_profile_id` set, applied before the matching `ssh_profiles`
+/// row exists locally → SQLITE_CONSTRAINT_FOREIGNKEY).
 pub async fn pull_all(
     pool: &SqlitePool,
     state: &AuthState,
 ) -> Result<Vec<String>, String> {
     let rows = client::sync_state(pool, state).await.map_err(String::from)?;
+    let mut kinds: Vec<String> = rows.into_iter().map(|r| r.kind).collect();
+    kinds.sort_by_key(|k| pull_order_rank(k));
     let mut pulled = Vec::new();
-    for row in rows {
-        pull_kind(pool, state, &row.kind).await?;
-        pulled.push(row.kind);
+    for kind in kinds {
+        pull_kind(pool, state, &kind).await?;
+        pulled.push(kind);
     }
     Ok(pulled)
+}
+
+/// Lower rank = applied earlier. Parents (referenced by FKs in other
+/// kinds) get a smaller number. Anything not listed sorts to the end —
+/// add new kinds here only when they're FK targets.
+fn pull_order_rank(kind: &str) -> u8 {
+    match kind {
+        // ssh_profiles is referenced by sql_connections, nosql_connections,
+        // and explorer_connections, so it must restore first.
+        k if k == crate::cloud::domains::ssh::KIND => 0,
+        _ => 10,
+    }
 }
 
 /// True if the user has any locally-created data in the synced tables.

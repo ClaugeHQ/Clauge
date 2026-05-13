@@ -368,8 +368,9 @@
     const existing = getSqlTabData(tabId).results || [];
     const existingIdx = existing.findIndex((e) => e.label === label);
 
+    const startedAt = Date.now();
     setSqlTabData(tabId, {
-      inFlight: { queryId, startedAt: Date.now() },
+      inFlight: { queryId, startedAt },
       error: null,
     });
 
@@ -380,7 +381,7 @@
         applyRowLimit(q),
         queryId,
       );
-      const entry: SqlResultEntry = { label, query: q, result, error: null };
+      const entry: SqlResultEntry = { label, query: q, result, error: null, startedAt };
       let updated: SqlResultEntry[];
       let focusIdx: number;
       if (existingIdx >= 0) {
@@ -400,7 +401,7 @@
       showToast(`Query completed in ${result.durationMs}ms`, 'success');
     } catch (e: any) {
       const msg = e?.toString?.() ?? String(e);
-      const entry: SqlResultEntry = { label, query: q, result: null, error: msg };
+      const entry: SqlResultEntry = { label, query: q, result: null, error: msg, startedAt };
       let updated: SqlResultEntry[];
       let focusIdx: number;
       if (existingIdx >= 0) {
@@ -455,6 +456,7 @@
     let successCount = 0;
     let errorCount = 0;
     for (let i = 0; i < queries.length; i++) {
+      entries[i].startedAt = Date.now();
       try {
         // Each statement gets its own queryId so cancel works mid-batch.
         const subId = makeQueryId();
@@ -690,17 +692,22 @@
     {/if}
 
     <!-- Top: Query Editor -->
+    <!-- Keyed by tab id so each tab owns its CodeMirror EditorView (and
+         therefore its own undo history). Sharing one editor across tabs
+         leaked cmd+z across tab boundaries. -->
     <div class="sql-editor" style="height:{editorHeight}%">
-      <QueryEditor
-        bind:this={queryEditorRef}
-        query={currentQuery}
-        tables={tableList}
-        {columnMap}
-        disabled={!!inFlight || isConnecting}
-        onexecute={handleExecute}
-        onexecutemulti={handleExecuteMulti}
-        onquerychange={handleQueryChange}
-      />
+      {#key activeSqlTab?.id}
+        <QueryEditor
+          bind:this={queryEditorRef}
+          query={currentQuery}
+          tables={tableList}
+          {columnMap}
+          disabled={!!inFlight || isConnecting}
+          onexecute={handleExecute}
+          onexecutemulti={handleExecuteMulti}
+          onquerychange={handleQueryChange}
+        />
+      {/key}
     </div>
 
     <!-- Draggable divider -->
@@ -755,6 +762,7 @@
         loading={!!inFlight}
         tabId={activeSqlTab?.id ?? -1}
         query={activeResultEntry?.query ?? currentQuery}
+        startedAt={activeResultEntry?.startedAt}
         liveConnectionId={binding ? `${binding.connectionId}:${binding.database}` : ''}
         databaseName={currentDatabase}
         poolState={isConnecting ? 'connecting' : poolState === 'error' ? 'error' : 'idle'}

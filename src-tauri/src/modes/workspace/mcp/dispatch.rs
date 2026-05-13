@@ -4,7 +4,35 @@
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
-use crate::shared::repos::{sessions as session_repo, workspaces as repo};
+use crate::shared::repos::{coworkers as coworker_repo, sessions as session_repo, workspaces as repo};
+
+/// Resolve the actor to record on a write. When the calling agent passes
+/// `coworkerId` (the persona prompt instructs them to, so the work shows
+/// up as @<name> instead of "claude"), look the coworker up and return
+/// their name as the effective actor. The frontend's `describeActor`
+/// matches case-insensitively against the coworker registry and renders
+/// the @<name> + avatar badge automatically.
+///
+/// Returns `(effective_actor, is_coworker)`. Callers gate the
+/// `linked_session` auto-link on `is_coworker` — coworker writes come
+/// through hidden ('card'-origin) sessions and have no business
+/// pointing notes/cards at the user's manual Agent session.
+async fn resolve_actor(
+    pool: &SqlitePool,
+    args: &Value,
+    fallback: &str,
+) -> (String, bool) {
+    let coworker_id = args
+        .get("coworkerId")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+    if let Some(cw_id) = coworker_id {
+        if let Ok(cw) = coworker_repo::get_coworker(pool, cw_id).await {
+            return (cw.name, true);
+        }
+    }
+    (fallback.to_string(), false)
+}
 
 async fn upsert_workspace_for_project(
     pool: &SqlitePool,
@@ -285,14 +313,17 @@ pub(super) async fn dispatch_tool(
             let content = str_arg("content").unwrap_or_default();
             let tags = str_array("tags");
             let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
-            let ws = upsert_workspace_for_project(pool, &project_path, actor).await?;
+            let (eff_actor, is_coworker) = resolve_actor(pool, &args, actor).await;
+            let ws = upsert_workspace_for_project(pool, &project_path, &eff_actor).await?;
             let id = new_id();
             repo::insert_note(
-                pool, &id, &ws.id, &title, &content, &tags_json, None, actor, &now,
+                pool, &id, &ws.id, &title, &content, &tags_json, None, &eff_actor, &now,
             )
             .await
             .map_err(map_db)?;
-            auto_link_note_to_recent_session(pool, &id, actor, &now).await;
+            if !is_coworker {
+                auto_link_note_to_recent_session(pool, &id, &eff_actor, &now).await;
+            }
             let note = repo::get_note_by_id(pool, &id).await.map_err(map_db)?;
             Ok(ok_text(json!({
                 "workspace": ws,
@@ -307,7 +338,8 @@ pub(super) async fn dispatch_tool(
             let tags_provided = args.get("tags").is_some();
             let new_tags = str_array("tags");
 
-            let ws = upsert_workspace_for_project(pool, &project_path, actor).await?;
+            let (eff_actor, is_coworker) = resolve_actor(pool, &args, actor).await;
+            let ws = upsert_workspace_for_project(pool, &project_path, &eff_actor).await?;
             let existing = repo::find_note_by_title_in_workspace(pool, &ws.id, &title)
                 .await
                 .map_err(map_db)?;
@@ -320,7 +352,7 @@ pub(super) async fn dispatch_tool(
                     let id = new_id();
                     repo::insert_note(
                         pool, &id, &ws.id, &title, &new_content, &tags_json,
-                        None, actor, &now,
+                        None, &eff_actor, &now,
                     )
                     .await
                     .map_err(map_db)?;
@@ -354,7 +386,7 @@ pub(super) async fn dispatch_tool(
                     };
                     repo::update_note(
                         pool, &cur.id, &title, &merged_content, &tags_json,
-                        cur.linked_session_id.as_deref(), actor, &now,
+                        cur.linked_session_id.as_deref(), &eff_actor, &now,
                         repo::MutationGuard { respect_frozen: true, expected_updated_at: None },
                     )
                     .await
@@ -364,7 +396,9 @@ pub(super) async fn dispatch_tool(
                 }
             }?;
 
-            auto_link_note_to_recent_session(pool, &note.0.id, actor, &now).await;
+            if !is_coworker {
+                auto_link_note_to_recent_session(pool, &note.0.id, &eff_actor, &now).await;
+            }
             Ok(ok_text(json!({
                 "workspace": ws,
                 "note": note.0,
@@ -388,10 +422,13 @@ pub(super) async fn dispatch_tool(
             let content = str_arg("content").unwrap_or_default();
             let tags = str_array("tags");
             let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
+            let (eff_actor, is_coworker) = resolve_actor(pool, &args, actor).await;
             let id = new_id();
-            repo::insert_note(pool, &id, &workspace_id, &title, &content, &tags_json, None, actor, &now)
+            repo::insert_note(pool, &id, &workspace_id, &title, &content, &tags_json, None, &eff_actor, &now)
                 .await.map_err(map_db)?;
-            auto_link_note_to_recent_session(pool, &id, actor, &now).await;
+            if !is_coworker {
+                auto_link_note_to_recent_session(pool, &id, &eff_actor, &now).await;
+            }
             let v = repo::get_note_by_id(pool, &id).await.map_err(map_db)?;
             Ok(ok_text(serde_json::to_value(v).unwrap_or(Value::Null)))
         }
@@ -411,13 +448,16 @@ pub(super) async fn dispatch_tool(
                 respect_frozen: true,
                 expected_updated_at: expected_updated_at.as_deref(),
             };
+            let (eff_actor, is_coworker) = resolve_actor(pool, &args, actor).await;
             let rows = repo::update_note(pool, &id, &title, &content, &tags_json,
-                cur.linked_session_id.as_deref(), actor, &now, guard)
+                cur.linked_session_id.as_deref(), &eff_actor, &now, guard)
                 .await.map_err(map_db)?;
             if rows == 0 {
                 return Err(diagnose_note_or_err(pool, &id, guard).await);
             }
-            auto_link_note_to_recent_session(pool, &id, actor, &now).await;
+            if !is_coworker {
+                auto_link_note_to_recent_session(pool, &id, &eff_actor, &now).await;
+            }
             let v = repo::get_note_by_id(pool, &id).await.map_err(map_db)?;
             Ok(ok_text(serde_json::to_value(v).unwrap_or(Value::Null)))
         }

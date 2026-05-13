@@ -30,20 +30,37 @@
 
     async function handleOAuthCallback(e: Event) {
         if (get(settings)["onboarding_complete"]) return;
-        const detail = (e as CustomEvent<{ provider: "github" | "google"; code: string }>).detail;
+        const detail = (
+            e as CustomEvent<{ provider: "github" | "google"; code: string }>
+        ).detail;
         if (!detail?.code || !detail?.provider) return;
         ghConnecting = true;
         try {
             const { cloudExchangeCode, cloudCheckRemoteExists } =
                 await import("$lib/commands/cloud");
-            const { setConnected, markSynced, showSyncRestorePrompt, setLastSyncedForKinds } =
-                await import("$lib/stores/cloud");
+            const {
+                setConnected,
+                markSynced,
+                showSyncRestorePrompt,
+                setLastSyncedForKinds,
+            } = await import("$lib/stores/cloud");
             const { showToast } = await import("$lib/shared/primitives/toast");
-            const status = await cloudExchangeCode(detail.provider, detail.code);
+            const status = await cloudExchangeCode(
+                detail.provider,
+                detail.code,
+            );
             if (status.user) {
-                setConnected(status.user, status.providers, status.activeProvider, status.plan);
+                setConnected(
+                    status.user,
+                    status.providers,
+                    status.activeProvider,
+                    status.plan,
+                );
                 setLastSyncedForKinds(status.lastSynced);
-                showToast(`Connected as ${status.user.displayName || status.user.slug}`, "success");
+                showToast(
+                    `Connected as ${status.user.displayName || status.user.slug}`,
+                    "success",
+                );
             }
             const { collections } = await import("$lib/modes/rest/stores");
             const { connections: sqlConns } =
@@ -111,10 +128,12 @@
     async function handleConnect(provider: "github" | "google") {
         ghConnecting = true;
         try {
-            const { cloudGithubLoginUrl, cloudGoogleLoginUrl } = await import("$lib/commands/cloud");
-            const url = provider === "github"
-                ? await cloudGithubLoginUrl()
-                : await cloudGoogleLoginUrl();
+            const { cloudGithubLoginUrl, cloudGoogleLoginUrl } =
+                await import("$lib/commands/cloud");
+            const url =
+                provider === "github"
+                    ? await cloudGithubLoginUrl()
+                    : await cloudGoogleLoginUrl();
             try {
                 const { openUrl } = await import("@tauri-apps/plugin-opener");
                 await openUrl(url);
@@ -176,9 +195,7 @@
                 height="72"
             />
             <h1 class="ob-title">Welcome to Clauge</h1>
-            <p class="ob-sub">
-                Sign in to sync across devices — or skip and stay local
-            </p>
+            <p class="ob-sub">Sign in to get started</p>
 
             <div class="ob-btns">
                 {#if ghConnecting}
@@ -209,7 +226,11 @@
                         Continue with GitHub
                     </button>
 
-                    <button class="ob-btn-google" onclick={handleGoogleConnect} disabled={ghConnecting}>
+                    <button
+                        class="ob-btn-google"
+                        onclick={handleGoogleConnect}
+                        disabled={ghConnecting}
+                    >
                         <svg
                             width="18"
                             height="18"
@@ -235,6 +256,21 @@
                         </svg>
                         Continue with Google
                     </button>
+
+                    <p class="ob-legal">
+                        By signing in, you agree to our
+                        <a
+                            href="https://clauge.in/terms"
+                            target="_blank"
+                            rel="noopener noreferrer">Terms of Service</a
+                        >
+                        and
+                        <a
+                            href="https://clauge.in/privacy"
+                            target="_blank"
+                            rel="noopener noreferrer">Privacy Policy</a
+                        >.
+                    </p>
 
                     <!-- "or" divider — quiet, frames the skip option as a real
              alternative rather than a hidden escape hatch. -->
@@ -383,15 +419,29 @@
         height: 44px;
         border-radius: 10px;
         background: transparent;
-        color: var(--t3);
+        color: var(--t1);
         border: 1px solid var(--b1);
         font-size: 13px;
         font-weight: 500;
         font-family: var(--ui);
-        cursor: not-allowed;
-        opacity: 0.5;
+        cursor: pointer;
+        transition:
+            background 0.15s,
+            border-color 0.15s,
+            transform 0.1s;
         width: 100%;
         position: relative;
+    }
+    .ob-btn-google:hover {
+        background: color-mix(in srgb, var(--t1) 6%, transparent);
+        border-color: color-mix(in srgb, var(--t1) 25%, var(--b1));
+    }
+    .ob-btn-google:active {
+        transform: scale(0.98);
+    }
+    .ob-btn-google:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
     }
 
     .ob-soon {
@@ -440,6 +490,25 @@
     }
     .ob-cancel:hover {
         background: var(--b1);
+    }
+
+    .ob-legal {
+        margin: 2px 0 4px;
+        text-align: center;
+        font-family: var(--ui);
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--t4);
+    }
+    .ob-legal a {
+        color: var(--t3);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, var(--t3) 50%, transparent);
+        text-underline-offset: 2px;
+    }
+    .ob-legal a:hover {
+        color: var(--t1);
+        text-decoration-color: var(--t1);
     }
 
     /* "or" divider between the auth buttons and the skip option.

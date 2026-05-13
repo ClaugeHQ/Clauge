@@ -109,14 +109,15 @@ fn note_schemas() -> Vec<Value> {
         json!(
         {
             "name": "notes_create",
-            "description": "Create a new note inside an existing workspace. Returns the new note. Use this when you already know the workspaceId; otherwise prefer notes_create_for_project.",
+            "description": "Create a new note inside an existing workspace (when you already know the workspaceId; otherwise prefer notes_create_for_project). Returns the new note. Intent cues — use this tool, NOT the filesystem Write tool, for any request to 'create a note / doc / page / md / markdown file in the workspace / in the notes / in Clauge', or to 'record / capture / jot down / save X in the notes'. Notes live in the Clauge SQLite DB, not on disk; only fall back to filesystem writes if the user explicitly says 'on disk' or names a path.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "workspaceId": { "type": "string" },
                     "title": { "type": "string" },
                     "content": { "type": "string" },
-                    "tags": { "type": "array", "items": { "type": "string" } }
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "coworkerId": { "type": "string", "description": "Optional. The coworker (persona) id this write is attributed to. When set, the note is recorded as @<coworker> and is NOT auto-linked to the user's manual Agent session." }
                 },
                 "required": ["workspaceId", "title"]
             }
@@ -125,14 +126,15 @@ fn note_schemas() -> Vec<Value> {
         json!(
         {
             "name": "notes_create_for_project",
-            "description": "Create a NEW note for the given project (always creates, never replaces). If no workspace exists for the project path, one is auto-created (named after the folder, with a default board) before the note is added. Returns { workspace, note }. Prefer notes_upsert_for_project when the user is asking to record/refresh information on a topic — it'll update an existing same-titled note instead of stacking duplicates.",
+            "description": "Create a NEW note for the given project (always creates, never replaces). If no workspace exists for the project path, one is auto-created (named after the folder, with a default board) before the note is added. Returns { workspace, note }. Intent cues — use this tool, NOT the filesystem Write tool, for any request to 'create a note / doc / page / md / markdown file in the workspace / in the notes / in Clauge', or to 'record / capture / jot down / save X in the notes'. Notes live in the Clauge SQLite DB, not on disk; only fall back to filesystem writes if the user explicitly says 'on disk' or names a path. Prefer notes_upsert_for_project when the user is asking to record/refresh information on a topic — it'll update an existing same-titled note instead of stacking duplicates.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "projectPath": { "type": "string", "description": "Absolute path to the project's root folder." },
                     "title": { "type": "string" },
                     "content": { "type": "string" },
-                    "tags": { "type": "array", "items": { "type": "string" } }
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "coworkerId": { "type": "string", "description": "Optional. The coworker (persona) id this write is attributed to. When set, the note is recorded as @<coworker> and is NOT auto-linked to the user's manual Agent session." }
                 },
                 "required": ["projectPath", "title"]
             }
@@ -141,7 +143,7 @@ fn note_schemas() -> Vec<Value> {
         json!(
         {
             "name": "notes_upsert_for_project",
-            "description": "Find-or-create a note in the project's workspace (workspace itself is auto-created if missing). Match is by case-insensitive title within that one workspace. If the note exists, content/tags are UPDATED (replace by default; pass mode='append' to add to the bottom). Returns { workspace, note, created: bool }. This is the right tool for evolving topical docs ('Overview', 'Architecture', 'TODO', etc.) — calling it twice with the same title edits the same note instead of duplicating.",
+            "description": "Find-or-create a note in the project's workspace (workspace itself is auto-created if missing). Match is by case-insensitive title within that one workspace. If the note exists, content/tags are UPDATED (replace by default; pass mode='append' to add to the bottom). Returns { workspace, note, created: bool }. Intent cues — use this tool, NOT the filesystem Write tool, for any request to 'create / update a note / doc / page / md / markdown file in the workspace / in the notes / in Clauge', or to 'record / capture / refresh / update X in the notes'. Notes live in the Clauge SQLite DB, not on disk; only fall back to filesystem writes if the user explicitly says 'on disk' or names a path. This is the right tool for evolving topical docs ('Overview', 'Architecture', 'TODO', etc.) — calling it twice with the same title edits the same note instead of duplicating.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -153,7 +155,8 @@ fn note_schemas() -> Vec<Value> {
                         "type": "string",
                         "enum": ["replace", "append"],
                         "description": "How to apply content when the note already exists. 'replace' (default) overwrites; 'append' adds the new content as a new section at the bottom separated by ---."
-                    }
+                    },
+                    "coworkerId": { "type": "string", "description": "Optional. The coworker (persona) id this write is attributed to. When set, the note is recorded as @<coworker> and is NOT auto-linked to the user's manual Agent session." }
                 },
                 "required": ["projectPath", "title"]
             }
@@ -162,7 +165,7 @@ fn note_schemas() -> Vec<Value> {
         json!(
         {
             "name": "notes_update",
-            "description": "Update an existing note. Pass any of title, content, tags. Pass the note's current `updatedAt` as `expectedUpdatedAt` to refuse the write if the note was modified concurrently.",
+            "description": "Update an existing note. Pass any of title, content, tags. Pass the note's current `updatedAt` as `expectedUpdatedAt` to refuse the write if the note was modified concurrently. Intent cues — use this tool, NOT the filesystem Write tool, for any request to 'edit / update / append to / rewrite a note / doc / page / md / markdown file in the workspace / in the notes / in Clauge'. Notes live in the Clauge SQLite DB, not on disk; only fall back to filesystem writes if the user explicitly says 'on disk' or names a path.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -170,7 +173,8 @@ fn note_schemas() -> Vec<Value> {
                     "title":              { "type": "string" },
                     "content":            { "type": "string" },
                     "tags":               { "type": "array", "items": { "type": "string" } },
-                    "expectedUpdatedAt":  { "type": "string", "description": "Optional. The `updatedAt` you read on this note. If it no longer matches, the call returns a conflict error so you can re-read and retry." }
+                    "expectedUpdatedAt":  { "type": "string", "description": "Optional. The `updatedAt` you read on this note. If it no longer matches, the call returns a conflict error so you can re-read and retry." },
+                    "coworkerId":         { "type": "string", "description": "Optional. The coworker (persona) id this write is attributed to. When set, the note is recorded as @<coworker> and is NOT auto-linked to the user's manual Agent session." }
                 },
                 "required": ["id"]
             }
