@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "3.0.0-alpha.12"
+version = "3.0.0-alpha.13"
 description = "Clauge — An AI-powered cross-platform desktop super-app for developers"
 authors = ["Anshuman <support@clauge.in>"]
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"

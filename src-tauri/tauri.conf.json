@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Clauge",
-  "version": "3.0.0-alpha.12",
+  "version": "3.0.0-alpha.13",
   "identifier": "com.clauge.desktop",
   "build": {
     "frontendDist": "../build",
