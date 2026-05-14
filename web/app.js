@@ -849,30 +849,21 @@
   const card = document.getElementById('dl-primary');
   const cta  = document.getElementById('cta-download');
   if (!card && !cta) return;
-  /* URL override for previewing on another OS without changing UA:
-       ?os=windows   → Windows view
-       ?os=linux     → Linux view
-       ?os=mac       → Mac (Apple Silicon)
-       ?os=mac-intel → Mac (Intel) */
-  const override = new URLSearchParams(location.search).get('os');
   const ua = (navigator.userAgent || '').toLowerCase();
-  const isMac   = override ? /^mac/.test(override)   : ua.includes('mac');
-  const isWin   = override ? override === 'windows'  : ua.includes('windows');
-  const isLinux = override ? override === 'linux'    : (ua.includes('linux') && !ua.includes('android'));
+  const isMac   = ua.includes('mac');
+  const isWin   = ua.includes('windows');
+  const isLinux = ua.includes('linux') && !ua.includes('android');
 
-  /* Apple Silicon vs Intel for Mac (override wins, else WebGL renderer heuristic) */
+  /* Apple Silicon vs Intel for Mac via WebGL renderer heuristic */
   let macArch = 'arm';
-  if (override === 'mac-intel') macArch = 'intel';
-  else if (!override) {
-    try {
-      const gl = document.createElement('canvas').getContext('webgl');
-      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
-      if (ext) {
-        const r = (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '').toLowerCase();
-        if (r.includes('intel') && !r.includes('apple')) macArch = 'intel';
-      }
-    } catch {}
-  }
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    if (ext) {
+      const r = (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '').toLowerCase();
+      if (r.includes('intel') && !r.includes('apple')) macArch = 'intel';
+    }
+  } catch {}
 
   /* Compute the per-OS plan, then apply to both hero CTA and bottom download card. */
   /* altKind picks which alt slot is visible:

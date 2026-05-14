@@ -4,5 +4,5 @@ window.CLAUGE_FLAGS = {
   /* showAlpha: true   → alpha releases visible in changelog + alpha download
                          buttons visible on the index download surfaces.
       showAlpha: false → hide all alpha-only surfaces at once (pre-1.0 launch toggle). */
-  showAlpha: false,
+  showAlpha: true,
 };
