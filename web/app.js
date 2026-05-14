@@ -775,15 +775,17 @@
   const REPO = 'ansxuman/Clauge';
   const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
 
-  /* Fetch latest releases; pick most recent matching showAlpha flag. */
-  fetch(`https://api.github.com/repos/${REPO}/releases?per_page=10`, {
-    headers: { 'Accept': 'application/vnd.github+json' }
-  })
+  /* showAlpha=true  → /releases?per_page=1  (most recent, alpha or stable)
+     showAlpha=false → /releases/latest      (latest non-prerelease per GitHub) */
+  const url = showAlpha
+    ? `https://api.github.com/repos/${REPO}/releases?per_page=1`
+    : `https://api.github.com/repos/${REPO}/releases/latest`;
+
+  fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } })
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
-    .then(list => {
-      if (!Array.isArray(list) || !list.length) return;
-      const isAlphaLike = (r) => /\balpha\b/.test((r.tag_name || '').toLowerCase());
-      const release = showAlpha ? list[0] : (list.find(r => !isAlphaLike(r)) || list[0]);
+    .then(payload => {
+      const release = Array.isArray(payload) ? payload[0] : payload;
+      if (!release) return;
       const assets = release.assets || [];
 
       /* Build slot → asset URL map */

@@ -172,12 +172,6 @@
       return t || tag || 'Release';
     };
 
-    // Hide alpha builds per project preference
-    const isAlphaLike = (r) => {
-      const blob = `${r.tag_name || ''} ${r.name || ''}`.toLowerCase();
-      return /\balpha\b/.test(blob) || /-alpha[.-]?/.test(blob);
-    };
-
     try {
       const resp = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
         headers: { 'Accept': 'application/vnd.github+json' }
@@ -185,7 +179,10 @@
       if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
       const allReleases = await resp.json();
       const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
-      const releases = Array.isArray(allReleases) ? (showAlpha ? allReleases : allReleases.filter(r => !isAlphaLike(r))) : [];
+      // Filter by GitHub's prerelease flag (the source of truth) — not a name regex
+      const releases = Array.isArray(allReleases)
+        ? (showAlpha ? allReleases : allReleases.filter(r => !r.prerelease && !r.draft))
+        : [];
 
       if (!releases.length) {
         container.innerHTML = `
