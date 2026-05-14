@@ -773,21 +773,17 @@
   };
 
   const REPO = 'ansxuman/Clauge';
-  const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
 
-  /* Fetch releases list; pick the most recent matching the showAlpha flag. */
+  /* Fetch the most recent release and rewrite hrefs to direct asset URLs. */
   fetch(`https://api.github.com/repos/${REPO}/releases?per_page=10`, {
     headers: { 'Accept': 'application/vnd.github+json' }
   })
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(list => {
       if (!Array.isArray(list) || !list.length) return;
-      const isAlphaLike = (r) => /\balpha\b/.test((r.tag_name || '').toLowerCase());
-      /* When showAlpha is OFF, never fall back to an alpha release — let the
-         link sit at releases/latest so the visitor sees "no stable build yet"
-         rather than silently being handed an alpha binary. */
-      const release = showAlpha ? list[0] : list.find(r => !isAlphaLike(r));
-      if (!release) return; /* no eligible release — keep default hrefs */
+      /* Always serve the latest release for downloads. The showAlpha flag only
+         controls UI labeling (the 'Alpha' pill) and the changelog filter. */
+      const release = list[0];
       const assets = release.assets || [];
 
       /* Build slot → asset URL map */
