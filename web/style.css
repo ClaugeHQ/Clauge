@@ -1135,3 +1135,31 @@ footer .meta-row { margin-top: 28px; padding-top: 18px; border-top: 1px solid va
 @media (max-width: 880px) {
   .dl-grid { grid-template-columns: 1fr; }
 }
+
+
+/* ─── ARM alt link: small clickable chips next to "On ARM?" ─── */
+.intel-link.arm-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.arm-chip {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono); font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .15s var(--ease);
+}
+.arm-chip:hover {
+  background: color-mix(in srgb, var(--acc) 18%, transparent);
+  border-color: color-mix(in srgb, var(--acc) 50%, transparent);
+  color: var(--acc);
+  transform: translateY(-1px);
+}

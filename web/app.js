@@ -741,6 +741,7 @@
     'mac-arm':       n => /\.dmg$/i.test(n) && /(aarch64|arm64)/i.test(n),
     'mac-intel':     n => /\.dmg$/i.test(n) && /(x64|x86_64|intel)/i.test(n),
     'win-x64':       n => /\.(exe|msi)$/i.test(n) && /(x64|x86_64)/i.test(n),
+    'win-arm':       n => /\.(exe|msi)$/i.test(n) && /(aarch64|arm64)/i.test(n),
     'linux-arm-deb': n => /\.deb$/i.test(n) && /(aarch64|arm64)/i.test(n),
     'linux-x64-deb': n => /\.deb$/i.test(n) && /(amd64|x64|x86_64)/i.test(n),
     'linux-arm-rpm': n => /\.rpm$/i.test(n) && /(aarch64|arm64)/i.test(n),
@@ -845,6 +846,11 @@
   }
 
   /* Compute the per-OS plan, then apply to both hero CTA and bottom download card. */
+  /* altKind picks which alt slot is visible:
+       'intel'   → single anchor (Mac Intel/Apple Silicon swap, or Mac/Win single-build)
+       'arm-pkg' → multi-chip span (.deb + .rpm) for Linux ARM
+       'win-arm' → single anchor for Windows ARM64
+       null      → hide all alt slots */
   let plan;
   if (isWin) {
     plan = {
@@ -852,15 +858,15 @@
       iconClass:  'fa-brands fa-windows',
       btn1: { osArch: 'win-x64', label: 'Download for Windows', archChip: 'x64' },
       btn2: null,
-      alt:  null,
+      altKind: 'win-arm',
     };
   } else if (isLinux) {
     plan = {
       headline:   'Get Clauge for Linux.',
       iconClass:  'fa-brands fa-linux',
-      btn1: { osArch: 'linux-x64-deb', label: 'Download for Linux', archChip: 'x64 · .deb', iconClass: 'fa-brands fa-linux' },
-      btn2: { osArch: 'linux-x64-rpm', label: 'Download for Linux', archChip: 'x64 · .rpm', iconClass: 'fa-brands fa-linux' },
-      alt:  { osArch: 'linux-arm-deb', html: 'On ARM? <u>Get the ARM builds (.deb · .rpm)</u>' },
+      btn1: { osArch: 'linux-x64-deb', label: 'Download for Linux', archChip: 'x64 · .deb' },
+      btn2: { osArch: 'linux-x64-rpm', label: 'Download for Linux', archChip: 'x64 · .rpm' },
+      altKind: 'arm-pkg',
     };
   } else if (macArch === 'intel') {
     plan = {
@@ -868,7 +874,9 @@
       iconClass:  'fa-brands fa-apple',
       btn1: { osArch: 'mac-intel', label: 'Download for Mac', archChip: 'Intel' },
       btn2: null,
-      alt:  { osArch: 'mac-arm', html: 'On Apple Silicon? <u>Get the Apple Silicon build</u>' },
+      altKind: 'intel',
+      altHtml: 'On Apple Silicon? <u>Get the Apple Silicon build</u>',
+      altOsArch: 'mac-arm',
     };
   } else {
     plan = {
@@ -876,7 +884,9 @@
       iconClass:  'fa-brands fa-apple',
       btn1: { osArch: 'mac-arm', label: 'Download for Mac', archChip: 'Apple Silicon' },
       btn2: null,
-      alt:  { osArch: 'mac-intel', html: 'On Intel? <u>Get the Intel build</u>' },
+      altKind: 'intel',
+      altHtml: 'On Intel? <u>Get the Intel build</u>',
+      altOsArch: 'mac-intel',
     };
   }
 
@@ -901,21 +911,21 @@
         refs.btn2.style.display = 'none';
       }
     }
-    if (refs.alt) {
-      if (plan.alt) {
-        refs.alt.setAttribute('data-os-arch', plan.alt.osArch);
-        refs.alt.style.display = '';
-        if (refs.altLabel) refs.altLabel.innerHTML = plan.alt.html;
-      } else {
-        refs.alt.style.display = 'none';
-      }
+    /* alt slots — three flavors. Show whichever matches plan.altKind, hide the others. */
+    const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+    show(refs.altIntel,  plan.altKind === 'intel');
+    show(refs.altArmPkg, plan.altKind === 'arm-pkg');
+    show(refs.altWinArm, plan.altKind === 'win-arm');
+    if (plan.altKind === 'intel' && refs.altIntel) {
+      refs.altIntel.setAttribute('data-os-arch', plan.altOsArch);
+      if (refs.altIntelLabel) refs.altIntelLabel.innerHTML = plan.altHtml;
     }
   };
 
   /* hero CTA surface */
   if (cta) {
     applyPlan({
-      headline: null, /* hero has no headline element */
+      headline: null,
       btn1:    cta,
       icon1:   document.querySelector('[data-cta-icon]'),
       label1:  document.querySelector('[data-cta-label]'),
@@ -924,8 +934,10 @@
       icon2:   document.querySelector('[data-cta-icon-2]'),
       label2:  document.querySelector('[data-cta-label-2]'),
       arch2:   document.querySelector('[data-cta-arch-2]'),
-      alt:     document.getElementById('intel-link'),
-      altLabel: document.querySelector('[data-cta-alt-label]'),
+      altIntel:      document.getElementById('intel-link'),
+      altIntelLabel: document.querySelector('[data-cta-alt-label]'),
+      altArmPkg:     document.getElementById('intel-link-arm'),
+      altWinArm:     document.getElementById('intel-link-win-arm'),
     });
   }
 
@@ -935,14 +947,16 @@
       headline: document.querySelector('[data-dl-headline]'),
       btn1:    card,
       icon1:   document.querySelector('[data-dl-icon]'),
-      label1:  null, /* bottom card's button label is just "Download" — left static */
+      label1:  null,
       arch1:   document.querySelector('[data-dl-arch]'),
       btn2:    document.getElementById('dl-primary-2'),
       icon2:   document.querySelector('[data-dl-icon-2]'),
       label2:  null,
       arch2:   document.querySelector('[data-dl-arch-2]'),
-      alt:     document.getElementById('dl-alt'),
-      altLabel: document.querySelector('[data-dl-alt-label]'),
+      altIntel:      document.getElementById('dl-alt'),
+      altIntelLabel: document.querySelector('[data-dl-alt-label]'),
+      altArmPkg:     document.getElementById('dl-alt-arm'),
+      altWinArm:     document.getElementById('dl-alt-win-arm'),
     });
   }
 })();
