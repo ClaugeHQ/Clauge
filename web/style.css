@@ -5,31 +5,51 @@
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg:          #07070b;
-  --bg-1:        #0c0c12;
-  --bg-2:        #11111a;
-  --bg-card:     rgba(20, 20, 30, 0.55);
-  --bg-glass:    rgba(13, 13, 20, 0.62);
-  --border:      rgba(255, 255, 255, 0.07);
-  --border-2:    rgba(255, 255, 255, 0.12);
-  --border-3:    rgba(255, 255, 255, 0.18);
+  /* Mirrored from app's src/app.css — single user-configurable accent. */
+  --acc:  #6366f1;
+  --s:    #12121f;
+  --n:    #161629;
+  --n2:   #1c1c35;
+  --c:    #1e1e32;
+  --e:    #151528;
+  --b1:   #2d2d48;
+  --b2:   #3e3e62;
+  --b-subtle: #222238;
+  --t1:   #e4e4f0;
+  --t2:   #d0d0e4;
+  --t3:   #b0b0c8;
+  --t4:   #7878a0;
+  --ok:   #1dc880;
+  --warn: #f5a623;
+  --err:  #f04444;
 
-  --text:        rgba(255, 255, 255, 0.94);
-  --text-muted:  rgba(255, 255, 255, 0.62);
-  --text-dim:    rgba(255, 255, 255, 0.42);
-  --text-faint:  rgba(255, 255, 255, 0.26);
+  /* Mode hues alias --acc — app uses one accent everywhere. */
+  --agent: var(--acc);
+  --rest:  var(--acc);
+  --sql:   var(--acc);
+  --nosql: var(--acc);
+  --ssh:   var(--acc);
 
-  --agent:  #d2a8ff;
-  --rest:   #f0883e;
-  --sql:    #58a6ff;
-  --nosql:  #3fb950;
-  --ssh:    #56d4dd;
+  /* Site-level vars (kept for non-mock site CSS). */
+  --bg:          #07070f;
+  --bg-1:        var(--s);
+  --bg-2:        var(--n);
+  --bg-card:     var(--n);
+  --bg-glass:    rgba(18, 18, 31, 0.62);
+  --border:      var(--b1);
+  --border-2:    var(--b2);
+  --border-3:    color-mix(in srgb, var(--b2) 70%, white 10%);
 
-  --green:  #3fb950;
-  --blue:   #58a6ff;
-  --yellow: #d29922;
-  --red:    #f85149;
-  --purple: #d2a8ff;
+  --text:        var(--t1);
+  --text-muted:  var(--t2);
+  --text-dim:    var(--t3);
+  --text-faint:  var(--t4);
+
+  --green:  var(--ok);
+  --blue:   var(--acc);
+  --yellow: var(--warn);
+  --red:    var(--err);
+  --purple: var(--acc);
 
   --font-display: 'Syne', system-ui, sans-serif;
   --font-body:    'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -40,8 +60,8 @@
   --container: 1280px;
   --r-sm: 6px;
   --r:    10px;
-  --r-lg: 16px;
-  --r-xl: 22px;
+  --r-lg: 12px;
+  --r-xl: 16px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -85,9 +105,9 @@ img, svg { display: block; max-width: 100%; }
 .bg-field::before {
   content: ""; position: absolute; inset: 0;
   background:
-    radial-gradient(900px 600px at 12% -8%, rgba(210, 168, 255, 0.14), transparent 60%),
-    radial-gradient(700px 500px at 88% 6%,  rgba(86, 212, 221, 0.09), transparent 60%),
-    radial-gradient(800px 600px at 50% 98%, rgba(88, 166, 255, 0.07), transparent 60%);
+    radial-gradient(1100px 700px at 10% -10%, rgba(210, 168, 255, 0.26), transparent 60%),
+    radial-gradient(900px 600px at 92% 4%,    rgba(86, 212, 221, 0.18),  transparent 60%),
+    radial-gradient(900px 700px at 50% 110%,  rgba(88, 166, 255, 0.12),  transparent 60%);
 }
 .bg-field::after {
   content: ""; position: absolute; inset: 0;
