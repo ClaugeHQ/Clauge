@@ -736,16 +736,18 @@
   const slots = Array.from(document.querySelectorAll('[data-os-arch]'));
   if (!slots.length) return;
 
-  /* slot key → predicate that matches an asset name */
+  /* slot key → predicate that matches an asset name. Tolerates Tauri 1.x
+     names (no arch in filename) by accepting bare .dmg/.app.tar.gz for the
+     mac slots when no arch hint is present. */
   const MATCHERS = {
-    'mac-arm':       n => /\.dmg$/i.test(n) && /(aarch64|arm64)/i.test(n),
-    'mac-intel':     n => /\.dmg$/i.test(n) && /(x64|x86_64|intel)/i.test(n),
-    'win-x64':       n => /\.(exe|msi)$/i.test(n) && /(x64|x86_64)/i.test(n),
+    'mac-arm':       n => /\.(dmg|pkg)$/i.test(n) && /(aarch64|arm64)/i.test(n),
+    'mac-intel':     n => /\.(dmg|pkg)$/i.test(n) && /(x64|x86_64|intel)/i.test(n),
+    'win-x64':       n => /\.(exe|msi)$/i.test(n) && /(x64|x86_64)/i.test(n) && !/arm/i.test(n),
     'win-arm':       n => /\.(exe|msi)$/i.test(n) && /(aarch64|arm64)/i.test(n),
     'linux-arm-deb': n => /\.deb$/i.test(n) && /(aarch64|arm64)/i.test(n),
     'linux-x64-deb': n => /\.deb$/i.test(n) && /(amd64|x64|x86_64)/i.test(n),
     'linux-arm-rpm': n => /\.rpm$/i.test(n) && /(aarch64|arm64)/i.test(n),
-    'linux-x64-rpm': n => /\.rpm$/i.test(n) && /(x64|x86_64)/i.test(n),
+    'linux-x64-rpm': n => /\.rpm$/i.test(n) && /(x64|x86_64)/i.test(n) && !/arm/i.test(n),
   };
 
   /* detect user's OS to fill the 'auto' slot */
@@ -807,8 +809,9 @@
           a.removeAttribute('target');  /* same-tab download for direct binaries */
           a.setAttribute('download', '');
         } else {
-          a.classList.add('dl-missing');
-          a.title = 'No matching asset in latest release — opens releases page';
+          /* No matching asset in the chosen release for this slot. Don't fall
+             back to a GitHub page or to an alpha binary — hide the link. */
+          a.style.display = 'none';
         }
       });
     })
