@@ -139,6 +139,7 @@
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
             referrerpolicy="no-referrer"
         />
+        <script src="config.js"></script>
         <link rel="stylesheet" href="style.css" />
     </head>
     <body>
@@ -523,37 +524,64 @@
                 </article>
             </section>
 
-            <!-- ─── DOWNLOAD ─── -->
-            <section id="download" style="padding-top: 24px">
+                        <!-- ─── DOWNLOAD ─── -->
+            <section id="download">
                 <div class="container">
                     <div class="download-card reveal">
                         <div class="copy">
-                            <h3>Get Clauge for Mac.</h3>
-                            <p>Native, fast, free for personal use.</p>
+                            <h3>Get Clauge.</h3>
+                            <p>
+                                Native, fast, free for personal use.
+                                <span data-alpha-only>
+                                    <span class="alpha-pill">Alpha</span>
+                                    builds for macOS, Windows, and Linux.
+                                </span>
+                            </p>
                         </div>
-                        <div class="download-actions">
-                            <a
-                                class="btn btn-primary"
-                                id="dl-primary"
-                                href="https://github.com/ansxuman/Clauge/releases/latest"
-                                target="_blank"
-                                rel="noopener"
-                            >
-                                <i class="fa-brands fa-apple"></i>
-                                Download
-                                <span class="chip" id="dl-arch"
-                                    >Apple Silicon</span
-                                >
-                            </a>
-                            <a
-                                class="intel-link"
-                                id="dl-intel"
-                                href="https://github.com/ansxuman/Clauge/releases/latest"
-                                target="_blank"
-                                rel="noopener"
-                            >
-                                On Intel? <u>Get the Intel build</u>
-                            </a>
+                        <div class="dl-grid" data-dl-grid>
+                            <div class="dl-os" data-os="mac">
+                                <h4><i class="fa-brands fa-apple" aria-hidden="true"></i> macOS</h4>
+                                <div class="dl-rows">
+                                    <a class="dl-row" data-os-arch="mac-arm" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">Apple Silicon</span>
+                                        <span class="dl-row-fmt">.dmg</span>
+                                    </a>
+                                    <a class="dl-row" data-os-arch="mac-intel" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">Intel</span>
+                                        <span class="dl-row-fmt">.dmg</span>
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="dl-os" data-os="windows">
+                                <h4><i class="fa-brands fa-windows" aria-hidden="true"></i> Windows</h4>
+                                <div class="dl-rows">
+                                    <a class="dl-row" data-os-arch="win-x64" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">x64</span>
+                                        <span class="dl-row-fmt">.exe</span>
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="dl-os" data-os="linux">
+                                <h4><i class="fa-brands fa-linux" aria-hidden="true"></i> Linux</h4>
+                                <div class="dl-rows">
+                                    <a class="dl-row" data-os-arch="linux-arm-deb" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">ARM</span>
+                                        <span class="dl-row-fmt">.deb</span>
+                                    </a>
+                                    <a class="dl-row" data-os-arch="linux-x64-deb" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">x64</span>
+                                        <span class="dl-row-fmt">.deb</span>
+                                    </a>
+                                    <a class="dl-row" data-os-arch="linux-arm-rpm" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">ARM</span>
+                                        <span class="dl-row-fmt">.rpm</span>
+                                    </a>
+                                    <a class="dl-row" data-os-arch="linux-x64-rpm" href="https://github.com/ansxuman/Clauge/releases/latest" target="_blank" rel="noopener">
+                                        <span class="dl-row-label">x64</span>
+                                        <span class="dl-row-fmt">.rpm</span>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

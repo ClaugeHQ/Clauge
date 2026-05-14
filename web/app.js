@@ -722,3 +722,27 @@
   onScroll();
   window.addEventListener('scroll', onScroll, { passive: true });
 })();
+
+/* ── data-alpha-only: toggle visibility of alpha-only surfaces via CLAUGE_FLAGS.showAlpha ── */
+(() => {
+  const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
+  if (showAlpha) return; // alpha is shown: nothing to hide
+  document.querySelectorAll('[data-alpha-only]').forEach(el => { el.style.display = 'none'; });
+})();
+
+/* ── Multi-OS download grid: detect platform and promote the matching .dl-os to first ── */
+(() => {
+  const grid = document.querySelector('[data-dl-grid]');
+  if (!grid) return;
+  const ua = (navigator.userAgent || '').toLowerCase();
+  let primary = 'mac';
+  if (ua.includes('windows')) primary = 'windows';
+  else if (ua.includes('linux') && !ua.includes('android')) primary = 'linux';
+  else if (ua.includes('mac')) primary = 'mac';
+
+  const target = grid.querySelector(`.dl-os[data-os="${primary}"]`);
+  if (target) {
+    target.classList.add('is-primary');
+    grid.prepend(target);
+  }
+})();

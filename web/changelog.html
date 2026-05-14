@@ -57,6 +57,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer" />
+  <script src="config.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -183,7 +184,8 @@
       });
       if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
       const allReleases = await resp.json();
-      const releases = Array.isArray(allReleases) ? allReleases.filter(r => !isAlphaLike(r)) : [];
+      const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
+      const releases = Array.isArray(allReleases) ? (showAlpha ? allReleases : allReleases.filter(r => !isAlphaLike(r))) : [];
 
       if (!releases.length) {
         container.innerHTML = `

@@ -1069,3 +1069,69 @@ footer .meta-row { margin-top: 28px; padding-top: 18px; border-top: 1px solid va
   .mode-feature { padding: 36px 0; }
   .vmock-kanban .kanban { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* ─── Multi-OS download grid ─── */
+.alpha-pill {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+  vertical-align: 1px;
+  margin-right: 4px;
+}
+
+.dl-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 24px;
+}
+.dl-os {
+  padding: 18px 18px 16px;
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  gap: 12px;
+}
+.dl-os.is-primary {
+  border-color: color-mix(in srgb, var(--acc) 40%, var(--border));
+  background:
+    radial-gradient(420px 200px at 0% 0%, color-mix(in srgb, var(--acc) 14%, transparent), transparent 60%),
+    var(--bg-card);
+}
+.dl-os h4 {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 15px; letter-spacing: -0.005em;
+  color: var(--t1);
+}
+.dl-os h4 i { font-size: 16px; color: var(--t2); }
+.dl-os.is-primary h4 i { color: var(--acc); }
+.dl-rows { display: flex; flex-direction: column; gap: 6px; }
+.dl-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--b1);
+  color: var(--t1);
+  font-size: 13px;
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .15s var(--ease);
+}
+.dl-row:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--b2); transform: translateY(-1px); }
+.dl-row-label { font-weight: 500; }
+.dl-row-fmt {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--t4);
+  padding: 1px 7px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+@media (max-width: 880px) {
+  .dl-grid { grid-template-columns: 1fr; }
+}
