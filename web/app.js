@@ -660,9 +660,7 @@
         </div>
         <div class="col">
           <h5>Product</h5>
-          <a href="index.html#what-it-does">What it does</a>
-          <a href="index.html#ai">The AI</a>
-          <a href="index.html#themes">Themes</a>
+          <a href="index.html#modes">Modes</a>
           <a href="pricing.html">Pricing</a>
           <a href="changelog.html">Changelog</a>
         </div>

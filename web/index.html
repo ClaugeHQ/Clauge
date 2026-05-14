@@ -152,9 +152,7 @@
                     <span>Clauge</span>
                 </a>
                 <nav class="nav" aria-label="Primary">
-                    <a href="#what-it-does">What it does</a>
-                    <a href="#ai">The AI</a>
-                    <a href="#themes">Themes</a>
+                    <a href="#modes">Modes</a>
                     <a href="pricing.html">Pricing</a>
                     <a href="changelog.html">Changelog</a>
                     <a href="enterprise.html">Enterprise</a>
@@ -275,325 +273,276 @@
                 </div>
             </section>
 
-            <!-- ─── WHAT IT DOES ─── -->
-            <section id="what-it-does">
-                <div class="container">
-                    <div class="reveal">
-                        <p class="section-tag">What it does</p>
-                        <h2 class="section-heading">
-                            Every tool you reach for.
-                            <span style="color: var(--purple)"
-                                >In one window.</span
-                            >
-                        </h2>
-                        <p class="section-lede">
-                            Code with an AI agent. Hit your APIs. Query your
-                            databases. SSH into your boxes. We're adding more —
-                            but you'll never need a second window for any of it.
-                        </p>
-                    </div>
-
-                    <div class="does-grid">
-                        <article class="does-card reveal" data-accent="agent">
-                            <span class="icon"
-                                ><i class="fa-solid fa-terminal"></i
-                            ></span>
-                            <h3>A coding agent that ships</h3>
-                            <p>
-                                Real Claude Code sessions, restored across
-                                launches. Pick a purpose — brainstorming,
-                                building, reviewing, debugging — and the AI
-                                shifts gears with you.
-                            </p>
-                        </article>
-                        <article class="does-card reveal" data-accent="rest">
-                            <span class="icon"
-                                ><i class="fa-solid fa-bolt"></i
-                            ></span>
-                            <h3>An API client that's fast</h3>
-                            <p>
-                                Collections, environments, history. Paste a cURL
-                                and hit Send. Import what you've got from
-                                Postman. Done with the round-trip.
-                            </p>
-                        </article>
-                        <article class="does-card reveal" data-accent="sql">
-                            <span class="icon"
-                                ><i class="fa-solid fa-database"></i
-                            ></span>
-                            <h3>SQL across every dialect</h3>
-                            <p>
-                                PostgreSQL, MySQL, SQLite, ClickHouse. Real
-                                autocomplete, real schema awareness. Tunnel
-                                through SSH without leaving the editor.
-                            </p>
-                        </article>
-                        <article class="does-card reveal" data-accent="nosql">
-                            <span class="icon"
-                                ><i class="fa-solid fa-leaf"></i
-                            ></span>
-                            <h3>MongoDB and Redis, side by side</h3>
-                            <p>
-                                Browse collections like a tree. Inspect
-                                documents as syntax-highlighted JSON. Watch keys
-                                with TTL. All in the same window.
-                            </p>
-                        </article>
-                        <article class="does-card reveal" data-accent="ssh">
-                            <span class="icon"
-                                ><i class="fa-solid fa-server"></i
-                            ></span>
-                            <h3>SSH that you'd actually use</h3>
-                            <p>
-                                Save profiles, store keys in your Keychain,
-                                attach to a real terminal. The AI can run
-                                commands too — but only after it shows you what
-                                and why.
-                            </p>
-                        </article>
-                        <article class="does-card reveal" data-accent="ai">
-                            <span class="icon"
-                                ><i class="fa-solid fa-circle-plus"></i
-                            ></span>
-                            <h3>And more, on the way</h3>
-                            <p>
-                                Clauge is built to absorb the next tool you
-                                reach for. One window, one keyboard, one AI —
-                                that's the bet.
-                            </p>
-                        </article>
-                    </div>
+            <!-- ─── MODES — Codex-style alternating feature blocks ─── -->
+            <section id="modes">
+                <div class="container modes-intro">
+                    <p class="section-tag reveal">What's inside</p>
+                    <h2 class="section-heading reveal">
+                        Every dev tool you reach for.
+                        <span class="grad">One window.</span>
+                    </h2>
+                    <p class="section-lede reveal">
+                        Each Clauge mode is a first-class tool with shared
+                        sessions, shared AI context, and the same keyboard.
+                        Switch with one tap; never lose your place.
+                    </p>
                 </div>
-            </section>
 
-            <!-- ─── AI FLEX ─── -->
-            <section id="ai" style="padding-top: 64px">
-                <div class="container">
-                    <div class="reveal">
-                        <p class="section-tag">The AI</p>
-                        <h2 class="section-heading">
-                            An AI that
-                            <span style="color: var(--purple)"
-                                >knows what you're doing.</span
-                            >
-                        </h2>
-                        <p class="section-lede">
-                            Most assistants give you a chatbox and hope you
-                            describe your tools well. Clauge's AI <em>is</em> in
-                            the tool. Ask in plain English; it writes the query,
-                            fills the request, edits the file, or proposes the
-                            shell command — already wired to the right context.
-                        </p>
-                    </div>
-
-                    <div class="flex-grid">
-                        <article class="flex-card reveal" data-accent="agent">
-                            <span class="badge"
-                                ><i class="fa-solid fa-terminal"></i>
-                                Coding</span
-                            >
-                            <h3>
-                                "Refactor the auth middleware to use the new
-                                session helper."
-                            </h3>
-                            <p>
-                                It reads the relevant files, finds the shape of
-                                your existing code, and proposes the edit — diff
-                                first, ship second.
+                <!-- AGENT -->
+                <article class="mode-feature reveal" data-accent="agent" id="mode-agent">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><path d="M12 3l1.6 4.8L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.2L12 3z"/><path d="M18.5 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg></span> Agent</span>
+                            <h3 class="mf-title">Run Claude Code like it belongs in a real app.</h3>
+                            <p class="mf-lede">
+                                Spawn parallel agent sessions, each pinned to a
+                                purpose &mdash; brainstorm, build, review, debug.
+                                Each session gets its own git worktree, its own
+                                context, its own shell.
                             </p>
-                            <div class="demo">
-                                <span class="me"
-                                    >Refactor the auth middleware to use the new
-                                    session helper.</span
-                                >
-                                <span class="it"
-                                    >Reading <code>middleware.ts</code>,
-                                    <code>session.ts</code>… proposing
-                                    edit.</span
-                                >
-                                <span class="res"
-                                    >✓ 2 files · +24 / −9 · ready to apply</span
-                                >
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-layer-group"></i></span><div><b>Multi-session manager</b><span>Sessions are tabs. Each remembers its purpose, model, and context.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-code-branch"></i></span><div><b>Worktree per session</b><span>Each agent works in its own git worktree. No stomping on uncommitted changes.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-folder-tree"></i></span><div><b>Context Manager</b><span>Pin files, folders, and MCP servers per session. Reuse across sessions.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-shield-halved"></i></span><div><b>Approve before run</b><span>Every Bash, Edit, and Write is gated. Read freely, write only when you say so.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-chart-column"></i></span><div><b>Usage tracking</b><span>Tokens, cost, cache hit, model mix &mdash; per session and aggregated.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Models</span>
+                                <span class="mf-brand mf-brand-plain">Claude</span>
+                                <span class="mf-brand mf-brand-plain">Codex</span>
+                                <span class="mf-brand mf-brand-plain">Gemini</span>
+                                <span class="mf-brand mf-brand-plain">OpenCode</span>
                             </div>
-                        </article>
-
-                        <article class="flex-card reveal" data-accent="sql">
-                            <span class="badge"
-                                ><i class="fa-solid fa-database"></i> SQL</span
-                            >
-                            <h3>"Top plans by active users this week."</h3>
-                            <p>
-                                It writes the query against <em>your</em> schema
-                                — picks the right dialect, knows your column
-                                names, runs it.
-                            </p>
-                            <div class="demo">
-                                <span class="me"
-                                    >Top plans by active users this week.</span
-                                >
-                                <span class="it"
-                                    ><code
-                                        >SELECT plan, count(DISTINCT user_id)
-                                        FROM events WHERE ts &gt;= now() -
-                                        INTERVAL 7 DAY GROUP BY plan</code
-                                    ></span
-                                >
-                                <span class="res">5 rows · 318 ms</span>
+                        </div>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-agent">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active"><span class="vmock-tab-mark">A</span> atlas-payments <span class="vmock-tab-close">×</span></span></div>
+                                <div class="vmock-session">
+                                    <div class="vs-head"><div class="vs-mark"></div><div><div class="vs-title">Clauge Code <span class="vs-ver">v2.1.128</span></div><div class="vs-meta">Opus 4.7 (1M context) · Clauge Max</div><div class="vs-meta vs-path">~/atlas/.clauge-worktrees/payments-refactor</div></div></div>
+                                    <div class="vs-prompt">Review the payments-refactor branch for bugs.</div>
+                                    <div class="vs-stream">
+                                        <div class="vs-line"><span class="vs-dot"></span> <b>Bash</b>(git log --oneline main..HEAD)</div>
+                                        <div class="vs-ai">Found it &mdash; <code>confirmIntent()</code> returns the raw Stripe error to the client.</div>
+                                        <div class="vs-line"><span class="vs-dot"></span> <b>Edit</b> <code>payments/intent.ts</code> · <span class="ok">+6</span> / <span class="bad">−2</span></div>
+                                    </div>
+                                </div>
                             </div>
-                        </article>
+                        </div>
+                    </div>
+                </article>
 
-                        <article class="flex-card reveal" data-accent="rest">
-                            <span class="badge"
-                                ><i class="fa-solid fa-bolt"></i> API</span
-                            >
-                            <h3>"Test the payments endpoint with $24 USD."</h3>
-                            <p>
-                                It fills the URL, the headers, the body — using
-                                your environment variables. You hit Send.
-                            </p>
-                            <div class="demo">
-                                <span class="me"
-                                    >Test the payments endpoint with $24
-                                    USD.</span
-                                >
-                                <span class="it"
-                                    ><code>POST /payments/intents</code> · body
-                                    <code
-                                        >{ amount: 2400, currency: "usd" }</code
-                                    ></span
-                                >
-                                <span class="res">201 Created · 84 ms</span>
+                <!-- WORKSPACE -->
+                <article class="mode-feature reveal mf-reverse" data-accent="workspace" id="mode-workspace">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Workspace</span>
+                            <h3 class="mf-title">A brain for the work, not just the code.</h3>
+                            <p class="mf-lede">Pull open issues from your Git remote into a Kanban board, attach markdown notes to sessions, assign AI co-workers with custom personas to each card.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-table-columns"></i></span><div><b>Kanban boards</b><span>Backlog · Todo · In Review · Done. Pull issues from GitHub.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-user-group"></i></span><div><b>AI co-workers</b><span>Tech Lead, Reviewer, QA &mdash; configure once, @mention on any card.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-pen-to-square"></i></span><div><b>Markdown notes</b><span>Linked to sessions. Code blocks, mentions, exportable.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-inbox"></i></span><div><b>Inbox</b><span>Mentions, review requests, approval queues across boards.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Co-workers powered by</span>
+                                <span class="mf-brand mf-brand-plain">Claude</span>
+                                <span class="mf-brand mf-brand-plain">Codex</span>
+                                <span class="mf-brand mf-brand-plain">OpenCode</span>
                             </div>
-                        </article>
-
-                        <article class="flex-card reveal" data-accent="ssh">
-                            <span class="badge"
-                                ><i class="fa-solid fa-server"></i> SSH</span
-                            >
-                            <h3>"What's eating disk on the bastion?"</h3>
-                            <p>
-                                It proposes the command, tells you why, and
-                                waits for a click. No surprises, no destructive
-                                edge cases.
-                            </p>
-                            <div class="demo">
-                                <span class="me"
-                                    >What's eating disk on the bastion?</span
-                                >
-                                <span class="it"
-                                    >Proposing
-                                    <code
-                                        >du -sh /var/* | sort -h | tail -5</code
-                                    >
-                                    — read-only.</span
-                                >
-                                <span class="res"
-                                    >↳ Run on bastion-eu? [Cancel] [Run]</span
-                                >
+                        </div>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-kanban">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">Payments board <span class="vmock-tab-close">×</span></span></div>
+                                <div class="kanban">
+                                    <div class="kcol"><div class="kcol-head">Backlog <span>0</span></div></div>
+                                    <div class="kcol kcol-active">
+                                        <div class="kcol-head">Todo <span>4</span></div>
+                                        <div class="kcard"><div class="kcard-title">Fix confirmIntent error leak</div><div class="kcard-tags"><span class="pill pill-red mini">critical</span><span class="pill mini">payments</span></div><div class="kcard-foot"><span class="kcw"><span class="bd-cw-avatar">A</span>@alex</span><span>2m</span></div></div>
+                                        <div class="kcard"><div class="kcard-title">Refund webhook never acks</div><div class="kcard-tags"><span class="pill pill-red mini">critical</span></div><div class="kcard-foot"><span class="kcw"><span class="bd-cw-avatar">A</span>@alex</span><span>2m</span></div></div>
+                                        <div class="kcard"><div class="kcard-title">Idempotency key cross-tenant</div><div class="kcard-tags"><span class="pill pill-purple mini">race</span></div><div class="kcard-foot"><span class="kcw"><span class="bd-cw-avatar">Q</span>@quinn</span><span>5m</span></div></div>
+                                    </div>
+                                    <div class="kcol"><div class="kcol-head">In Review <span>0</span></div></div>
+                                    <div class="kcol"><div class="kcol-head">Done <span>0</span></div></div>
+                                </div>
                             </div>
-                        </article>
+                        </div>
                     </div>
-                </div>
-            </section>
+                </article>
 
-            <!-- ─── THEMES ─── -->
-            <section id="themes" style="padding-top: 56px">
-                <div class="container">
-                    <div class="reveal">
-                        <p class="section-tag">Themes</p>
-                        <h2 class="section-heading">
-                            Yours by the end of the day.
-                        </h2>
-                        <p class="section-lede">
-                            Five themes out of the box. Every surface — editor,
-                            terminal, sidebar, chips — recomposes together.
-                        </p>
-                    </div>
-                    <div class="themes">
-                        <div class="theme dark-glass">
-                            <span class="name">dark glass</span>
-                            <span class="swatch"
-                                ><i style="background: var(--purple)"></i
-                                ><i style="background: var(--ssh)"></i
-                                ><i style="background: var(--green)"></i
-                            ></span>
+                <!-- REST -->
+                <article class="mode-feature reveal" data-accent="rest" id="mode-rest">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></span> REST</span>
+                            <h3 class="mf-title">An API client that runs whole collections in one prompt.</h3>
+                            <p class="mf-lede">Collections, environments, history. Paste a cURL and hit Send. Or just ask: "run the smoke tests in staging" &mdash; the AI fires the collection, tracks pass/fail, reports inline.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-rectangle-list"></i></span><div><b>Collections</b><span>Folders, tags, per-collection auth, pre-script hooks.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-flask"></i></span><div><b>Environments</b><span>Global, per-collection, per-request &mdash; overrides clearly resolved.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-bolt"></i></span><div><b>AI batch runner</b><span>Fires whole collections, summarizes failures with the failing request.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-clock-rotate-left"></i></span><div><b>Replay history</b><span>Every request you've ever sent. Resurrect, diff, re-fire.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-file-import"></i></span><div><b>Postman import</b><span>Drop your existing v2/v2.1 collections, environments, and variables.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Works with</span>
+                                <span class="mf-brand mf-brand-plain">HTTP / REST</span>
+                                <span class="mf-brand mf-brand-plain">cURL</span>
+                                <span class="mf-brand mf-brand-plain">Postman v2 / v2.1</span>
+                                <span class="mf-brand mf-brand-plain">OpenAPI</span>
+                            </div>
                         </div>
-                        <div class="theme dark-solid">
-                            <span class="name">dark solid</span>
-                            <span class="swatch"
-                                ><i style="background: var(--purple)"></i
-                                ><i style="background: var(--ssh)"></i
-                                ><i style="background: var(--green)"></i
-                            ></span>
-                        </div>
-                        <div class="theme midnight">
-                            <span class="name">midnight</span>
-                            <span class="swatch"
-                                ><i style="background: #6f74ff"></i
-                                ><i style="background: #1de9b6"></i
-                                ><i style="background: #ff6b9d"></i
-                            ></span>
-                        </div>
-                        <div class="theme nord">
-                            <span class="name">nord</span>
-                            <span class="swatch"
-                                ><i style="background: #88c0d0"></i
-                                ><i style="background: #a3be8c"></i
-                                ><i style="background: #b48ead"></i
-                            ></span>
-                        </div>
-                        <div class="theme light">
-                            <span class="name">light</span>
-                            <span class="swatch"
-                                ><i style="background: #6750a4"></i
-                                ><i style="background: #006c4f"></i
-                                ><i style="background: #c2410c"></i
-                            ></span>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-rest">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">Atlas Smoke Tests <span class="vmock-tab-close">×</span></span></div>
+                                <div class="rest-rows">
+                                    <div class="rest-row"><span class="m-get pill-mini">GET</span> /health <span class="ok mono">200 · 41ms</span></div>
+                                    <div class="rest-row"><span class="m-post pill-mini">POST</span> /auth/token <span class="ok mono">200 · 187ms</span></div>
+                                    <div class="rest-row"><span class="m-get pill-mini">GET</span> /products?limit=10 <span class="ok mono">200 · 73ms</span></div>
+                                    <div class="rest-row"><span class="m-post pill-mini">POST</span> /cart/add <span class="ok mono">200 · 99ms</span></div>
+                                    <div class="rest-row"><span class="m-post pill-mini">POST</span> /checkout/intent <span class="bad mono">422 · 112ms</span></div>
+                                    <div class="rest-row"><span class="m-get pill-mini">GET</span> /webhooks/log <span class="ok mono">200 · 58ms</span></div>
+                                </div>
+                                <div class="vmock-foot"><span><b>5 / 6 passed</b> · avg 95ms</span><span class="vmock-quiet">/checkout/intent → <code>intent_amount_too_low</code></span></div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
+                </article>
 
-            <!-- ─── SHORTCUTS ─── -->
-            <section id="shortcuts" style="padding-top: 24px">
-                <div class="container">
-                    <div class="reveal">
-                        <p class="section-tag">Keyboard</p>
-                        <h2 class="section-heading">Built for the home row.</h2>
-                        <p class="section-lede">
-                            One muscle memory across every workspace.
-                        </p>
-                    </div>
-                    <div class="shortcuts">
-                        <div class="kbd-row">
-                            <span class="label">Switch workspace</span
-                            ><kbd
-                                ><span>⌘</span><span>1</span><span>–</span
-                                ><span>4</span></kbd
-                            >
+                <!-- SQL -->
+                <article class="mode-feature reveal mf-reverse" data-accent="sql" id="mode-sql">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="2.5"/><path d="M4 5v14c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/></svg></span> SQL</span>
+                            <h3 class="mf-title">One SQL client. Every engine.</h3>
+                            <p class="mf-lede">Postgres, MySQL, ClickHouse, SQL Server, SQLite &mdash; same editor, same shortcuts, same AI. Ask in English; Clauge writes the query schema-aware, runs it through your bastion, renders rows.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-database"></i></span><div><b>Multi-engine</b><span>Postgres · MySQL · ClickHouse · SQL Server · SQLite. Same UX.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span><div><b>AI · NL → SQL</b><span>"Top customers Q2" → schema-aware query, ready to run.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-shield-halved"></i></span><div><b>Tunneled & encrypted</b><span>Bastion SSH, TLS, keychain-backed credentials.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-sitemap"></i></span><div><b>Schema browser</b><span>Tables, columns, indexes, foreign keys &mdash; one-click jump.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Works with</span>
+                                <span class="mf-brand" style="--brand:#336791"><svg viewBox="0 0 24 24"><path d="M12 3c4 0 7 2 7 5v8c0 3-3 5-7 5s-7-2-7-5V8c0-3 3-5 7-5zm0 3c-2.2 0-4 1-4 2v8c0 1 1.8 2 4 2s4-1 4-2V8c0-1-1.8-2-4-2z"/></svg>PostgreSQL</span>
+                                <span class="mf-brand" style="--brand:#00758F"><svg viewBox="0 0 24 24"><path d="M4 7c4 0 7 3 8 7M5 9c3 0 6 2 7 6M16 4l4 4-4 4M20 8h-8"/></svg>MySQL</span>
+                                <span class="mf-brand" style="--brand:#FFCC01"><svg viewBox="0 0 24 24"><path d="M3 3h2v18H3zM7 3h2v18H7zM11 3h2v18h-2zM15 3h2v18h-2zM19 10h2v4h-2z"/></svg>ClickHouse</span>
+                                <span class="mf-brand" style="--brand:#F38020"><svg viewBox="0 0 24 24"><path d="M18 11a4 4 0 00-7.7-1.4A4 4 0 003 12a4 4 0 004 4h11a3 3 0 000-6h-.5z"/></svg>Cloudflare D1</span>
+                                <span class="mf-brand" style="--brand:#909090"><svg viewBox="0 0 24 24"><path d="M4 6h12l4 4v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2zm10 0v4h4"/></svg>SQLite</span>
+                            </div>
                         </div>
-                        <div class="kbd-row">
-                            <span class="label">Toggle the AI</span
-                            ><kbd><span>⌘</span><span>L</span></kbd>
-                        </div>
-                        <div class="kbd-row">
-                            <span class="label">Send · execute</span
-                            ><kbd><span>⌘</span><span>↵</span></kbd>
-                        </div>
-                        <div class="kbd-row">
-                            <span class="label">Save</span
-                            ><kbd><span>⌘</span><span>S</span></kbd>
-                        </div>
-                        <div class="kbd-row">
-                            <span class="label">Hide sidebar</span
-                            ><kbd><span>⌘</span><span>B</span></kbd>
-                        </div>
-                        <div class="kbd-row">
-                            <span class="label">Find in terminal</span
-                            ><kbd><span>⌘</span><span>F</span></kbd>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-sql">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">atlas_prod / Postgres <span class="vmock-tab-close">×</span></span><span class="vmock-titlebar-action">Execute ▶</span></div>
+                                <pre class="vmock-code"><code><span class="t-key">SELECT</span> name, <span class="t-fn">SUM</span>(total) <span class="t-key">AS</span> revenue
+<span class="t-key">FROM</span>   customers c <span class="t-key">JOIN</span> orders o <span class="t-key">ON</span> o.customer_id = c.id
+<span class="t-key">WHERE</span>  o.placed_at &gt;= <span class="t-str">'2026-04-01'</span>
+<span class="t-key">GROUP BY</span> name <span class="t-key">ORDER BY</span> revenue <span class="t-key">DESC LIMIT</span> <span class="t-num">5</span>;</code></pre>
+                                <table class="vmock-table"><thead><tr><th>name</th><th class="ral">revenue</th></tr></thead><tbody><tr><td>Northwind Logistics</td><td class="ral mono">$48,210</td></tr><tr><td>Acme Provisions</td><td class="ral mono">$37,944</td></tr><tr><td>Boréal Coffee Co.</td><td class="ral mono">$29,118</td></tr><tr><td>Helix Robotics</td><td class="ral mono">$22,705</td></tr><tr><td>Yamashita Press</td><td class="ral mono">$18,302</td></tr></tbody></table>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </article>
+
+                <!-- NoSQL -->
+                <article class="mode-feature reveal" data-accent="nosql" id="mode-nosql">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><path d="M8 3a2 2 0 00-2 2v4a2 2 0 01-2 2H3a1 1 0 000 2h1a2 2 0 012 2v4a2 2 0 002 2"/><path d="M16 3a2 2 0 012 2v4a2 2 0 002 2h1a1 1 0 010 2h-1a2 2 0 00-2 2v4a2 2 0 01-2 2"/></svg></span> NoSQL</span>
+                            <h3 class="mf-title">Mongo and Redis, side by side.</h3>
+                            <p class="mf-lede">Browse Mongo collections like a real database client. Walk Redis keys with TTL and streams. Translate intent into a find, an aggregation pipeline, or a <code>SCAN</code> &mdash; with previews of every stage.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-code"></i></span><div><b>JSON query editor</b><span>Auto-format, schema hints, inline document preview.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-diagram-project"></i></span><div><b>Aggregation pipelines</b><span>Stage-by-stage builder; preview output between every step.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-bolt-lightning"></i></span><div><b>Redis</b><span>Keys, TTL, streams, pub-sub &mdash; in one panel.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span><div><b>AI document filter</b><span>"Pro users inactive 30 days" → JSON filter, ready to run.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Works with</span>
+                                <span class="mf-brand" style="--brand:#00ED64"><svg viewBox="0 0 24 24"><path d="M12 2c2 4 4 7 4 11s-2 7-4 9c-2-2-4-5-4-9s2-7 4-11zm0 14v6"/></svg>MongoDB</span>
+                                <span class="mf-brand" style="--brand:#DC382D"><svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4"/></svg>Redis</span>
+                            </div>
+                        </div>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-nosql">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">users · find <span class="vmock-tab-close">×</span></span><span class="vmock-titlebar-action">Run ▶</span></div>
+                                <pre class="vmock-code"><code>db.<span class="t-fn">users</span>.<span class="t-fn">find</span>({
+  <span class="t-key">plan</span>: <span class="t-str">"pro"</span>,
+  <span class="t-key">last_seen</span>: { $lt: <span class="t-fn">ISODate</span>(<span class="t-str">"2026-04-14"</span>) }
+})</code></pre>
+                                <div class="vmock-docs"><div>{ <b>email</b>: "r.bauer@northwind.co", <b>plan</b>: "pro", <b>last_seen</b>: "2026-03-09" }</div><div>{ <b>email</b>: "s.okonkwo@helix.io", <b>plan</b>: "pro", <b>last_seen</b>: "2026-03-12" }</div><div>{ <b>email</b>: "m.tanaka@yamashita.jp", <b>plan</b>: "pro", <b>last_seen</b>: "2026-03-18" }</div></div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- SSH -->
+                <article class="mode-feature reveal mf-reverse" data-accent="ssh" id="mode-ssh">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span> SSH</span>
+                            <h3 class="mf-title">A terminal that asks before it writes.</h3>
+                            <p class="mf-lede">Profiles, keychain-backed keys, agent forwarding, ed25519 by default. The AI proposes commands; you approve them with one key. Reads are free, writes are gated.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-key"></i></span><div><b>Keychain integration</b><span>ed25519, agent forwarding, no flat keys on disk.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-shield-halved"></i></span><div><b>Approve before run</b><span>AI commands are dry-run with [Cancel] / [Run] gates.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-server"></i></span><div><b>Profile manager</b><span>Tag servers, group by environment, filter by protocol.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-waveform-lines"></i></span><div><b>Stream summarizer</b><span>AI watches stdout and surfaces what matters.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Works with</span>
+                                <span class="mf-brand mf-brand-plain">OpenSSH</span>
+                                <span class="mf-brand mf-brand-plain">ed25519</span>
+                                <span class="mf-brand mf-brand-plain">Agent forwarding</span>
+                                <span class="mf-brand mf-brand-plain">macOS Keychain</span>
+                            </div>
+                        </div>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-ssh">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">pi@box.atlas.dev <span class="vmock-tab-close">×</span></span></div>
+                                <pre class="vmock-term"><span class="t-muted">Linux box.atlas.dev 6.1.0-arm64 #1 SMP PREEMPT</span>
+<span class="prompt">pi@box ~ $</span> ps -eo pid,rss,comm --sort=-rss | head -5
+<span class="t-muted">  PID   RSS COMMAND</span>
+ 1842 <span class="warn">2483120</span> node
+ 1190  626432 redis-server
+ 1027  187904 nginx
+<span class="prompt">pi@box ~ $</span> <span class="cursor">▍</span></pre>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- EXPLORER -->
+                <article class="mode-feature reveal" data-accent="explorer" id="mode-explorer">
+                    <div class="container mf-wrap">
+                        <div class="mf-copy">
+                            <span class="mf-eyebrow"><span class="mf-eyebrow-svg"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span> Explorer</span>
+                            <h3 class="mf-title">SFTP, FTP, S3 &mdash; one browser.</h3>
+                            <p class="mf-lede">Walk remote machines and cloud buckets like local folders. Sort, filter, preview text/JSON/CSV inline. Ask what grew today; the AI tells you.</p>
+                            <ul class="mf-caps">
+                                <li><span class="mc-icon"><i class="fa-solid fa-network-wired"></i></span><div><b>Multi-protocol</b><span>SFTP · FTP · S3 · Azure Blob &mdash; same UI, same shortcuts.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-table-list"></i></span><div><b>Detail view</b><span>Name · Size · Modified · Perms &mdash; sortable, filterable.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-eye"></i></span><div><b>Quick preview</b><span>Text, JSON, CSV preview inline &mdash; no roundtrip.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-arrows-up-down"></i></span><div><b>Bulk transfer</b><span>Drag in or out. Resumable, parallel, transfer panel logs everything.</span></div></li>
+                                <li><span class="mc-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span><div><b>AI scan</b><span>"What grew today?" &mdash; AI summarizes large or recent files.</span></div></li>
+                            </ul>
+                            <div class="mf-brands">
+                                <span class="mf-brands-label">Works with</span>
+                                <span class="mf-brand" style="--brand:#06b6d4"><svg viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 5-3 9-7 10-4-1-7-5-7-10V6l7-4zm-3 10l2 2 4-4"/></svg>SFTP</span>
+                                <span class="mf-brand" style="--brand:#9ca3af"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>FTP</span>
+                                <span class="mf-brand" style="--brand:#FF9900"><svg viewBox="0 0 24 24"><path d="M12 2L3 6v10l9 6 9-6V6l-9-4zm0 4l5 2-5 2-5-2 5-2zm-5 4l5 2v8l-5-3v-7zm10 0v7l-5 3v-8l5-2z"/></svg>Amazon S3</span>
+                                <span class="mf-brand" style="--brand:#0078D4"><svg viewBox="0 0 24 24"><path d="M18 11a4 4 0 00-7.7-1.4A4 4 0 003 12a4 4 0 004 4h11a3 3 0 000-6h-.5z"/></svg>Azure Blob</span>
+                            </div>
+                        </div>
+                        <div class="mf-viz">
+                            <div class="vmock vmock-exp">
+                                <div class="vmock-titlebar"><span class="vmock-tab is-active">/var/log @ box.atlas.dev <span class="vmock-tab-close">×</span></span></div>
+                                <table class="vmock-exp"><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Perms</th></tr></thead><tbody><tr><td><i class="fa-solid fa-folder"></i> nginx</td><td>4.0 KB</td><td>21:48</td><td class="mono">drwxr-xr-x</td></tr><tr><td><i class="fa-solid fa-file-lines"></i> syslog</td><td class="warn">12.4 MB</td><td>21:51</td><td class="mono">-rw-r-----</td></tr><tr><td><i class="fa-solid fa-file-lines"></i> auth.log</td><td>814 KB</td><td>21:18</td><td class="mono">-rw-r-----</td></tr><tr><td><i class="fa-solid fa-file-lines"></i> dpkg.log</td><td>91 KB</td><td>03:01</td><td class="mono">-rw-r--r--</td></tr></tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                </article>
             </section>
 
             <!-- ─── DOWNLOAD ─── -->
