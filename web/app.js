@@ -746,3 +746,87 @@
     grid.prepend(target);
   }
 })();
+
+/* ── Direct-download wiring: map every [data-os-arch] to the matching asset URL
+      from the latest GitHub release. Falls back to releases/latest if no match. ── */
+(() => {
+  const slots = Array.from(document.querySelectorAll('[data-os-arch]'));
+  if (!slots.length) return;
+
+  /* slot key → predicate that matches an asset name */
+  const MATCHERS = {
+    'mac-arm':       n => /\.dmg$/i.test(n) && /(aarch64|arm64)/i.test(n),
+    'mac-intel':     n => /\.dmg$/i.test(n) && /(x64|x86_64|intel)/i.test(n),
+    'win-x64':       n => /\.(exe|msi)$/i.test(n) && /(x64|x86_64)/i.test(n),
+    'linux-arm-deb': n => /\.deb$/i.test(n) && /(aarch64|arm64)/i.test(n),
+    'linux-x64-deb': n => /\.deb$/i.test(n) && /(amd64|x64|x86_64)/i.test(n),
+    'linux-arm-rpm': n => /\.rpm$/i.test(n) && /(aarch64|arm64)/i.test(n),
+    'linux-x64-rpm': n => /\.rpm$/i.test(n) && /(x64|x86_64)/i.test(n),
+  };
+
+  /* detect user's OS to fill the 'auto' slot */
+  const detectOsArch = () => {
+    const ua = (navigator.userAgent || '').toLowerCase();
+    const isMac = ua.includes('mac');
+    const isWin = ua.includes('windows');
+    const isLinux = ua.includes('linux') && !ua.includes('android');
+    if (isMac) {
+      // Apple Silicon vs Intel: WebGL renderer heuristic
+      let arch = 'arm';
+      try {
+        const gl = document.createElement('canvas').getContext('webgl');
+        const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+        if (ext) {
+          const r = (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '').toLowerCase();
+          if (r.includes('intel') && !r.includes('apple')) arch = 'intel';
+        }
+      } catch {}
+      return arch === 'intel' ? 'mac-intel' : 'mac-arm';
+    }
+    if (isWin) return 'win-x64';
+    if (isLinux) return 'linux-x64-deb';
+    return 'mac-arm';
+  };
+
+  const REPO = 'ansxuman/Clauge';
+  const showAlpha = window.CLAUGE_FLAGS && window.CLAUGE_FLAGS.showAlpha === true;
+
+  /* Fetch releases list; pick the most recent matching the showAlpha flag. */
+  fetch(`https://api.github.com/repos/${REPO}/releases?per_page=10`, {
+    headers: { 'Accept': 'application/vnd.github+json' }
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(list => {
+      if (!Array.isArray(list) || !list.length) return;
+      const isAlphaLike = (r) => /\balpha\b/.test((r.tag_name || '').toLowerCase());
+      const release = showAlpha
+        ? list[0]
+        : list.find(r => !isAlphaLike(r)) || list[0];
+      const assets = release.assets || [];
+
+      /* Build slot → asset URL map */
+      const urls = {};
+      for (const [slot, match] of Object.entries(MATCHERS)) {
+        const hit = assets.find(a => match(a.name));
+        if (hit) urls[slot] = hit.browser_download_url;
+      }
+
+      /* Resolve the 'auto' slot to whatever the detected OS slot is */
+      const autoSlot = detectOsArch();
+      urls['auto'] = urls[autoSlot] || urls['mac-arm'] || `https://github.com/${REPO}/releases/latest`;
+
+      slots.forEach(a => {
+        const slot = a.dataset.osArch;
+        const url = urls[slot];
+        if (url) {
+          a.href = url;
+          a.removeAttribute('target');  /* same-tab download for direct binaries */
+          a.setAttribute('download', '');
+        } else {
+          a.classList.add('dl-missing');
+          a.title = 'No matching asset in latest release — opens releases page';
+        }
+      });
+    })
+    .catch(() => { /* network fail / rate-limit: leave hrefs as releases/latest */ });
+})();
