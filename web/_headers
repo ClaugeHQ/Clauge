@@ -10,17 +10,19 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
 
-# Long-cache static assets — anything content-hashed or rarely-changing.
-# Adjust patterns when adding more asset types.
+# Long-cache only what is content-hashed or rarely changes.
+# .css/.js use unhashed filenames so MUST revalidate often, otherwise a
+# new HTML deploy pairs with stale CSS/JS in the CDN edge and breaks the
+# page until cache expires.
 
 /*.svg
   Cache-Control: public, max-age=31536000, immutable
 
 /*.css
-  Cache-Control: public, max-age=86400
+  Cache-Control: public, max-age=300, must-revalidate
 
 /*.js
-  Cache-Control: public, max-age=86400
+  Cache-Control: public, max-age=300, must-revalidate
 
 # robots / sitemap should refresh quickly so crawlers see updates.
 
