@@ -832,21 +832,6 @@ footer .meta-row { margin-top: 28px; padding-top: 18px; border-top: 1px solid va
 .reveal { opacity: 0; transform: translateY(14px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
 .reveal.is-in { opacity: 1; transform: none; }
 
-/* responsive */
-@media (max-width: 1100px) {
-  .app-body { grid-template-columns: 60px minmax(0, 1fr) 280px; height: 600px; }
-  .panel { grid-template-columns: 200px minmax(0, 1fr); }
-}
-@media (max-width: 880px) {
-  .app-body { grid-template-columns: 56px minmax(0, 1fr); height: 540px; }
-  .ai-side { display: none; }
-  .panel { grid-template-columns: 180px minmax(0, 1fr); }
-}
-@media (max-width: 560px) {
-  .app-body { grid-template-columns: 56px minmax(0, 1fr); height: 460px; }
-  .panel { grid-template-columns: minmax(0, 1fr); grid-template-rows: 38px minmax(0, 1fr); }
-  .snav { display: none; }
-}
 
 
 /* ─── MODES — Codex-style alternating feature blocks ─── */
