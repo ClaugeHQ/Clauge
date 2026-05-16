@@ -10,6 +10,7 @@ import {
   handleSyncState, handleSyncPull, handleSyncPush, handleSyncWipe,
 } from './sync.js';
 import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal } from './billing.js';
+import { sweepPastDue } from './cron.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -106,5 +107,8 @@ export default {
       console.error('Worker exception:', e && e.stack ? e.stack : e);
       return err(env, 500, 'Internal error');
     }
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(sweepPastDue(env));
   },
 };
