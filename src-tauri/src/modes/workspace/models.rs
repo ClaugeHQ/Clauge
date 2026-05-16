@@ -159,6 +159,7 @@ pub struct WorkspaceCoworker {
     pub avatar_style: String,
     pub created_at: String,
     pub created_by: String,
+    pub disabled_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
