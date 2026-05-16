@@ -220,14 +220,17 @@ async function revokeUser(userId, terminalStatus, env) {
 
 async function handleOrderPaid(event, userId, env) {
   const d = event.data;
+  // Period bounds live on the Subscription, surfaced via subscription.created/updated
+  // (which fire BEFORE order.paid). The order.paid payload itself may not include
+  // them, so we read the user row to get the authoritative bounds.
   const current = await env.CLAUGE_DB.prepare(
-    "SELECT credit_allowance_per_cycle FROM users WHERE user_id = ?"
+    "SELECT credit_allowance_per_cycle, current_period_start, current_period_end FROM users WHERE user_id = ?"
   )
     .bind(userId)
     .first();
   if (!current) return;
   const allowance = current.credit_allowance_per_cycle || (await defaultCreditAllowance(env));
-  const months = periodMonthsFromBounds(d.current_period_start, d.current_period_end);
+  const months = periodMonthsFromBounds(current.current_period_start, current.current_period_end);
   const grantTotal = allowance * months;
   await env.CLAUGE_DB.prepare(
     `UPDATE users SET

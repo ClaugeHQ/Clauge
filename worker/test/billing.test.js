@@ -318,6 +318,65 @@ describe("order.paid handler — yearly subscription", () => {
   });
 });
 
+describe("order.paid handler — derives period from user row not payload", () => {
+  it("grants 12x for yearly even when order payload omits period bounds", async () => {
+    const userId = await seedUser({ slug: "u_yearly_no_bounds" });
+    // Simulate state after subscription.created already fired and set bounds:
+    await env.CLAUGE_DB.prepare(
+      `UPDATE users SET plan='pro', subscription_status='active',
+         polar_subscription_id='sub_y2',
+         current_period_start='2026-05-16T00:00:00Z',
+         current_period_end='2027-05-16T00:00:00Z',
+         credit_allowance_per_cycle=1000, credits_remaining=42
+       WHERE user_id=?`
+    )
+      .bind(userId)
+      .run();
+    // order.paid payload WITHOUT current_period_start/current_period_end:
+    const body = JSON.stringify({
+      type: "order.paid",
+      data: {
+        id: "ord_y2",
+        subscription_id: "sub_y2",
+        external_customer_id: String(userId),
+        // NOTE: no current_period_start or current_period_end here
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT credits_remaining FROM users WHERE user_id=?"
+    ).bind(userId).first();
+    expect(row.credits_remaining).toBe(12000);
+  });
+
+  it("grants 1x for monthly even when order payload omits period bounds", async () => {
+    const userId = await seedUser({ slug: "u_monthly_no_bounds" });
+    await env.CLAUGE_DB.prepare(
+      `UPDATE users SET plan='pro', subscription_status='active',
+         polar_subscription_id='sub_m2',
+         current_period_start='2026-05-16T00:00:00Z',
+         current_period_end='2026-06-16T00:00:00Z',
+         credit_allowance_per_cycle=1000, credits_remaining=0
+       WHERE user_id=?`
+    )
+      .bind(userId)
+      .run();
+    const body = JSON.stringify({
+      type: "order.paid",
+      data: {
+        id: "ord_m2",
+        subscription_id: "sub_m2",
+        external_customer_id: String(userId),
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT credits_remaining FROM users WHERE user_id=?"
+    ).bind(userId).first();
+    expect(row.credits_remaining).toBe(1000);
+  });
+});
+
 describe("initial purchase flow (sub.created + order.paid)", () => {
   it("grants credits exactly once across both events", async () => {
     const userId = await seedUser({ slug: "u_initial" });
