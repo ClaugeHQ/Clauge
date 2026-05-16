@@ -48,24 +48,16 @@ describe("sanitizeFinalUsage", () => {
 });
 
 describe("buildUpstreamRequest", () => {
-  it("uses model + allow list from the pool config", () => {
+  it("uses provided model + injects identity prompt as first system message", () => {
     const r = buildUpstreamRequest({
       messages: [{ role: "user", content: "hi" }],
-      pool: { model: "auto-router-name", allow: ["family-a/*", "family-b/*"] },
+      model: "auto-router-name",
       systemSuffix: "Be concise.",
     });
     expect(r.model).toBe("auto-router-name");
-    expect(r.models).toEqual(["family-a/*", "family-b/*"]);
     expect(r.stream).toBe(true);
     expect(r.messages[0].role).toBe("system");
     expect(r.messages[0].content).toContain("Clauge AI");
-  });
-
-  it("omits models field when allow list is empty", () => {
-    const r = buildUpstreamRequest({
-      messages: [{ role: "user", content: "hi" }],
-      pool: { model: "auto-router-name", allow: [] },
-    });
     expect(r.models).toBeUndefined();
   });
 });

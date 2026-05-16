@@ -1,4 +1,4 @@
-import { loadUpstreamPool, loadCreditWeights, loadRateLimits } from "./kvconfig.js";
+import { loadCreditWeights, loadRateLimits } from "./kvconfig.js";
 import { buildUpstreamRequest, callUpstream, sanitizeChunk, sanitizeFinalUsage } from "./upstream.js";
 import { deductCredits, classifyOperation, computeChargeCredits, estimateTokens } from "./credits.js";
 import { checkRpm, checkBurstBudget } from "./ratelimit.js";
@@ -58,13 +58,12 @@ export async function handleAiChat(request, env, userId) {
     return errResponse("BURST_LIMITED", "using credits too quickly, try in an hour", 429);
   }
 
-  const pool = await loadUpstreamPool(env);
-  if (!pool.model) {
+  if (!env.AI_UPSTREAM_MODEL) {
     return errResponse("AI_UNAVAILABLE", "Clauge AI is not configured", 503);
   }
   const upReq = buildUpstreamRequest({
     messages: body.messages,
-    pool,
+    model: env.AI_UPSTREAM_MODEL,
     systemSuffix: typeof body.system === "string" ? body.system : "",
   });
   let upResp;

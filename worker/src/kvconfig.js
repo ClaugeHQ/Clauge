@@ -1,13 +1,6 @@
 // Runtime configuration loaders for the AI proxy. All operator-tunable
 // values live in KV — no provider-specific strings (URLs, model names,
 // model families) appear in this file or anywhere else in source.
-//
-// `loadUpstreamPool` returns an EMPTY placeholder when the KV key is
-// missing. Callers check `pool.model` and refuse to call the upstream
-// if unset. This forces an operator to populate KV before any AI
-// request can succeed.
-
-const EMPTY_POOL = { model: "", allow: [] };
 
 const DEFAULT_WEIGHTS = {
   operations: {
@@ -33,10 +26,6 @@ async function loadJson(env, key, fallback) {
   } catch {
     return fallback;
   }
-}
-
-export async function loadUpstreamPool(env) {
-  return loadJson(env, "ai:upstream_pool", EMPTY_POOL);
 }
 
 export async function loadCreditWeights(env) {

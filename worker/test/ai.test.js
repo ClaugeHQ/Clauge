@@ -36,8 +36,6 @@ describe("handleAiChat", () => {
     for (const k of list.keys) await env.CLAUGE_KV.delete(k.name);
     const list2 = await env.CLAUGE_KV.list({ prefix: "burst:" });
     for (const k of list2.keys) await env.CLAUGE_KV.delete(k.name);
-    // Ensure KV pool is seeded so the upstream call shape is well-formed
-    await env.CLAUGE_KV.put("ai:upstream_pool", '{"model":"auto","allow":["family/*"]}');
     await env.CLAUGE_KV.put("ai:credit_weights", '{"operations":{"chat":{"base":1,"long_ctx_threshold_tokens":8000,"long_ctx_multiplier":2}},"cost_to_clauge_credit_divisor_usd":0.01,"min_credits_per_call":1}');
     await env.CLAUGE_KV.put("ai:rate_limits", '{"per_user_rpm":30,"burst_budget_fraction":0.10,"burst_window_seconds":3600}');
   });

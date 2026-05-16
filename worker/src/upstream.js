@@ -1,13 +1,13 @@
 // AI upstream client + sanitization layer.
 //
 // This file makes no assumption about which upstream is configured.
-// URL and API key come from environment secrets; model identifier and
-// allow-list come from KV. The repo is public, so no provider name
-// appears here — operator configures the upstream out of band.
+// URL and API key come from environment secrets; model identifier comes
+// from the AI_UPSTREAM_MODEL env secret (set in dashboard). The repo is
+// public, so no provider name appears here — operator configures the
+// upstream out of band.
 //
 // We always:
-//   - Forward the upstream model identifier and `models` allow-list
-//     exactly as supplied by the pool config.
+//   - Use the model string supplied by the caller (from env).
 //   - Inject a system prompt telling the LLM to call itself "Clauge AI"
 //     and refuse to disclose its underlying model.
 //   - Strip identifying fields from every SSE chunk forwarded to the
@@ -39,20 +39,16 @@ export function sanitizeFinalUsage(obj) {
   };
 }
 
-export function buildUpstreamRequest({ messages, pool, systemSuffix }) {
+export function buildUpstreamRequest({ messages, model, systemSuffix }) {
   const withSystem = [
     { role: "system", content: (systemSuffix ?? "") + "\n" + IDENTITY_PROMPT },
     ...messages.filter((m) => m.role !== "system"),
   ];
-  const req = {
-    model: pool.model,
+  return {
+    model,
     messages: withSystem,
     stream: true,
   };
-  if (Array.isArray(pool.allow) && pool.allow.length > 0) {
-    req.models = pool.allow;
-  }
-  return req;
 }
 
 // Call the upstream chat-completions endpoint. Returns the raw Response

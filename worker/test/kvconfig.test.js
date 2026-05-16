@@ -1,25 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { loadUpstreamPool, loadCreditWeights, loadRateLimits } from "../src/kvconfig.js";
+import { loadCreditWeights, loadRateLimits } from "../src/kvconfig.js";
 
 describe("kvconfig", () => {
   beforeEach(async () => {
-    await env.CLAUGE_KV.delete("ai:upstream_pool");
     await env.CLAUGE_KV.delete("ai:credit_weights");
     await env.CLAUGE_KV.delete("ai:rate_limits");
-  });
-
-  it("loadUpstreamPool returns parsed JSON when key present", async () => {
-    await env.CLAUGE_KV.put("ai:upstream_pool", '{"model":"auto","allow":["family/*"]}');
-    const pool = await loadUpstreamPool(env);
-    expect(pool.model).toBe("auto");
-    expect(pool.allow).toEqual(["family/*"]);
-  });
-
-  it("loadUpstreamPool returns empty placeholder when key absent (operator must seed)", async () => {
-    const pool = await loadUpstreamPool(env);
-    expect(pool.model).toBe("");
-    expect(pool.allow).toEqual([]);
   });
 
   it("loadCreditWeights returns parsed JSON when key present", async () => {
