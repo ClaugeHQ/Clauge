@@ -439,7 +439,7 @@ describe("POST /api/billing/checkout", () => {
       const r = await handleCreateCheckout(
         new Request("https://x", {
           method: "POST",
-          body: '{"plan":"monthly","intro":true}',
+          body: '{"plan":"monthly"}',
           headers: { "content-type": "application/json" },
         }),
         env,

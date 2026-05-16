@@ -300,10 +300,6 @@ export async function handleCreateCheckout(request, env, userId) {
     customer_email: userRow?.primary_email ?? undefined,
     success_url: "https://clauge.in/upgrade-success?ref=" + encodeURIComponent(String(userId)),
   };
-  if (body.intro && env.POLAR_DISCOUNT_INTRO) {
-    req.discount_id = env.POLAR_DISCOUNT_INTRO;
-  }
-
   const resp = await fetch("https://api.polar.sh/v1/checkouts/", {
     method: "POST",
     headers: {
