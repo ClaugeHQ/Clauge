@@ -106,6 +106,33 @@ describe("handleAiChat", () => {
   });
 });
 
+describe("handleAiChat — replay defense", () => {
+  it("rejects 409 when request_id was previously used", async () => {
+    const userId = await seedUser({ slug: "u_replay" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', credit_allowance_per_cycle=1000, credits_remaining=100 WHERE user_id=?"
+    ).bind(userId).run();
+    // Pre-seed a usage log entry
+    await env.CLAUGE_DB.prepare(
+      `INSERT INTO credit_usage_log (user_id, operation, clauge_credits, cost_usd_micros, request_id)
+       VALUES (?, 'chat', 5, 5000, ?)`
+    ).bind(userId, "33333333-3333-4333-8333-333333333333").run();
+    const r = await handleAiChat(
+      new Request("https://x", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "hi" }],
+          request_id: "33333333-3333-4333-8333-333333333333",
+        }),
+      }),
+      env,
+      userId
+    );
+    expect(r.status).toBe(409);
+  });
+});
+
 describe("handleAiChat — request_id validation", () => {
   it("rejects non-UUID request_id with 400", async () => {
     const userId = await seedUser({ slug: "u_baduuid" });

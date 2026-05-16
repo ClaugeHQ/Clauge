@@ -35,6 +35,15 @@ export async function handleAiChat(request, env, userId) {
     return errResponse("BAD_REQUEST", "request_id must be a UUID v4", 400);
   }
 
+  // Replay defense: if this request_id was previously used by this user,
+  // reject — never re-stream a paid-for response.
+  const replay = await env.CLAUGE_DB.prepare(
+    "SELECT id FROM credit_usage_log WHERE user_id = ? AND request_id = ?"
+  ).bind(userId, body.request_id).first();
+  if (replay) {
+    return errResponse("DUPLICATE_REQUEST", "request_id already used", 409);
+  }
+
   const weights = await loadCreditWeights(env);
   const limits = await loadRateLimits(env);
 
