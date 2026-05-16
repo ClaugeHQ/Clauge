@@ -613,3 +613,120 @@ describe("POST /api/billing/checkout", () => {
     }
   });
 });
+
+describe("polar_customer_id capture", () => {
+  it("subscription.created sets polar_customer_id from data.customer_id", async () => {
+    const userId = await seedUser({ slug: "u_cust_id" });
+    const body = JSON.stringify({
+      type: "subscription.created",
+      data: {
+        id: "sub_cust_1",
+        status: "active",
+        cancel_at_period_end: false,
+        current_period_start: "2026-05-16T00:00:00Z",
+        current_period_end: "2026-06-16T00:00:00Z",
+        external_customer_id: String(userId),
+        customer_id: "cust_polar_xyz",
+        product: { prices: [{ id: env.POLAR_PRODUCT_MONTHLY }] },
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT polar_customer_id FROM users WHERE user_id = ?"
+    ).bind(userId).first();
+    expect(row.polar_customer_id).toBe("cust_polar_xyz");
+  });
+
+  it("subscription.created accepts customer_id at data.customer.id (nested)", async () => {
+    const userId = await seedUser({ slug: "u_cust_id_nested" });
+    const body = JSON.stringify({
+      type: "subscription.created",
+      data: {
+        id: "sub_cust_2",
+        status: "active",
+        cancel_at_period_end: false,
+        current_period_start: "2026-05-16T00:00:00Z",
+        current_period_end: "2026-06-16T00:00:00Z",
+        external_customer_id: String(userId),
+        customer: { id: "cust_polar_abc", external_id: String(userId) },
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT polar_customer_id FROM users WHERE user_id = ?"
+    ).bind(userId).first();
+    expect(row.polar_customer_id).toBe("cust_polar_abc");
+  });
+});
+
+describe("subscription.uncanceled dispatch", () => {
+  it("clears cancel_at_period_end when user un-cancels via portal", async () => {
+    const userId = await seedUser({ slug: "u_uncancel" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', cancel_at_period_end=1, polar_subscription_id='sub_unc' WHERE user_id=?"
+    ).bind(userId).run();
+    const body = JSON.stringify({
+      type: "subscription.uncanceled",
+      data: {
+        id: "sub_unc",
+        status: "active",
+        cancel_at_period_end: false,
+        external_customer_id: String(userId),
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT cancel_at_period_end, subscription_status FROM users WHERE user_id=?"
+    ).bind(userId).first();
+    expect(row.cancel_at_period_end).toBe(0);
+    expect(row.subscription_status).toBe("active");
+  });
+});
+
+describe("subscription.active dispatch", () => {
+  it("reconciles status to active after past_due recovery", async () => {
+    const userId = await seedUser({ slug: "u_active" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='past_due', past_due_started_at=datetime('now','-1 day'), polar_subscription_id='sub_act' WHERE user_id=?"
+    ).bind(userId).run();
+    const body = JSON.stringify({
+      type: "subscription.active",
+      data: {
+        id: "sub_act",
+        status: "active",
+        cancel_at_period_end: false,
+        external_customer_id: String(userId),
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT subscription_status, past_due_started_at FROM users WHERE user_id=?"
+    ).bind(userId).first();
+    expect(row.subscription_status).toBe("active");
+    expect(row.past_due_started_at).toBeNull();
+  });
+});
+
+describe("subscription.past_due dispatch", () => {
+  it("stamps past_due_started_at when explicit past_due event fires", async () => {
+    const userId = await seedUser({ slug: "u_past_due_explicit" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', polar_subscription_id='sub_pde' WHERE user_id=?"
+    ).bind(userId).run();
+    const body = JSON.stringify({
+      type: "subscription.past_due",
+      data: {
+        id: "sub_pde",
+        status: "past_due",
+        cancel_at_period_end: false,
+        external_customer_id: String(userId),
+      },
+    });
+    await postWebhook(body);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT subscription_status, past_due_started_at FROM users WHERE user_id=?"
+    ).bind(userId).first();
+    expect(row.subscription_status).toBe("past_due");
+    expect(row.past_due_started_at).not.toBeNull();
+  });
+});

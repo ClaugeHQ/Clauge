@@ -1,5 +1,13 @@
 import { verifyPolarSignature, parsePolarEvent } from "./polar.js";
 
+// Polar webhook payloads expose the customer at either of these paths
+// depending on event/expansion shape. Returns the Polar customer UUID
+// (string) or null.
+function resolvePolarCustomerId(eventData) {
+  const d = eventData ?? {};
+  return d.customer_id ?? d.customer?.id ?? null;
+}
+
 // Derive billing period length in months from period bounds (~30d ≈ 1 month).
 // Used to scale credit grant: monthly = 1× allowance, yearly = 12× allowance.
 function periodMonthsFromBounds(startIso, endIso) {
@@ -84,6 +92,9 @@ async function dispatch(event, userId, env) {
     case "subscription.created":
       return handleSubscriptionCreated(event, userId, env);
     case "subscription.updated":
+    case "subscription.active":         // fires when sub becomes active; delegate to updated
+    case "subscription.uncanceled":     // user toggled off cancel-at-period-end; delegate
+    case "subscription.past_due":       // explicit past_due event; delegate
       return handleSubscriptionUpdated(event, userId, env);
     case "subscription.canceled":
       return handleSubscriptionCanceled(event, userId, env);
@@ -115,10 +126,7 @@ async function defaultCreditAllowance(env) {
 
 async function handleSubscriptionCreated(event, userId, env) {
   const d = event.data;
-  // Set plan + period metadata only. Credits are granted by handleOrderPaid
-  // on the first order.paid event (which fires alongside subscription.created
-  // on initial purchase). This avoids double-granting credits on first cycle.
-  const allowance = await defaultCreditAllowance(env);
+  const polarCustomerId = resolvePolarCustomerId(d);
   await env.CLAUGE_DB.prepare(
     `UPDATE users SET
        plan = 'pro',
@@ -127,6 +135,7 @@ async function handleSubscriptionCreated(event, userId, env) {
        current_period_start = ?,
        current_period_end = ?,
        polar_subscription_id = ?,
+       polar_customer_id = COALESCE(?, polar_customer_id),
        credit_allowance_per_cycle = ?,
        past_due_started_at = NULL,
        updated_at = CURRENT_TIMESTAMP
@@ -138,7 +147,8 @@ async function handleSubscriptionCreated(event, userId, env) {
       d.current_period_start,
       d.current_period_end,
       d.id,
-      allowance,
+      polarCustomerId,
+      await defaultCreditAllowance(env),
       userId
     )
     .run();
@@ -147,16 +157,18 @@ async function handleSubscriptionCreated(event, userId, env) {
 async function handleSubscriptionUpdated(event, userId, env) {
   const d = event.data;
   if (d.status === "past_due") {
+    const polarCustomerId = resolvePolarCustomerId(d);
     await env.CLAUGE_DB.prepare(
       `UPDATE users SET
          subscription_status = 'past_due',
          past_due_started_at = COALESCE(past_due_started_at, CURRENT_TIMESTAMP),
          cancel_at_period_end = ?,
          current_period_end = COALESCE(?, current_period_end),
+         polar_customer_id = COALESCE(?, polar_customer_id),
          updated_at = CURRENT_TIMESTAMP
        WHERE user_id = ?`
     )
-      .bind(d.cancel_at_period_end ? 1 : 0, d.current_period_end ?? null, userId)
+      .bind(d.cancel_at_period_end ? 1 : 0, d.current_period_end ?? null, polarCustomerId, userId)
       .run();
     return;
   }
@@ -165,12 +177,14 @@ async function handleSubscriptionUpdated(event, userId, env) {
     return revokeUser(userId, "unpaid", env);
   }
 
+  const polarCustomerId = resolvePolarCustomerId(d);
   await env.CLAUGE_DB.prepare(
     `UPDATE users SET
        subscription_status = ?,
        cancel_at_period_end = ?,
        current_period_start = COALESCE(?, current_period_start),
        current_period_end = COALESCE(?, current_period_end),
+       polar_customer_id = COALESCE(?, polar_customer_id),
        past_due_started_at = CASE WHEN ? = 'active' THEN NULL ELSE past_due_started_at END,
        updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ?`
@@ -180,6 +194,7 @@ async function handleSubscriptionUpdated(event, userId, env) {
       d.cancel_at_period_end ? 1 : 0,
       d.current_period_start ?? null,
       d.current_period_end ?? null,
+      polarCustomerId,
       d.status,
       userId
     )
@@ -232,6 +247,7 @@ async function handleOrderPaid(event, userId, env) {
   const allowance = current.credit_allowance_per_cycle || (await defaultCreditAllowance(env));
   const months = periodMonthsFromBounds(current.current_period_start, current.current_period_end);
   const grantTotal = allowance * months;
+  const polarCustomerId = resolvePolarCustomerId(d);
   await env.CLAUGE_DB.prepare(
     `UPDATE users SET
        subscription_status = 'active',
@@ -239,11 +255,12 @@ async function handleOrderPaid(event, userId, env) {
        past_due_started_at = NULL,
        current_period_start = COALESCE(?, current_period_start),
        current_period_end = COALESCE(?, current_period_end),
+       polar_customer_id = COALESCE(?, polar_customer_id),
        credits_remaining = ?,
        updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ?`
   )
-    .bind(d.current_period_start ?? null, d.current_period_end ?? null, grantTotal, userId)
+    .bind(d.current_period_start ?? null, d.current_period_end ?? null, polarCustomerId, grantTotal, userId)
     .run();
 }
 
