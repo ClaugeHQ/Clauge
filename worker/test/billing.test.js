@@ -3,30 +3,36 @@ import { env } from "cloudflare:test";
 import { handleBillingWebhook } from "../src/billing.js";
 import { seedUser } from "./setup.js";
 
-async function postWebhook(body, sigHex) {
-  return handleBillingWebhook(
-    new Request("https://x/api/billing/webhook", {
-      method: "POST",
-      headers: { "webhook-signature": sigHex, "content-type": "application/json" },
-      body,
-    }),
-    env
-  );
-}
-
-async function signedSig(body) {
+async function buildSignedHeaders(rawBody, opts = {}) {
   const enc = new TextEncoder();
+  const id = opts.id ?? `msg_${Math.random().toString(36).slice(2)}`;
+  const timestamp = opts.timestamp ?? String(Math.floor(Date.now() / 1000));
+  const secret = env.POLAR_WEBHOOK_SECRET;
   const key = await crypto.subtle.importKey(
     "raw",
-    enc.encode(env.POLAR_WEBHOOK_SECRET),
+    enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
   );
-  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(body));
-  return Array.from(new Uint8Array(mac))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${id}.${timestamp}.${rawBody}`));
+  const sigBytes = new Uint8Array(mac);
+  let bin = "";
+  for (const b of sigBytes) bin += String.fromCharCode(b);
+  return { id, headers: new Headers({
+    "webhook-id": id,
+    "webhook-timestamp": timestamp,
+    "webhook-signature": `v1,${btoa(bin)}`,
+    "content-type": "application/json",
+  }) };
+}
+
+async function postWebhook(body, opts = {}) {
+  const { headers } = await buildSignedHeaders(body, opts);
+  return handleBillingWebhook(
+    new Request("https://x/api/billing/webhook", { method: "POST", headers, body }),
+    env
+  );
 }
 
 describe("handleBillingWebhook router", () => {
@@ -35,7 +41,7 @@ describe("handleBillingWebhook router", () => {
     await env.CLAUGE_DB.prepare("DELETE FROM users").run();
   });
 
-  it("rejects requests with missing signature", async () => {
+  it("rejects requests with missing signature headers", async () => {
     const r = await handleBillingWebhook(
       new Request("https://x", { method: "POST", body: "{}" }),
       env
@@ -44,58 +50,58 @@ describe("handleBillingWebhook router", () => {
   });
 
   it("rejects requests with bad signature", async () => {
-    const r = await postWebhook("{}", "deadbeef");
+    const body = "{}";
+    const r = await handleBillingWebhook(
+      new Request("https://x", {
+        method: "POST",
+        headers: {
+          "webhook-id": "msg_x",
+          "webhook-timestamp": String(Math.floor(Date.now() / 1000)),
+          "webhook-signature": "v1,YmFkc2lndmFsdWU=",
+        },
+        body,
+      }),
+      env
+    );
     expect(r.status).toBe(401);
   });
 
-  it("rejects events older than 5 minutes", async () => {
-    const body = JSON.stringify({
-      id: "evt_old",
-      type: "subscription.created",
-      created_at: new Date(Date.now() - 6 * 60_000).toISOString(),
-      data: {},
-    });
-    const sig = await signedSig(body);
-    const r = await postWebhook(body, sig);
-    expect(r.status).toBe(400);
+  it("rejects requests with stale timestamp header", async () => {
+    const body = JSON.stringify({ type: "subscription.created", data: {} });
+    const old = String(Math.floor(Date.now() / 1000) - 6 * 60);
+    const r = await postWebhook(body, { timestamp: old });
+    expect(r.status).toBe(401);
   });
 
   it("returns 200 for an unknown event type (graceful drop)", async () => {
     const body = JSON.stringify({
-      id: "evt_unknown",
       type: "some.future.event",
-      created_at: new Date().toISOString(),
       data: {},
     });
-    const sig = await signedSig(body);
-    const r = await postWebhook(body, sig);
+    const r = await postWebhook(body);
     expect(r.status).toBe(200);
   });
 
-  it("dedupes by polar_event_id (replay-safe)", async () => {
+  it("dedupes by webhook-id (replay-safe)", async () => {
     const userId = await seedUser({ slug: "u1" });
     const body = JSON.stringify({
-      id: "evt_dup_1",
       type: "subscription.created",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_test_1",
         status: "active",
         current_period_start: new Date().toISOString(),
         current_period_end: new Date(Date.now() + 30 * 86400_000).toISOString(),
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
         product: { prices: [{ id: env.POLAR_PRODUCT_MONTHLY }] },
         cancel_at_period_end: false,
       },
     });
-    const sig = await signedSig(body);
-    expect((await postWebhook(body, sig)).status).toBe(200);
-    expect((await postWebhook(body, sig)).status).toBe(200);
+    // Two calls with the same webhook-id header
+    expect((await postWebhook(body, { id: "msg_dup_1" })).status).toBe(200);
+    expect((await postWebhook(body, { id: "msg_dup_1" })).status).toBe(200);
     const count = await env.CLAUGE_DB.prepare(
       "SELECT COUNT(*) AS n FROM subscription_history WHERE polar_event_id = ?"
-    )
-      .bind("evt_dup_1")
-      .first();
+    ).bind("msg_dup_1").first();
     expect(count.n).toBe(1);
   });
 });
@@ -104,21 +110,18 @@ describe("subscription.created handler", () => {
   it("flips plan to pro, sets period bounds, grants credits", async () => {
     const userId = await seedUser({ slug: "u_created" });
     const body = JSON.stringify({
-      id: "evt_sub_created_1",
       type: "subscription.created",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_abc",
         status: "active",
         current_period_start: "2026-05-16T00:00:00Z",
         current_period_end: "2026-06-16T00:00:00Z",
         cancel_at_period_end: false,
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
         product: { prices: [{ id: env.POLAR_PRODUCT_MONTHLY }] },
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT plan, subscription_status, polar_subscription_id, credits_remaining, credit_allowance_per_cycle, current_period_end FROM users WHERE user_id = ?"
     )
@@ -143,19 +146,16 @@ describe("subscription.canceled handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_sub_cancel_1",
       type: "subscription.canceled",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_c",
         status: "active",
         cancel_at_period_end: true,
         current_period_end: "2026-06-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT plan, subscription_status, cancel_at_period_end, credits_remaining FROM users WHERE user_id=?"
     )
@@ -176,13 +176,10 @@ describe("subscription.revoked handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_sub_revoke_1",
       type: "subscription.revoked",
-      created_at: new Date().toISOString(),
-      data: { id: "sub_r", status: "canceled", customer: { external_id: String(userId) } },
+      data: { id: "sub_r", status: "canceled", external_customer_id: String(userId) },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT plan, subscription_status, credits_remaining FROM users WHERE user_id=?"
     )
@@ -203,19 +200,16 @@ describe("subscription.updated past_due handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_sub_pastdue_1",
       type: "subscription.updated",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_p",
         status: "past_due",
         cancel_at_period_end: false,
         current_period_end: "2026-06-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT subscription_status, past_due_started_at, plan, credits_remaining FROM users WHERE user_id=?"
     )
@@ -237,17 +231,14 @@ describe("subscription.updated unpaid handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_sub_unpaid_1",
       type: "subscription.updated",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_u",
         status: "unpaid",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT plan, subscription_status, credits_remaining FROM users WHERE user_id=?"
     )
@@ -273,9 +264,7 @@ describe("order.paid handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_paid_1",
       type: "order.paid",
-      created_at: new Date().toISOString(),
       data: {
         id: "ord_p1",
         status: "paid",
@@ -283,11 +272,10 @@ describe("order.paid handler", () => {
         billing_reason: "subscription_cycle",
         current_period_start: "2026-06-16T00:00:00Z",
         current_period_end: "2026-07-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT credits_remaining, current_period_start FROM users WHERE user_id=?"
     )
@@ -313,19 +301,16 @@ describe("order.paid handler — yearly subscription", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_yearly_paid",
       type: "order.paid",
-      created_at: new Date().toISOString(),
       data: {
         id: "ord_y1",
         subscription_id: "sub_y1",
         current_period_start: "2027-05-16T00:00:00Z",
         current_period_end: "2028-05-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT credits_remaining FROM users WHERE user_id=?"
     ).bind(userId).first();
@@ -339,20 +324,18 @@ describe("initial purchase flow (sub.created + order.paid)", () => {
 
     // 1. subscription.created fires (no credits granted)
     const subBody = JSON.stringify({
-      id: "evt_init_sub",
       type: "subscription.created",
-      created_at: new Date().toISOString(),
       data: {
         id: "sub_init",
         status: "active",
         cancel_at_period_end: false,
         current_period_start: "2026-05-16T00:00:00Z",
         current_period_end: "2026-06-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
         product: { prices: [{ id: env.POLAR_PRODUCT_MONTHLY }] },
       },
     });
-    await postWebhook(subBody, await signedSig(subBody));
+    await postWebhook(subBody);
     let row = await env.CLAUGE_DB.prepare(
       "SELECT plan, credits_remaining, credit_allowance_per_cycle FROM users WHERE user_id=?"
     ).bind(userId).first();
@@ -362,18 +345,16 @@ describe("initial purchase flow (sub.created + order.paid)", () => {
 
     // 2. order.paid fires (grants 1× allowance for monthly)
     const ordBody = JSON.stringify({
-      id: "evt_init_ord",
       type: "order.paid",
-      created_at: new Date().toISOString(),
       data: {
         id: "ord_init",
         subscription_id: "sub_init",
         current_period_start: "2026-05-16T00:00:00Z",
         current_period_end: "2026-06-16T00:00:00Z",
-        customer: { external_id: String(userId) },
+        external_customer_id: String(userId),
       },
     });
-    await postWebhook(ordBody, await signedSig(ordBody));
+    await postWebhook(ordBody);
     row = await env.CLAUGE_DB.prepare(
       "SELECT credits_remaining FROM users WHERE user_id=?"
     ).bind(userId).first();
@@ -390,13 +371,10 @@ describe("order.refunded handler", () => {
       .bind(userId)
       .run();
     const body = JSON.stringify({
-      id: "evt_refund_1",
       type: "order.refunded",
-      created_at: new Date().toISOString(),
-      data: { id: "ord_r", customer: { external_id: String(userId) } },
+      data: { id: "ord_r", external_customer_id: String(userId) },
     });
-    const sig = await signedSig(body);
-    await postWebhook(body, sig);
+    await postWebhook(body);
     const row = await env.CLAUGE_DB.prepare(
       "SELECT plan, credits_remaining FROM users WHERE user_id=?"
     )

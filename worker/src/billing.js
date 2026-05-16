@@ -1,4 +1,4 @@
-import { verifyPolarSignature, checkReplayWindow, parsePolarEvent } from "./polar.js";
+import { verifyPolarSignature, parsePolarEvent } from "./polar.js";
 
 // Derive billing period length in months from period bounds (~30d ≈ 1 month).
 // Used to scale credit grant: monthly = 1× allowance, yearly = 12× allowance.
@@ -17,61 +17,63 @@ function periodMonthsFromBounds(startIso, endIso) {
 // types is safer than logging an error to operator alerts).
 
 export async function handleBillingWebhook(request, env) {
-  const sigHex = request.headers.get("webhook-signature") || "";
-  if (!sigHex) return new Response("missing signature", { status: 401 });
+  const webhookId = request.headers.get("webhook-id");
+  if (!webhookId) return new Response("missing signature", { status: 401 });
 
   const rawBody = await request.text();
-  const ok = await verifyPolarSignature(rawBody, sigHex, env);
+  const ok = await verifyPolarSignature(rawBody, request.headers, env);
   if (!ok) return new Response("bad signature", { status: 401 });
 
   const event = parsePolarEvent(rawBody);
   if (!event) return new Response("bad payload", { status: 400 });
 
-  if (!checkReplayWindow(event.created_at)) {
-    return new Response("event too old", { status: 400 });
-  }
-
-  // Dedup check — UNIQUE constraint on polar_event_id handles the race,
-  // but pre-checking avoids spurious INSERT-fail noise in logs.
+  // Dedup on the delivery ID from the header (not payload event id).
   const existing = await env.CLAUGE_DB.prepare(
     "SELECT 1 FROM subscription_history WHERE polar_event_id = ?"
   )
-    .bind(event.id)
+    .bind(webhookId)
     .first();
   if (existing) return new Response("duplicate", { status: 200 });
 
   const userId = resolveUserId(event);
   if (userId === null) {
-    // Some events (organization.*) don't carry a user — skip silently.
     return new Response("no user context", { status: 200 });
   }
 
   await dispatch(event, userId, env);
-  await logEvent(event, userId, rawBody, env);
+  await logEvent(event, webhookId, userId, rawBody, env);
 
   return new Response("ok", { status: 200 });
 }
 
 function resolveUserId(event) {
-  // Checkout is configured to pass user_id as external_customer_id;
-  // most event payloads expose it at data.customer.external_id.
+  // Polar webhooks may expose the external customer ID at any of these paths.
+  // Check in order, take first non-null.
   const d = event.data ?? {};
-  const ext =
-    d.customer?.external_id ??
-    d.order?.customer?.external_id ??
-    d.subscription?.customer?.external_id;
-  if (!ext) return null;
-  const n = Number(ext);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  const candidates = [
+    d.external_customer_id,
+    d.customer?.external_id,
+    d.customer_external_id,             // legacy field name
+    d.order?.external_customer_id,
+    d.order?.customer?.external_id,
+    d.subscription?.external_customer_id,
+    d.subscription?.customer?.external_id,
+  ];
+  for (const c of candidates) {
+    if (c == null) continue;
+    const n = Number(c);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return null;
 }
 
-async function logEvent(event, userId, rawBody, env) {
+async function logEvent(event, webhookId, userId, rawBody, env) {
   await env.CLAUGE_DB.prepare(
     `INSERT OR IGNORE INTO subscription_history
        (user_id, event_type, polar_event_id, payload_json, occurred_at)
      VALUES (?, ?, ?, ?, ?)`
   )
-    .bind(userId, event.type, event.id, rawBody, event.created_at)
+    .bind(userId, event.type, webhookId, rawBody, event.created_at ?? new Date().toISOString())
     .run();
 }
 
