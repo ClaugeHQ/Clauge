@@ -465,6 +465,50 @@ describe("rate limits", () => {
   });
 });
 
+describe("GET /api/billing/pricing", () => {
+  beforeEach(async () => {
+    await env.CLAUGE_DB.prepare("DELETE FROM billing_discount").run();
+  });
+
+  it("returns seeded monthly + yearly plans with no discount", async () => {
+    const { handleGetPricing } = await import("../src/billing.js");
+    const r = await handleGetPricing(env);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toContain("max-age=300");
+    const body = await r.json();
+    expect(body.plans.map(p => p.id).sort()).toEqual(["monthly", "yearly"]);
+    expect(body.plans.find(p => p.id === "monthly").price_usd).toBe(15);
+    expect(body.plans.find(p => p.id === "yearly").price_usd).toBe(150);
+    expect(body.discount).toBeUndefined();
+  });
+
+  it("includes discount object when a row exists", async () => {
+    await env.CLAUGE_DB.prepare(
+      "INSERT OR REPLACE INTO billing_discount (id, percent, label, code) VALUES (1, 53, 'Introductory offer', 'INTRO53')"
+    ).run();
+    const { handleGetPricing } = await import("../src/billing.js");
+    const r = await handleGetPricing(env);
+    const body = await r.json();
+    expect(body.discount).toEqual({
+      percent: 53,
+      label: "Introductory offer",
+      code: "INTRO53",
+    });
+  });
+
+  it("discount.code is nullable (auto-apply variant)", async () => {
+    await env.CLAUGE_DB.prepare(
+      "INSERT OR REPLACE INTO billing_discount (id, percent, label, code) VALUES (1, 20, 'Auto applied', NULL)"
+    ).run();
+    const { handleGetPricing } = await import("../src/billing.js");
+    const r = await handleGetPricing(env);
+    const body = await r.json();
+    expect(body.discount.percent).toBe(20);
+    expect(body.discount.label).toBe("Auto applied");
+    expect(body.discount.code).toBeNull();
+  });
+});
+
 describe("POST /api/billing/checkout", () => {
   it("returns 401 without auth", async () => {
     const { handleCreateCheckout } = await import("../src/billing.js");

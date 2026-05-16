@@ -280,6 +280,31 @@ export async function handleCreatePortal(env, userId) {
   });
 }
 
+// Public, anonymous, cache-friendly. Reads two operator-managed tables.
+// Discount is OMITTED entirely from the response when no row exists,
+// so the UI renders clean (un-slashed) prices.
+export async function handleGetPricing(env) {
+  const { results: plans } = await env.CLAUGE_DB.prepare(
+    "SELECT plan_id AS id, label, price_usd, period FROM billing_pricing ORDER BY price_usd ASC"
+  ).all();
+
+  const discount = await env.CLAUGE_DB.prepare(
+    "SELECT percent, label, code FROM billing_discount WHERE id = 1"
+  ).first();
+
+  const payload = { plans };
+  if (discount) payload.discount = discount;
+
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      // 5-minute edge cache. Operator price changes propagate within this window.
+      "cache-control": "public, max-age=300",
+    },
+  });
+}
+
 export async function handleCreateCheckout(request, env, userId) {
   if (!userId) return new Response("unauthorized", { status: 401 });
   let body;

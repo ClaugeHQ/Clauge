@@ -9,7 +9,7 @@ import {
 import {
   handleSyncState, handleSyncPull, handleSyncPush, handleSyncWipe,
 } from './sync.js';
-import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal } from './billing.js';
+import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal, handleGetPricing } from './billing.js';
 import { sweepPastDue } from './cron.js';
 import { handleAiChat, handleAiBalance, handleAiUsage } from './ai.js';
 import { checkKeyRpm } from './ratelimit.js';
@@ -99,6 +99,11 @@ export default {
           return new Response("rate limited", { status: 429 });
         }
         return handleCreateCheckout(request, env, checkoutUserId);
+      }
+
+      // ─── /api/billing/pricing — public, no bearer ───────────
+      if (request.method === 'GET' && path === '/api/billing/pricing') {
+        return handleGetPricing(env);
       }
 
       // ─── /api/billing/portal — bearer required ──────────────
