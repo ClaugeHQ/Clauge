@@ -131,3 +131,48 @@ export async function handleAiChat(request, env, userId) {
 
   return new Response(readable, { status: 200, headers: SSE_HEADERS });
 }
+
+export async function handleAiBalance(env, userId) {
+  if (!userId) return errResponse("UNAUTHORIZED", "sign in required", 401);
+  const row = await env.CLAUGE_DB.prepare(
+    "SELECT credits_remaining, credit_allowance_per_cycle, current_period_end FROM users WHERE user_id = ?"
+  )
+    .bind(userId)
+    .first();
+  if (!row) return errResponse("NOT_FOUND", "user not found", 404);
+  return new Response(
+    JSON.stringify({
+      remaining: row.credits_remaining,
+      allowance: row.credit_allowance_per_cycle,
+      resets_at: row.current_period_end,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
+}
+
+export async function handleAiUsage(env, userId, url) {
+  if (!userId) return errResponse("UNAUTHORIZED", "sign in required", 401);
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+  const before = url.searchParams.get("before"); // ISO timestamp
+  const stmt = before
+    ? env.CLAUGE_DB.prepare(
+        `SELECT occurred_at, operation, clauge_credits, cost_usd_micros, request_id
+           FROM credit_usage_log
+          WHERE user_id = ? AND occurred_at < ?
+          ORDER BY occurred_at DESC LIMIT ?`
+      ).bind(userId, before, limit)
+    : env.CLAUGE_DB.prepare(
+        `SELECT occurred_at, operation, clauge_credits, cost_usd_micros, request_id
+           FROM credit_usage_log
+          WHERE user_id = ?
+          ORDER BY occurred_at DESC LIMIT ?`
+      ).bind(userId, limit);
+  const { results } = await stmt.all();
+  return new Response(
+    JSON.stringify({
+      entries: results,
+      next_before: results.length === limit ? results[results.length - 1].occurred_at : null,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
+}

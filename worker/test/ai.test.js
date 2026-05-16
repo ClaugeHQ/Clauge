@@ -107,3 +107,52 @@ describe("handleAiChat", () => {
     }
   });
 });
+
+describe("handleAiBalance", () => {
+  it("returns 401 without user", async () => {
+    const { handleAiBalance } = await import("../src/ai.js");
+    const r = await handleAiBalance(env, null);
+    expect(r.status).toBe(401);
+  });
+
+  it("returns balance + resets_at + allowance for pro user", async () => {
+    const userId = await seedUser({ slug: "u_bal" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', credit_allowance_per_cycle=1000, credits_remaining=420, current_period_end='2026-06-16T00:00:00Z' WHERE user_id=?"
+    )
+      .bind(userId)
+      .run();
+    const { handleAiBalance } = await import("../src/ai.js");
+    const r = await handleAiBalance(env, userId);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.remaining).toBe(420);
+    expect(body.allowance).toBe(1000);
+    expect(body.resets_at).toBe("2026-06-16T00:00:00Z");
+  });
+});
+
+describe("handleAiUsage", () => {
+  it("returns 401 without user", async () => {
+    const { handleAiUsage } = await import("../src/ai.js");
+    const r = await handleAiUsage(env, null, new URL("https://x/api/ai/usage"));
+    expect(r.status).toBe(401);
+  });
+
+  it("returns paginated rows newest-first", async () => {
+    const userId = await seedUser({ slug: "u_usage" });
+    for (let i = 0; i < 5; i++) {
+      await env.CLAUGE_DB.prepare(
+        `INSERT INTO credit_usage_log (user_id, operation, clauge_credits, cost_usd_micros, request_id, occurred_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now', ?))`
+      )
+        .bind(userId, "chat", i + 1, (i + 1) * 1000, `req_${i}`, `-${i} minutes`)
+        .run();
+    }
+    const { handleAiUsage } = await import("../src/ai.js");
+    const r = await handleAiUsage(env, userId, new URL("https://x/api/ai/usage?limit=3"));
+    const body = await r.json();
+    expect(body.entries.length).toBe(3);
+    expect(body.entries[0].request_id).toBe("req_0"); // newest
+  });
+});

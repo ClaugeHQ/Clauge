@@ -11,7 +11,7 @@ import {
 } from './sync.js';
 import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal } from './billing.js';
 import { sweepPastDue } from './cron.js';
-import { handleAiChat } from './ai.js';
+import { handleAiChat, handleAiBalance, handleAiUsage } from './ai.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -62,6 +62,18 @@ export default {
       if (request.method === 'POST' && path === '/api/ai/chat') {
         const ctx = await authenticate(request, env);
         return handleAiChat(request, env, ctx?.userId ?? null);
+      }
+
+      // ─── /api/ai/balance — bearer required ─────────────────
+      if (request.method === 'GET' && path === '/api/ai/balance') {
+        const ctx = await authenticate(request, env);
+        return handleAiBalance(env, ctx?.userId ?? null);
+      }
+
+      // ─── /api/ai/usage — bearer required ───────────────────
+      if (request.method === 'GET' && path === '/api/ai/usage') {
+        const ctx = await authenticate(request, env);
+        return handleAiUsage(env, ctx?.userId ?? null, new URL(request.url));
       }
 
       // ─── /api/billing/webhook — server-to-server, no bearer ─
