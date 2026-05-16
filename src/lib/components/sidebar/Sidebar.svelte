@@ -5,6 +5,7 @@
   import { isMac, isLinux } from '$lib/utils/platform';
   import { cloudConnected, cloudConflicts, syncing, setSyncing, setDisconnected, showSyncRestorePrompt, markSynced } from '$lib/stores/cloud';
   import ConflictResolverModal from '$lib/components/cloud/ConflictResolverModal.svelte';
+  import GetProButton from './GetProButton.svelte';
 
   let conflictResolverOpen = $state(false);
 
@@ -291,6 +292,7 @@
 
   <!-- Bottom section -->
   <div class="sb-bot">
+    <GetProButton />
     <div class="profile-wrap">
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->

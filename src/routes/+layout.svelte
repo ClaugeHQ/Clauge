@@ -13,6 +13,7 @@
     import Toast from "$lib/shared/primitives/Toast.svelte";
     import ContextMenu from "$lib/shared/primitives/ContextMenu.svelte";
     import EnvManagerModal from "$lib/components/env/EnvManagerModal.svelte";
+    import UpgradeModal from "$lib/components/cloud/UpgradeModal.svelte";
     import {
         loadAgentSessions,
         loadAgentContexts,
@@ -1099,6 +1100,7 @@
     bind:session={editSessionTarget}
 />
 <UsageDashboard bind:show={showUsageDashboard} />
+<UpgradeModal />
 
 <style>
     .app-shell {
