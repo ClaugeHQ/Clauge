@@ -93,6 +93,7 @@ export async function handleAiChat(request, env, userId) {
   const dec = new TextDecoder();
   const enc = new TextEncoder();
   let finalUsage = { prompt_tokens: estTokens, completion_tokens: 0, cost_usd_micros: 0 };
+  let outputBytes = 0;
   let buf = "";
 
   (async () => {
@@ -116,7 +117,10 @@ export async function handleAiChat(request, env, userId) {
             const obj = JSON.parse(dataStr);
             if (obj?.usage) finalUsage = sanitizeFinalUsage(obj);
             const clean = sanitizeChunk(obj);
-            await writer.write(enc.encode("data: " + JSON.stringify(clean) + "\n\n"));
+            const chunkLine = "data: " + JSON.stringify(clean) + "\n\n";
+            const chunkBytes = enc.encode(chunkLine);
+            outputBytes += chunkBytes.length;
+            await writer.write(chunkBytes);
           } catch {
             // Skip malformed frame silently
           }
@@ -125,18 +129,56 @@ export async function handleAiChat(request, env, userId) {
     } catch {
       // Stream interrupted — client will retry. Still settle credits.
     } finally {
-      await writer.close();
-      const charge = computeChargeCredits(operation, estTokens, finalUsage.cost_usd_micros, weights);
+      // 1. Compute upstream cost-based charge.
+      let charge = computeChargeCredits(operation, estTokens, finalUsage.cost_usd_micros, weights);
+
+      // 2. If we never received a usage chunk, fall back to estimating from
+      //    received output bytes. Never settle at 0 — that would let a stream
+      //    that cut off right before the usage chunk land for free.
+      if (finalUsage.cost_usd_micros === 0 && outputBytes > 0) {
+        const estOutTokens = Math.ceil(outputBytes / 4);
+        const fallbackCharge = computeChargeCredits(
+          operation,
+          estTokens + estOutTokens,
+          0,
+          weights
+        );
+        charge = Math.max(charge, fallbackCharge);
+      }
+
+      // 3. Cap charge to current balance so we always debit something rather
+      //    than refusing CAS and letting the user keep the free response.
+      const balRow = await env.CLAUGE_DB.prepare(
+        "SELECT credits_remaining FROM users WHERE user_id = ?"
+      ).bind(userId).first();
+      const cappedCharge = Math.min(charge, balRow?.credits_remaining ?? 0);
+
+      // 4. Deduct (atomic CAS). With the cap, this should always succeed
+      //    unless balance changed concurrently to 0.
       await deductCredits(
         userId,
         {
           operation,
-          clauge_credits: charge,
+          clauge_credits: cappedCharge,
           cost_usd_micros: finalUsage.cost_usd_micros,
           request_id: body.request_id,
         },
         env
       );
+
+      // 5. Emit live balance event so the client updates without polling.
+      const after = await env.CLAUGE_DB.prepare(
+        "SELECT credits_remaining FROM users WHERE user_id = ?"
+      ).bind(userId).first();
+      try {
+        await writer.write(enc.encode(
+          `event: balance\ndata: ${JSON.stringify({ remaining: after?.credits_remaining ?? 0 })}\n\n`
+        ));
+      } catch {
+        // writer may already be closed if stream errored — swallow
+      }
+
+      await writer.close();
     }
   })();
 

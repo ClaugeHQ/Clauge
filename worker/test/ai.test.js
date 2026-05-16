@@ -106,6 +106,42 @@ describe("handleAiChat", () => {
   });
 });
 
+describe("handleAiChat — live balance SSE event", () => {
+  it("emits a final 'balance' SSE event with post-deduct remaining", async () => {
+    const userId = await seedUser({ slug: "u_balance_event" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', credit_allowance_per_cycle=1000, credits_remaining=50 WHERE user_id=?"
+    ).bind(userId).run();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(
+        ssePayload([
+          { choices: [{ delta: { content: "ok" } }], usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.005 } },
+        ]),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    });
+    try {
+      const r = await handleAiChat(
+        new Request("https://x", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "hi" }],
+            request_id: "44444444-4444-4444-8444-444444444444",
+          }),
+        }),
+        env, userId
+      );
+      expect(r.status).toBe(200);
+      const text = await readAllText(r);
+      expect(text).toContain("event: balance");
+      expect(text).toMatch(/"remaining":\s*\d+/);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+});
+
 describe("handleAiChat — replay defense", () => {
   it("rejects 409 when request_id was previously used", async () => {
     const userId = await seedUser({ slug: "u_replay" });
