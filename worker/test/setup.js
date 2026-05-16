@@ -1,23 +1,9 @@
 import { env } from "cloudflare:test";
-import fs from "node:fs";
-import path from "node:path";
+import { applyD1Migrations } from "cloudflare:test";
+import { inject } from "vitest";
 
-const migrations = [
-  "migrations/0001_init.sql",
-  "migrations/0002_pro_recurring.sql",
-];
-
-const root = path.resolve(__dirname, "..");
-for (const m of migrations) {
-  const sql = fs.readFileSync(path.join(root, m), "utf8");
-  const statements = sql
-    .split(/;\s*\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
-  for (const stmt of statements) {
-    await env.CLAUGE_DB.prepare(stmt).run();
-  }
-}
+const migrations = inject("D1_MIGRATIONS");
+await applyD1Migrations(env.CLAUGE_DB, migrations);
 
 export async function seedUser(opts = {}) {
   const slug = opts.slug ?? `user_${Math.random().toString(36).slice(2, 8)}`;

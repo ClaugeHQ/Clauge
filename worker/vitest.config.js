@@ -1,11 +1,9 @@
-import { cloudflarePool } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  test: {
-    setupFiles: ["./test/setup.js"],
-    pool: cloudflarePool,
-    workers: {
+  plugins: [
+    cloudflareTest({
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
         d1Databases: ["CLAUGE_DB"],
@@ -20,6 +18,10 @@ export default defineConfig({
           AI_UPSTREAM_URL: "https://upstream.test.invalid/chat/completions",
         },
       },
-    },
+    }),
+  ],
+  test: {
+    globalSetup: ["./test/globalSetup.js"],
+    setupFiles: ["./test/setup.js"],
   },
 });
