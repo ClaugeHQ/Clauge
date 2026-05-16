@@ -31,3 +31,6 @@ database_id   = "6e5fa767-317c-48b9-94ab-6ac0066a00e9"
 [[kv_namespaces]]
 binding = "CLAUGE_KV"
 id      = "7367f7559b4e49adbdf02cfb18c07294"
+
+[triggers]
+crons = ["0 */6 * * *"]
