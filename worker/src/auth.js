@@ -420,14 +420,31 @@ async function buildAuthSuccess(env, userId, tokens) {
 }
 
 async function buildMeResponse(env, userId) {
-  const user = await getUserById(env, userId);
+  const user = await env.CLAUGE_DB.prepare(
+    `SELECT user_id, primary_email, display_name, first_name, last_name, avatar_url, slug,
+            plan, subscription_status, cancel_at_period_end,
+            current_period_end, credit_allowance_per_cycle, credits_remaining
+       FROM users WHERE user_id = ?`
+  ).bind(userId).first();
   if (!user) return err(env, 404, 'User not found');
+
   const providers = await getProvidersForUser(env, userId);
+  const ent = entitlementsForPlan(user.plan);
+  ent.credits = {
+    remaining:  user.credits_remaining,
+    allowance:  user.credit_allowance_per_cycle,
+    resets_at:  user.current_period_end,
+  };
+  ent.subscription = {
+    status:              user.subscription_status,
+    cancel_at_period_end: !!user.cancel_at_period_end,
+  };
+
   return json(env, {
     user:         serializeUser(user),
     providers:    providers.map(serializeProvider),
     plan:         user.plan,
-    entitlements: entitlementsForPlan(user.plan),
+    entitlements: ent,
   });
 }
 
@@ -454,12 +471,15 @@ function serializeProvider(p) {
   };
 }
 
-// Single source of truth for what each plan unlocks. Today every user gets the
-// same generous set — Pro/Enterprise gating is wired later via this same shape.
 function entitlementsForPlan(plan) {
+  const isPro = plan === 'pro' || plan === 'enterprise';
   return {
-    features: ['sync', 'multi_device', 'agent_mode', 'workspace'],
-    limits:   { sync_bytes: null, workspaces: null },
+    plan,
+    features: {
+      clauge_ai:           isPro,
+      unlimited_coworkers: isPro,
+      premium_themes:      isPro,
+    },
   };
 }
 
@@ -470,3 +490,5 @@ async function safeJson(request) {
     return null;
   }
 }
+
+export { entitlementsForPlan, buildMeResponse };
