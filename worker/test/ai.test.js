@@ -56,7 +56,7 @@ describe("handleAiChat", () => {
       new Request("https://x", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], request_id: "r1abcdef" }),
+        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], request_id: "11111111-1111-4111-8111-111111111111" }),
       }),
       env,
       userId
@@ -85,7 +85,7 @@ describe("handleAiChat", () => {
         new Request("https://x", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: [{ role: "user", content: "ping" }], request_id: "r_ok_1abc" }),
+          body: JSON.stringify({ messages: [{ role: "user", content: "ping" }], request_id: "22222222-2222-4222-8222-222222222222" }),
         }),
         env,
         userId
@@ -103,6 +103,25 @@ describe("handleAiChat", () => {
     } finally {
       fetchMock.mockRestore();
     }
+  });
+});
+
+describe("handleAiChat — request_id validation", () => {
+  it("rejects non-UUID request_id with 400", async () => {
+    const userId = await seedUser({ slug: "u_baduuid" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', credits_remaining=100 WHERE user_id=?"
+    ).bind(userId).run();
+    const r = await handleAiChat(
+      new Request("https://x", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], request_id: "not-a-uuid" }),
+      }),
+      env,
+      userId
+    );
+    expect(r.status).toBe(400);
   });
 });
 

@@ -3,6 +3,9 @@ import { buildUpstreamRequest, callUpstream, sanitizeChunk, sanitizeFinalUsage }
 import { deductCredits, classifyOperation, computeChargeCredits, estimateTokens } from "./credits.js";
 import { checkRpm, checkBurstBudget } from "./ratelimit.js";
 
+// UUID v4 shape: 8-4-4-4-12 hex, 3rd group starts with '4', 4th group with [89ab]
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const SSE_HEADERS = {
   "content-type": "text/event-stream",
   "cache-control": "no-cache, no-transform",
@@ -28,8 +31,8 @@ export async function handleAiChat(request, env, userId) {
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return errResponse("BAD_REQUEST", "messages required", 400);
   }
-  if (typeof body.request_id !== "string" || body.request_id.length < 8) {
-    return errResponse("BAD_REQUEST", "request_id required (uuid)", 400);
+  if (typeof body.request_id !== "string" || !UUID_V4_RE.test(body.request_id)) {
+    return errResponse("BAD_REQUEST", "request_id must be a UUID v4", 400);
   }
 
   const weights = await loadCreditWeights(env);
