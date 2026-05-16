@@ -258,3 +258,104 @@ describe("subscription.updated unpaid handler", () => {
     expect(row.credits_remaining).toBe(0);
   });
 });
+
+describe("order.paid handler", () => {
+  it("resets credits on a new billing period", async () => {
+    const userId = await seedUser({ slug: "u_paid" });
+    await env.CLAUGE_DB.prepare(
+      `UPDATE users SET plan='pro', subscription_status='active',
+         polar_subscription_id='sub_p1',
+         current_period_start='2026-05-16T00:00:00Z',
+         current_period_end='2026-06-16T00:00:00Z',
+         credit_allowance_per_cycle=1000, credits_remaining=42
+       WHERE user_id=?`
+    )
+      .bind(userId)
+      .run();
+    const body = JSON.stringify({
+      id: "evt_paid_1",
+      type: "order.paid",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "ord_p1",
+        status: "paid",
+        subscription_id: "sub_p1",
+        billing_reason: "subscription_cycle",
+        current_period_start: "2026-06-16T00:00:00Z",
+        current_period_end: "2026-07-16T00:00:00Z",
+        customer: { external_id: String(userId) },
+      },
+    });
+    const sig = await signedSig(body);
+    await postWebhook(body, sig);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT credits_remaining, current_period_start FROM users WHERE user_id=?"
+    )
+      .bind(userId)
+      .first();
+    expect(row.credits_remaining).toBe(1000);
+    expect(row.current_period_start).toBe("2026-06-16T00:00:00Z");
+  });
+
+  it("is idempotent — no double-grant when first sub+order both fire", async () => {
+    const userId = await seedUser({ slug: "u_idem" });
+    // Simulate subscription.created already ran for THIS period
+    await env.CLAUGE_DB.prepare(
+      `UPDATE users SET plan='pro', subscription_status='active',
+         polar_subscription_id='sub_i1',
+         current_period_start='2026-05-16T00:00:00Z',
+         current_period_end='2026-06-16T00:00:00Z',
+         credit_allowance_per_cycle=1000, credits_remaining=950
+       WHERE user_id=?`
+    )
+      .bind(userId)
+      .run();
+    // First-purchase order.paid carries the SAME period start
+    const body = JSON.stringify({
+      id: "evt_paid_idem",
+      type: "order.paid",
+      created_at: new Date().toISOString(),
+      data: {
+        id: "ord_i1",
+        subscription_id: "sub_i1",
+        current_period_start: "2026-05-16T00:00:00Z",
+        current_period_end: "2026-06-16T00:00:00Z",
+        customer: { external_id: String(userId) },
+      },
+    });
+    const sig = await signedSig(body);
+    await postWebhook(body, sig);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT credits_remaining FROM users WHERE user_id=?"
+    )
+      .bind(userId)
+      .first();
+    expect(row.credits_remaining).toBe(950); // preserved — already 50 used this cycle
+  });
+});
+
+describe("order.refunded handler", () => {
+  it("treats refund as immediate revocation", async () => {
+    const userId = await seedUser({ slug: "u_refund" });
+    await env.CLAUGE_DB.prepare(
+      "UPDATE users SET plan='pro', subscription_status='active', credits_remaining=700 WHERE user_id=?"
+    )
+      .bind(userId)
+      .run();
+    const body = JSON.stringify({
+      id: "evt_refund_1",
+      type: "order.refunded",
+      created_at: new Date().toISOString(),
+      data: { id: "ord_r", customer: { external_id: String(userId) } },
+    });
+    const sig = await signedSig(body);
+    await postWebhook(body, sig);
+    const row = await env.CLAUGE_DB.prepare(
+      "SELECT plan, credits_remaining FROM users WHERE user_id=?"
+    )
+      .bind(userId)
+      .first();
+    expect(row.plan).toBe("free");
+    expect(row.credits_remaining).toBe(0);
+  });
+});

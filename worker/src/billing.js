@@ -206,6 +206,39 @@ async function revokeUser(userId, terminalStatus, env) {
     .run();
 }
 
-// Keep these as stubs for Task 8
-async function handleOrderPaid(event, userId, env) {}
-async function handleOrderRefunded(event, userId, env) {}
+async function handleOrderPaid(event, userId, env) {
+  const d = event.data;
+  // Idempotency: only reset credits if the order's period_start differs
+  // from the user's currently-stored period_start. Avoids double-grant
+  // when subscription.created already ran for the same period.
+  const current = await env.CLAUGE_DB.prepare(
+    "SELECT current_period_start, credit_allowance_per_cycle FROM users WHERE user_id = ?"
+  )
+    .bind(userId)
+    .first();
+  if (!current) return;
+
+  const incomingPeriodStart = d.current_period_start ?? null;
+  if (incomingPeriodStart && incomingPeriodStart === current.current_period_start) {
+    return; // already provisioned for this cycle
+  }
+
+  const allowance = current.credit_allowance_per_cycle || (await defaultCreditAllowance(env));
+  await env.CLAUGE_DB.prepare(
+    `UPDATE users SET
+       subscription_status = 'active',
+       cancel_at_period_end = 0,
+       past_due_started_at = NULL,
+       current_period_start = COALESCE(?, current_period_start),
+       current_period_end = COALESCE(?, current_period_end),
+       credits_remaining = ?,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`
+  )
+    .bind(incomingPeriodStart, d.current_period_end ?? null, allowance, userId)
+    .run();
+}
+
+async function handleOrderRefunded(event, userId, env) {
+  await revokeUser(userId, "canceled", env);
+}
