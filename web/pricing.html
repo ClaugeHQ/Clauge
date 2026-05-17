@@ -239,6 +239,33 @@
                 margin: 0 0 18px;
             }
 
+            /* Strike-through "what you would have paid" next to the
+               effective price. Hidden when empty so failed/absent discount
+               leaves no orphan element behind. */
+            .pr-price-strike {
+                display: inline-block;
+                font-family: var(--font-display);
+                font-size: 0.42em;
+                font-weight: 600;
+                color: var(--text-muted);
+                text-decoration: line-through;
+                margin-left: 8px;
+                vertical-align: middle;
+                -webkit-text-fill-color: var(--text-muted);
+            }
+            .pr-price-strike:empty {
+                display: none;
+            }
+            .pr-price-unit .pr-price-strike-inline {
+                color: var(--text-muted);
+                text-decoration: line-through;
+                margin-left: 6px;
+                font-size: inherit;
+            }
+            .pr-price-unit .pr-price-strike-inline:empty {
+                display: none;
+            }
+
             .pr-tagline {
                 color: var(--text-muted);
                 font-size: 14px;
@@ -589,21 +616,21 @@
                         <span class="pr-tier-label">Pro</span>
 
                         <div class="pr-price-display" data-show="monthly">
-                            $<span data-price-key="monthly">12</span>
+                            $<span data-price-key="monthly">12</span><span class="pr-price-strike" data-price-key="monthly-strike"></span>
                         </div>
                         <p class="pr-price-unit" data-show="monthly">
                             per month &middot; billed monthly
                         </p>
 
                         <div class="pr-price-display" data-show="yearly">
-                            $<span data-price-key="yearly-permonth">8.33</span>
+                            $<span data-price-key="yearly-permonth">8.33</span><span class="pr-price-strike" data-price-key="yearly-permonth-strike"></span>
                         </div>
                         <p class="pr-price-unit" data-show="yearly">
-                            per month &middot; billed $<span data-price-key="yearly-total">100</span> yearly
+                            per month &middot; billed $<span data-price-key="yearly-total">100</span> yearly<span class="pr-price-strike-inline" data-price-key="yearly-total-strike"></span>
                         </p>
 
                         <div class="pr-price-display" data-show="lifetime">
-                            $<span data-price-key="lifetime">299</span>
+                            $<span data-price-key="lifetime">299</span><span class="pr-price-strike" data-price-key="lifetime-strike"></span>
                         </div>
                         <p class="pr-price-unit" data-show="lifetime">
                             one-time &middot; yours forever
@@ -821,6 +848,19 @@
                         data.plans.forEach(function (p) {
                             byId[p.id] = p;
                         });
+                        var fmt = function (n) {
+                            return n % 1 === 0 ? n.toFixed(0) : n.toFixed(2);
+                        };
+                        var eff = function (p) {
+                            if (!p.discount) return p.price_usd;
+                            return (
+                                Math.round(
+                                    p.price_usd *
+                                        (1 - p.discount.percent / 100) *
+                                        100,
+                                ) / 100
+                            );
+                        };
                         var write = function (key, value) {
                             document
                                 .querySelectorAll('[data-price-key="' + key + '"]')
@@ -828,16 +868,39 @@
                                     el.textContent = value;
                                 });
                         };
-                        if (byId.monthly) write("monthly", byId.monthly.price_usd);
-                        if (byId.yearly) {
-                            write("yearly-total", byId.yearly.price_usd);
-                            write(
-                                "yearly-permonth",
-                                (byId.yearly.price_usd / 12).toFixed(2),
-                            );
+
+                        // Monthly + Lifetime: big = discounted, strike = own sticker.
+                        // Yearly: big per-month = discounted-yearly / 12, strike =
+                        // monthly sticker (the "you'd otherwise pay monthly" framing
+                        // we use in the desktop upgrade modal).
+                        if (byId.monthly) {
+                            var m = byId.monthly;
+                            write("monthly", fmt(eff(m)));
+                            if (m.discount)
+                                write("monthly-strike", "$" + fmt(m.price_usd));
                         }
-                        if (byId.lifetime)
-                            write("lifetime", byId.lifetime.price_usd);
+                        if (byId.yearly) {
+                            var y = byId.yearly;
+                            var yEff = eff(y);
+                            write("yearly-total", fmt(yEff));
+                            write("yearly-permonth", fmt(yEff / 12));
+                            if (byId.monthly) {
+                                write(
+                                    "yearly-permonth-strike",
+                                    "$" + fmt(byId.monthly.price_usd),
+                                );
+                                write(
+                                    "yearly-total-strike",
+                                    "$" + fmt(byId.monthly.price_usd * 12),
+                                );
+                            }
+                        }
+                        if (byId.lifetime) {
+                            var l = byId.lifetime;
+                            write("lifetime", fmt(eff(l)));
+                            if (l.discount)
+                                write("lifetime-strike", "$" + fmt(l.price_usd));
+                        }
                     })
                     .catch(function () {
                         // Network blip — inline fallbacks stay visible.
