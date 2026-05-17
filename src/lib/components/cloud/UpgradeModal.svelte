@@ -95,7 +95,9 @@
 
       <div class="head">
         <span class="plan-pill">
-          <span class="pill-dot"></span>
+          <svg class="pill-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2l2.6 7.4L22 12l-7.4 2.6L12 22l-2.6-7.4L2 12l7.4-2.6L12 2z"/>
+          </svg>
           Pro plan
         </span>
         <h2>Upgrade to Clauge Pro</h2>
@@ -104,25 +106,50 @@
 
       <ul class="feature-list">
         <li>
-          <span class="feat-icon" aria-hidden="true"></span>
+          <span class="feat-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5z"/>
+              <path d="M19 14l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z"/>
+            </svg>
+          </span>
           <span class="feat-text">
             <strong>Managed AI assistance</strong> <span class="feat-mute">— no API key setup</span>
           </span>
         </li>
         <li>
-          <span class="feat-icon" aria-hidden="true"></span>
+          <span class="feat-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 7v10"/>
+              <path d="M15 9.5a2.5 2.5 0 00-2.5-2.5h-1a2.5 2.5 0 000 5h1a2.5 2.5 0 010 5h-1A2.5 2.5 0 019 14.5"/>
+            </svg>
+          </span>
           <span class="feat-text">
             <strong>1,000 credits / month</strong> <span class="feat-mute">· 12,000 / year on yearly plan</span>
           </span>
         </li>
         <li>
-          <span class="feat-icon" aria-hidden="true"></span>
+          <span class="feat-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="8" r="3"/>
+              <path d="M3 21v-1a6 6 0 0112 0v1"/>
+              <circle cx="17" cy="7" r="2.5"/>
+              <path d="M14 16a4.5 4.5 0 018 2.8V20"/>
+            </svg>
+          </span>
           <span class="feat-text">
             <strong>Unlimited coworkers</strong> <span class="feat-mute">in workspaces (free is capped at 3)</span>
           </span>
         </li>
         <li>
-          <span class="feat-icon" aria-hidden="true"></span>
+          <span class="feat-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22a10 10 0 110-20 8 8 0 018 8c0 2-1.5 3-3 3h-2.5a2 2 0 000 4 2 2 0 01-2.5 2"/>
+              <circle cx="7.5" cy="11" r="1" fill="currentColor"/>
+              <circle cx="11" cy="6.5" r="1" fill="currentColor"/>
+              <circle cx="16" cy="9" r="1" fill="currentColor"/>
+            </svg>
+          </span>
           <span class="feat-text">
             <strong>Premium themes</strong> <span class="feat-mute">— exclusive visual styles</span>
           </span>
@@ -194,7 +221,10 @@
         </div>
 
         <p class="footer-note">
-          <span class="foot-icon" aria-hidden="true"></span>
+          <svg class="foot-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="10" rx="2"/>
+            <path d="M8 11V8a4 4 0 018 0v3"/>
+          </svg>
           Checkout opens securely in your browser
           <span class="dot">·</span> Cancel anytime
           <span class="dot">·</span> Credits non-refundable once used
@@ -262,12 +292,9 @@
     letter-spacing: 0.02em;
     margin-bottom: 0.85rem;
   }
-  .pill-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    border: 1.5px solid currentColor;
+  .pill-icon {
     display: inline-block;
+    flex: 0 0 auto;
   }
   .head h2 {
     margin: 0 0 0.4rem;
@@ -305,18 +332,10 @@
     border-radius: 7px;
     background: color-mix(in srgb, var(--acc, #c2185b) 12%, transparent);
     border: 1px solid color-mix(in srgb, var(--acc, #c2185b) 35%, transparent);
-    position: relative;
-  }
-  .feat-icon::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    border: 1.5px solid var(--acc, #c2185b);
-    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--acc, #c2185b);
   }
   .feat-text strong {
     color: var(--t1, #ddd);
@@ -447,12 +466,9 @@
   }
   .foot-icon {
     display: inline-block;
-    width: 10px;
-    height: 10px;
-    border: 1px solid currentColor;
-    border-radius: 2px;
+    flex: 0 0 auto;
     margin-right: 0.25rem;
-    opacity: 0.6;
+    opacity: 0.7;
   }
   .dot { opacity: 0.4; margin: 0 0.15rem; }
 
