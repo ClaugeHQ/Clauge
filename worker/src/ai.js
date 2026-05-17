@@ -77,6 +77,7 @@ export async function handleAiChat(request, env, userId) {
     messages: body.messages,
     model: env.AI_UPSTREAM_MODEL,
     systemSuffix: typeof body.system === "string" ? body.system : "",
+    tools: Array.isArray(body.tools) ? body.tools : undefined,
   });
   let upResp;
   try {

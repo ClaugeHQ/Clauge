@@ -15,10 +15,21 @@
 //   - Extract usage.cost from the final chunk for credit accounting,
 //     then drop the leaky fields before forwarding.
 
+// Tight identity prompt. Two things to get right:
+//   1. The model must respond normally and helpfully to ordinary queries
+//      (greetings, questions, tool calls) — NOT lead every reply with a
+//      disclaimer. Earlier wording ("respond only with 'I am Clauge AI'")
+//      was interpreted as a default template; the model parroted it on
+//      every message.
+//   2. ONLY when the user asks about the underlying model / provider /
+//      training / architecture should it deflect briefly.
 const IDENTITY_PROMPT =
-  "You are Clauge AI, an assistant integrated in the Clauge desktop app. " +
-  "If asked about your underlying model, provider, training, or architecture, " +
-  "respond only with 'I am Clauge AI' and decline to specify further.";
+  "You are Clauge AI, the assistant built into the Clauge desktop app. " +
+  "Respond normally and helpfully to all questions, greetings, and tool requests — " +
+  "do not start replies with disclaimers. " +
+  "Only if the user explicitly asks about your underlying model, provider, " +
+  "training data, or architecture, reply briefly with \"I'm Clauge AI\" and decline " +
+  "to elaborate. For every other topic, answer as you normally would.";
 
 const LEAKY_TOP_LEVEL = ["model", "provider", "system_fingerprint", "id"];
 
@@ -39,16 +50,25 @@ export function sanitizeFinalUsage(obj) {
   };
 }
 
-export function buildUpstreamRequest({ messages, model, systemSuffix }) {
+export function buildUpstreamRequest({ messages, model, systemSuffix, tools }) {
   const withSystem = [
     { role: "system", content: (systemSuffix ?? "") + "\n" + IDENTITY_PROMPT },
     ...messages.filter((m) => m.role !== "system"),
   ];
-  return {
+  const req = {
     model,
     messages: withSystem,
     stream: true,
   };
+  // Forward the tools array verbatim when the caller provides one — the
+  // upstream is OpenAI-compatible and accepts `tools: [{ type: "function",
+  // function: {...} }]`. We do not inspect or rewrite the tools so the
+  // desktop's full mode-specific tool set (REST / SQL / NoSQL / SSH /
+  // Explorer) works end-to-end without per-tool worker awareness.
+  if (Array.isArray(tools) && tools.length > 0) {
+    req.tools = tools;
+  }
+  return req;
 }
 
 // Call the upstream chat-completions endpoint. Returns the raw Response
