@@ -10,6 +10,17 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let busyPlan = $state<string | null>(null);
+  let copiedCode = $state(false);
+
+  async function copyDiscountCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      copiedCode = true;
+      setTimeout(() => { copiedCode = false; }, 2000);
+    } catch {
+      // Clipboard API may be restricted — silently fail; the code is still visible
+    }
+  }
 
   $effect(() => {
     if ($upgradeModalOpen && pricing === null && !loading) {
@@ -102,10 +113,28 @@
         {@const firstDiscount = pricing.plans.find((p) => p.discount)?.discount ?? null}
         {#if firstDiscount}
           <div class="discount-banner">
-            <svg class="bn-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-            <span><strong>{firstDiscount.percent}% off applied</strong>{#if firstDiscount.code} · code <strong>{firstDiscount.code}</strong> will be used at checkout{:else} · automatically at checkout{/if}</span>
+            <div class="bn-left">
+              <svg class="bn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+                <line x1="7" y1="7" x2="7.01" y2="7"/>
+              </svg>
+              <span>Save <strong>{firstDiscount.percent}%</strong>{#if firstDiscount.code} with code{/if}</span>
+            </div>
+            {#if firstDiscount.code}
+              <button class="code-copy" onclick={() => copyDiscountCode(firstDiscount.code!)} title="Click to copy">
+                <span class="code-text">{firstDiscount.code}</span>
+                {#if copiedCode}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                {:else}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                  </svg>
+                {/if}
+              </button>
+            {/if}
           </div>
         {/if}
       {/if}
@@ -278,18 +307,46 @@
   .discount-banner {
     background: color-mix(in srgb, #22c55e 14%, var(--n2, #0e0e0e));
     color: #4ade80;
-    padding: 0.75rem 1.25rem;
+    padding: 0.7rem 1rem 0.7rem 1.25rem;
     font-size: 0.85rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
+    gap: 0.75rem;
     border-bottom: 1px solid color-mix(in srgb, #22c55e 30%, transparent);
+  }
+  .bn-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
   .discount-banner strong {
     font-weight: 600;
     color: #4ade80;
   }
   .bn-icon { flex: 0 0 auto; }
+  .code-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.65rem;
+    background: color-mix(in srgb, #22c55e 22%, transparent);
+    border: 1px dashed color-mix(in srgb, #4ade80 65%, transparent);
+    border-radius: 6px;
+    color: #d4f7dc;
+    cursor: pointer;
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .code-copy:hover {
+    background: color-mix(in srgb, #22c55e 35%, transparent);
+    border-color: #4ade80;
+    border-style: solid;
+  }
+  .code-text { line-height: 1; }
   .modal {
     background: var(--n2, #0e0e0e);
     padding: 2rem 2rem 1.5rem;
