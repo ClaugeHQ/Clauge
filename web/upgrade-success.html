@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Welcome to Clauge Pro</title>
+        <meta
+            name="description"
+            content="Your Clauge Pro subscription is active. Return to the app to continue."
+        />
+        <meta
+            name="theme-color"
+            content="#07070b"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta
+            name="theme-color"
+            content="#ffffff"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="robots" content="noindex, nofollow" />
+
+        <link rel="icon" type="image/svg+xml" href="clauge-mark.svg" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+            referrerpolicy="no-referrer"
+        />
+        <script src="config.js"></script>
+        <link rel="stylesheet" href="style.css" />
+
+        <style>
+            .us-hero {
+                padding: 120px 0 96px;
+                text-align: center;
+            }
+            .us-hero .eyebrow {
+                margin-bottom: 22px;
+            }
+            .us-hero h1 {
+                font-family: var(--font-display);
+                font-size: clamp(38px, 5vw, 60px);
+                letter-spacing: -0.025em;
+                line-height: 1.06;
+                margin: 0 0 18px;
+            }
+            .us-hero h1 .grad {
+                background: linear-gradient(
+                    120deg,
+                    #ffffff 0%,
+                    var(--purple) 45%,
+                    var(--ssh) 100%
+                );
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+            }
+            .us-hero p {
+                color: var(--text-muted);
+                max-width: 560px;
+                margin: 0 auto 36px;
+                font-size: 17px;
+                line-height: 1.6;
+            }
+            .us-actions {
+                display: inline-flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                justify-content: center;
+            }
+            .us-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 13px 24px;
+                border-radius: 10px;
+                font-family: var(--font-body, system-ui);
+                font-size: 14px;
+                font-weight: 600;
+                text-decoration: none;
+                border: 1px solid var(--border);
+                background: transparent;
+                color: var(--text);
+                cursor: pointer;
+                transition:
+                    background 0.15s,
+                    border-color 0.15s,
+                    opacity 0.15s,
+                    transform 0.15s;
+            }
+            .us-btn:hover {
+                background: rgba(255, 255, 255, 0.05);
+                border-color: var(--text-muted);
+            }
+            .us-btn.is-primary {
+                background: linear-gradient(120deg, var(--purple), var(--ssh));
+                border-color: transparent;
+                color: #fff;
+            }
+            .us-btn.is-primary:hover {
+                opacity: 0.92;
+                transform: translateY(-1px);
+            }
+            .us-hint {
+                color: var(--text-dim, var(--text-muted));
+                font-size: 13px;
+                margin: 22px 0 0;
+            }
+            .us-hint a {
+                color: var(--purple);
+                text-decoration: underline;
+                text-underline-offset: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <a class="skip-link" href="#main">Skip to content</a>
+
+        <main id="main">
+            <section class="us-hero">
+                <div class="container">
+                    <span class="eyebrow">
+                        <i class="fa-solid fa-check" aria-hidden="true"></i>
+                        Payment received
+                    </span>
+                    <h1>
+                        Welcome to <span class="grad">Clauge Pro</span>.
+                    </h1>
+                    <p>
+                        Your subscription is active. Head back to the app to
+                        continue where you left off.
+                    </p>
+                    <div class="us-actions">
+                        <button
+                            type="button"
+                            class="us-btn is-primary"
+                            id="us-open-btn"
+                        >
+                            <i
+                                class="fa-solid fa-arrow-up-right-from-square"
+                                aria-hidden="true"
+                            ></i>
+                            Open Clauge
+                        </button>
+                        <a class="us-btn" href="/pricing.html">View pricing</a>
+                    </div>
+                    <p class="us-hint">
+                        Don't have Clauge installed?
+                        <a
+                            href="https://github.com/ansxuman/Clauge/releases"
+                            >Download the latest release</a
+                        >.
+                    </p>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            (function () {
+                // Build the deep link from the current query string. Polar
+                // appends ?ref=<user_id>&customer_session_token=<...>. The
+                // desktop app's deep-link handler reads those off the URL.
+                var qs = window.location.search || "";
+                var deepLink = "clauge://checkout-success" + qs;
+
+                function openInApp() {
+                    window.location.href = deepLink;
+                }
+
+                // Best-effort auto-open on first paint so users with Clauge
+                // installed land back in the app without clicking.
+                setTimeout(openInApp, 400);
+
+                document
+                    .getElementById("us-open-btn")
+                    .addEventListener("click", openInApp);
+            })();
+        </script>
+    </body>
+</html>

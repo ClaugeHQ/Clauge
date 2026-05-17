@@ -283,7 +283,8 @@ export async function handleCreatePortal(env, userId) {
     .first();
   if (!row?.polar_customer_id) return new Response("no customer", { status: 404 });
 
-  const resp = await fetch("https://api.polar.sh/v1/customer-sessions/", {
+  const apiBase = env.POLAR_API_BASE ?? "https://api.polar.sh";
+  const resp = await fetch(`${apiBase}/v1/customer-sessions/`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.POLAR_API_KEY}`,
@@ -364,7 +365,8 @@ export async function handleCreateCheckout(request, env, userId) {
     customer_email: userRow?.primary_email ?? undefined,
     success_url: "https://clauge.in/upgrade-success?ref=" + encodeURIComponent(String(userId)),
   };
-  const resp = await fetch("https://api.polar.sh/v1/checkouts/", {
+  const apiBase = env.POLAR_API_BASE ?? "https://api.polar.sh";
+  const resp = await fetch(`${apiBase}/v1/checkouts/`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.POLAR_API_KEY}`,

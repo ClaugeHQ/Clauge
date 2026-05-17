@@ -232,7 +232,7 @@
                 color: transparent;
             }
 
-            /* Unit line under the price (only Pro uses it today: "one-time · lifetime") */
+            /* Unit line under the price (Pro shows the per-month + yearly equivalent) */
             .pr-price-unit {
                 font-size: 13px;
                 color: var(--text-muted);
@@ -390,6 +390,61 @@
                 text-decoration: underline;
                 text-underline-offset: 3px;
             }
+
+            /* Monthly / Yearly billing toggle (segmented pill, centered above cards) */
+            .pr-billing-toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 5px;
+                margin: 0 auto 28px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+            }
+            .pr-billing-toggle-wrap {
+                display: flex;
+                justify-content: center;
+            }
+            .pr-toggle-opt {
+                appearance: none;
+                background: transparent;
+                border: 0;
+                color: var(--text-muted);
+                font-family: var(--font-body, system-ui);
+                font-size: 13.5px;
+                font-weight: 600;
+                padding: 8px 18px;
+                border-radius: 999px;
+                cursor: pointer;
+                transition:
+                    background 0.18s,
+                    color 0.18s,
+                    box-shadow 0.18s;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .pr-toggle-opt:hover {
+                color: var(--text);
+            }
+            .pr-toggle-opt.is-active {
+                background: rgba(255, 255, 255, 0.1);
+                color: var(--text);
+                box-shadow:
+                    0 1px 2px rgba(0, 0, 0, 0.4),
+                    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+            }
+            .pr-toggle-save {
+                color: var(--purple);
+                font-weight: 600;
+            }
+
+            /* Show/hide price + credit blocks based on toggle state */
+            .pr-card[data-billing="monthly"] [data-show="yearly"],
+            .pr-card[data-billing="yearly"] [data-show="monthly"] {
+                display: none;
+            }
         </style>
     </head>
     <body>
@@ -415,6 +470,33 @@
             </section>
 
             <section class="container">
+                <div class="pr-billing-toggle-wrap">
+                    <div
+                        class="pr-billing-toggle"
+                        role="tablist"
+                        aria-label="Billing period"
+                    >
+                        <button
+                            type="button"
+                            class="pr-toggle-opt"
+                            data-period="monthly"
+                            role="tab"
+                            aria-selected="false"
+                        >
+                            Monthly
+                        </button>
+                        <button
+                            type="button"
+                            class="pr-toggle-opt is-active"
+                            data-period="yearly"
+                            role="tab"
+                            aria-selected="true"
+                        >
+                            Yearly
+                            <span class="pr-toggle-save">· Save 17%</span>
+                        </button>
+                    </div>
+                </div>
                 <div class="pr-cards">
                     <!-- FREE -->
                     <article class="pr-card">
@@ -480,16 +562,25 @@
                     </article>
 
                     <!-- PRO -->
-                    <article class="pr-card is-highlight">
-                        <span class="pr-badge">Launch offer · 80% off</span>
-                        <span class="pr-tier-label">Premium</span>
-                        <span class="pr-price-original">$100</span>
-                        <div class="pr-price-display">$20</div>
-                        <p class="pr-price-unit">
-                            one-time · lifetime · launch pricing
+                    <article class="pr-card is-highlight" data-billing="yearly">
+                        <span class="pr-tier-label">Pro</span>
+
+                        <div class="pr-price-display" data-show="monthly">
+                            $15
+                        </div>
+                        <p class="pr-price-unit" data-show="monthly">
+                            per month &middot; billed monthly
                         </p>
+
+                        <div class="pr-price-display" data-show="yearly">
+                            $12.50
+                        </div>
+                        <p class="pr-price-unit" data-show="yearly">
+                            per month &middot; billed $150 yearly
+                        </p>
+
                         <p class="pr-tagline">
-                            Premium tier for individual developers.
+                            Managed AI, unlimited workspaces, premium themes.
                         </p>
                         <ul class="pr-features">
                             <li>
@@ -497,29 +588,31 @@
                                 Free
                             </li>
                             <li>
+                                <i class="fa-solid fa-check"></i> Clauge AI
+                                &mdash; managed AI assistance, no API key setup
+                            </li>
+                            <li data-show="monthly">
+                                <i class="fa-solid fa-check"></i> 1,000 credits
+                                each month
+                            </li>
+                            <li data-show="yearly">
+                                <i class="fa-solid fa-check"></i> 12,000 credits
+                                up front, refilled yearly
+                            </li>
+                            <li>
+                                <i class="fa-solid fa-check"></i> Unlimited
+                                coworkers in workspaces (free is capped at 3)
+                            </li>
+                            <li>
                                 <i class="fa-solid fa-check"></i> Premium themes
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-check"></i> Access to
-                                future premium features
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-check"></i> Priority on
-                                feature requests
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-check"></i> Help cover
-                                infra and development costs
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-check"></i> Help keep core
-                                features free for everyone
+                                &mdash; Aurora Drift, Carbon Grain, CRT Phosphor
                             </li>
                             <li>
                                 <i class="fa-solid fa-check"></i> Email support
                             </li>
                             <li>
-                                <i class="fa-solid fa-check"></i> 14-day refund
+                                <i class="fa-solid fa-check"></i> Cancel anytime
+                                &middot; credits non-refundable once used
                             </li>
                         </ul>
                         <div class="pr-cta-wrap">
@@ -602,10 +695,10 @@
                             use</strong
                         >
                         — every mode listed under the Free plan above, with no
-                        paywalls. Premium add-ons (themes, managed AI, faster
-                        sync) require the Pro tier. Any use by or within a
-                        for-profit organization — even just the core features —
-                        requires a separate license;
+                        paywalls. Clauge AI managed assistance, unlimited
+                        coworkers, and premium themes require the Pro tier. Any
+                        use by or within a for-profit organization — even just
+                        the core features — requires a separate license;
                         <a href="enterprise.html">contact us</a> to discuss
                         terms.
                     </p>
@@ -645,5 +738,27 @@
         <footer id="site-footer"></footer>
 
         <script src="app.js" defer></script>
+        <script>
+            (function () {
+                var opts = document.querySelectorAll(".pr-toggle-opt");
+                var cards = document.querySelectorAll(".pr-card[data-billing]");
+                opts.forEach(function (btn) {
+                    btn.addEventListener("click", function () {
+                        var period = btn.dataset.period;
+                        opts.forEach(function (b) {
+                            var active = b === btn;
+                            b.classList.toggle("is-active", active);
+                            b.setAttribute(
+                                "aria-selected",
+                                active ? "true" : "false",
+                            );
+                        });
+                        cards.forEach(function (card) {
+                            card.dataset.billing = period;
+                        });
+                    });
+                });
+            })();
+        </script>
     </body>
 </html>
