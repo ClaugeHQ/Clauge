@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Docs — Clauge</title>
+        <meta
+            name="description"
+            content="Clauge documentation — get started, configure AI providers, set up modes, connect Claude Desktop and Cursor via MCP, and more."
+        />
+        <meta
+            name="theme-color"
+            content="#0a0d14"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta
+            name="theme-color"
+            content="#ffffff"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <link rel="canonical" href="https://clauge.in/docs.html" />
+
+        <!-- Open Graph -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Clauge" />
+        <meta property="og:url" content="https://clauge.in/docs.html" />
+        <meta property="og:title" content="Docs — Clauge" />
+        <meta
+            property="og:description"
+            content="Get started with Clauge — set up modes, configure AI providers, connect Claude Desktop and Cursor via MCP."
+        />
+        <meta property="og:image" content="https://clauge.in/og-image.png" />
+        <meta property="og:image:alt" content="Clauge docs" />
+
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Docs — Clauge" />
+        <meta
+            name="twitter:description"
+            content="Get started with Clauge — set up modes, configure AI providers, connect Claude Desktop and Cursor via MCP."
+        />
+        <meta name="twitter:image" content="https://clauge.in/og-image.png" />
+
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="96x96"
+            href="/favicon-96x96.png"
+        />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link
+            rel="apple-touch-icon"
+            sizes="180x180"
+            href="/apple-touch-icon.png"
+        />
+        <meta name="apple-mobile-web-app-title" content="Clauge" />
+        <link rel="manifest" href="/site.webmanifest" />
+
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+            referrerpolicy="no-referrer"
+        />
+        <script src="config.js"></script>
+        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="design.css" />
+    </head>
+    <body>
+        <a class="skip-link" href="#docs-main">Skip to content</a>
+        <header class="header" id="site-header"></header>
+
+        <main id="main">
+            <section class="cl-docs-hero">
+                <div class="col">
+                    <div class="cl-hero-meta">
+                        <span
+                            ><span class="cl-coord-key">REF</span
+                            ><span class="cl-coord-val"
+                                >CLG-DOCS-001</span
+                            ></span
+                        >
+                        <span class="cl-coord-accent">◆ DOCUMENTATION</span>
+                        <span
+                            ><span class="cl-coord-key">CLAUGE</span
+                            ><span class="cl-coord-val">.IN</span></span
+                        >
+                    </div>
+                    <h1 class="cl-docs-title">Docs.</h1>
+                    <p class="cl-docs-sub">
+                        Everything you need to set Clauge up, point external
+                        agents at it, and get value from each mode. Pick a
+                        section on the left, or scroll through.
+                    </p>
+                </div>
+            </section>
+
+            <div class="cl-docs-wrap col">
+                <!-- ─── SIDEBAR TOC ─── -->
+                <aside class="cl-docs-toc" aria-label="On this page">
+                    <div class="cl-docs-toc-rail">CONTENTS</div>
+                    <nav>
+                        <a href="#getting-started" class="cl-docs-toc-link"
+                            ><span class="num">01</span>Getting started</a
+                        >
+                        <a href="#ai-providers" class="cl-docs-toc-link"
+                            ><span class="num">02</span>AI providers</a
+                        >
+                        <a href="#agent" class="cl-docs-toc-link"
+                            ><span class="num">03</span>Agent</a
+                        >
+                        <a href="#workspace" class="cl-docs-toc-link"
+                            ><span class="num">04</span>Workspace</a
+                        >
+                        <a href="#rest" class="cl-docs-toc-link"
+                            ><span class="num">05</span>REST</a
+                        >
+                        <a href="#sql" class="cl-docs-toc-link"
+                            ><span class="num">06</span>SQL</a
+                        >
+                        <a href="#nosql" class="cl-docs-toc-link"
+                            ><span class="num">07</span>NoSQL</a
+                        >
+                        <a href="#ssh" class="cl-docs-toc-link"
+                            ><span class="num">08</span>SSH</a
+                        >
+                        <a href="#explorer" class="cl-docs-toc-link"
+                            ><span class="num">09</span>Explorer</a
+                        >
+                        <a href="#history" class="cl-docs-toc-link"
+                            ><span class="num">10</span>History</a
+                        >
+                        <a href="#mcp" class="cl-docs-toc-link"
+                            ><span class="num">11</span>MCP setup</a
+                        >
+                        <a href="#cloud-sync" class="cl-docs-toc-link"
+                            ><span class="num">12</span>Cloud sync</a
+                        >
+                        <a href="#shortcuts" class="cl-docs-toc-link"
+                            ><span class="num">13</span>Shortcuts</a
+                        >
+                        <a href="#faq" class="cl-docs-toc-link"
+                            ><span class="num">14</span>FAQ</a
+                        >
+                    </nav>
+                </aside>
+
+                <!-- ─── CONTENT ─── -->
+                <article class="cl-docs-content" id="docs-main">
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="getting-started">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">01</span>
+                            <span class="cl-docs-section-name"
+                                >GETTING STARTED</span
+                            >
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Install, launch, and find your way around.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Download</h3>
+                        <p>
+                            Head to
+                            <a
+                                href="https://clauge.in/"
+                                target="_blank"
+                                rel="noopener"
+                                >clauge.in</a
+                            >
+                            and hit the download button — Clauge auto-detects
+                            your platform and architecture and serves the right
+                            binary. Native builds are available for:
+                        </p>
+                        <ul>
+                            <li>
+                                <b>macOS</b> — Apple Silicon and Intel
+                                (<code>.dmg</code>)
+                            </li>
+                            <li>
+                                <b>Linux</b> — x64 and ARM64 (<code>.deb</code>,
+                                <code>.rpm</code>, or <code>.AppImage</code>)
+                            </li>
+                            <li>
+                                <b>Windows</b> — x64 and ARM64 (<code
+                                    >.exe</code
+                                >
+                                installer)
+                            </li>
+                        </ul>
+
+                        <h3 class="cl-docs-h3">First launch</h3>
+                        <p>
+                            On first launch you'll see a sign-in screen with
+                            three options:
+                        </p>
+                        <ul>
+                            <li>
+                                <b>Continue with Google</b> — enables cloud sync
+                                and Clauge AI credits if you subscribe later
+                            </li>
+                            <li>
+                                <b>Continue with GitHub</b> — same as above,
+                                plus pre-authenticates the GitHub CLI for
+                                Workspace issue sync
+                            </li>
+                            <li>
+                                <b>Skip for now</b> — start using Clauge fully
+                                offline; you can sign in later from Settings →
+                                Account
+                            </li>
+                        </ul>
+                        <p>
+                            After that, Clauge opens to the <b>Agent</b> mode.
+                            You'll see the left rail (mode switcher), the
+                            sidebar (per-mode sessions / profiles /
+                            connections), the workspace, and the AI panel on the
+                            right. The bottom status bar shows the active mode,
+                            token usage, and the MCP server endpoint.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Switching modes</h3>
+                        <p>
+                            Every mode has a keyboard shortcut. Use
+                            <code>⌘1</code>–<code>⌘8</code> on macOS (or
+                            <code>Ctrl+1</code>–<code>Ctrl+8</code> on Windows /
+                            Linux) to jump straight to any mode:
+                        </p>
+                        <div class="cl-docs-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Shortcut</th>
+                                        <th>Mode</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <code>⌘1</code> /
+                                            <code>Ctrl+1</code>
+                                        </td>
+                                        <td>Agent</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘2</code> /
+                                            <code>Ctrl+2</code>
+                                        </td>
+                                        <td>Workspace</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘3</code> /
+                                            <code>Ctrl+3</code>
+                                        </td>
+                                        <td>REST</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘4</code> /
+                                            <code>Ctrl+4</code>
+                                        </td>
+                                        <td>SQL</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘5</code> /
+                                            <code>Ctrl+5</code>
+                                        </td>
+                                        <td>NoSQL</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘6</code> /
+                                            <code>Ctrl+6</code>
+                                        </td>
+                                        <td>SSH</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘7</code> /
+                                            <code>Ctrl+7</code>
+                                        </td>
+                                        <td>Explorer</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>⌘8</code> /
+                                            <code>Ctrl+8</code>
+                                        </td>
+                                        <td>History</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>
+                            You can also click any icon in the left rail. Clauge
+                            remembers your last-used mode and restores it on
+                            next launch.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="ai-providers">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">02</span>
+                            <span class="cl-docs-section-name"
+                                >AI PROVIDERS</span
+                            >
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Two layers of AI: mode assistants and Workspace
+                            coworkers.
+                        </h2>
+
+                        <p>
+                            Clauge has two distinct AI surfaces, configured
+                            separately:
+                        </p>
+
+                        <h3 class="cl-docs-h3">Mode AI assistance</h3>
+                        <p>
+                            Powers the REST batch runner, SQL NL→SQL, NoSQL
+                            queries, SSH command generation, and Explorer scan.
+                            Two options for billing — pick one or mix:
+                        </p>
+                        <ul>
+                            <li>
+                                <b>BYOK</b> — open
+                                <b>Settings → AI Assistance</b> and drop in your
+                                own Anthropic, OpenAI, Google, or OpenCode key.
+                                Keys go straight to your OS keychain; Clauge
+                                talks directly to the provider, no proxy.
+                            </li>
+                            <li>
+                                <b>Clauge AI credits</b> — subscribe and Clauge
+                                bills a single pool of credits you can spend
+                                across every provider and every mode. No
+                                separate keys to manage. Toggle in
+                                <b>Settings → AI Providers</b>.
+                            </li>
+                        </ul>
+
+                        <h3 class="cl-docs-h3">Workspace coworkers</h3>
+                        <p>
+                            Coworkers are a separate concept. When you create a
+                            coworker in <b>Workspace Mode → Coworkers</b>, you pick
+                            which <em>agent CLI</em> it runs on top of — not a
+                            BYOK key or a credits pool. Available agents:
+                        </p>
+                        <ul>
+                            <li><b>Claude Code</b></li>
+                            <li><b>OpenCode</b></li>
+                            <li><b>Gemini</b></li>
+                            <li><b>Codex</b></li>
+                        </ul>
+                        <p>
+                            The chosen agent handles authentication its own way
+                            (its own subscription, its own key, its own login).
+                            When a coworker claims a card or you
+                            <code>@-mention</code> them, that agent CLI spins up
+                            with the persona's prompt and starts working.
+                        </p>
+
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="agent">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">03</span>
+                            <span class="cl-docs-section-name">AGENT</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Spawn coding agents in parallel, each pinned to a
+                            purpose.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Supported CLIs</h3>
+                        <p>
+                            Claude Code, Codex, Gemini, and OpenCode run as
+                            terminal-based sessions inside Clauge. You can
+                            launch any combination side-by-side; each session is
+                            fully isolated — its own model, its own context, its
+                            own git worktree.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Creating a session</h3>
+                        <ol>
+                            <li>Click <b>+ New Session</b> in the sidebar.</li>
+                            <li>
+                                Pick a <b>purpose</b> (Brainstorming,
+                                Development, Code Review, PR Review, Debugging,
+                                or Custom).
+                            </li>
+                            <li>
+                                Optionally override the <b>git identity</b> —
+                                commit as a coworker, not yourself.
+                            </li>
+                            <li>
+                                Toggle <b>Skip permissions</b> for
+                                fully-autonomous runs when you trust the prompt.
+                            </li>
+                            <li>
+                                Inject pinned files / folders / MCP servers from
+                                the <b>Context Manager</b>.
+                            </li>
+                            <li>
+                                Optionally load extra tools from the
+                                <b>Plugin Manager</b>.
+                            </li>
+                        </ol>
+
+                        <h3 class="cl-docs-h3">Purposes</h3>
+                        <p>
+                            Every session has a purpose that shapes the agent's
+                            focus from the first message. No more prompting it
+                            to "act like a code reviewer" mid-conversation.
+                        </p>
+                        <div class="cl-docs-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Purpose</th>
+                                        <th>Focus</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><b>Brainstorming</b></td>
+                                        <td>
+                                            Architecture, tradeoffs, multiple
+                                            approaches — before writing a line.
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b>Development</b></td>
+                                        <td>
+                                            Clean, tested, pattern-consistent
+                                            code in small verified steps.
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b>Code Review</b></td>
+                                        <td>
+                                            Bugs, security holes, edge cases —
+                                            with file and line references.
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b>PR Review</b></td>
+                                        <td>
+                                            End-to-end PR analysis: what
+                                            changed, what's good, what needs
+                                            work.
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b>Debugging</b></td>
+                                        <td>
+                                            Root cause, not band-aids —
+                                            reproduce, trace, verify the fix.
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><b>Custom</b></td>
+                                        <td>
+                                            Import an existing Claude Code
+                                            session or define your own mode.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3 class="cl-docs-h3">Resume across restarts</h3>
+                        <p>
+                            Sessions survive app restarts and crashes. Clauge
+                            persists every prompt, response, and tool call so
+                            you pick up <em>exactly</em> where you left off —
+                            tabs, scroll position, pending queued prompts.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Usage analytics</h3>
+                        <p>
+                            Every session emits tokens-in / tokens-out, cost,
+                            cache-hit rate, and model mix. Aggregate views show
+                            the same per-day and per-purpose.
+                            <b>Settings → Usage</b>.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="workspace">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">04</span>
+                            <span class="cl-docs-section-name">WORKSPACE</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Boards, notes, and AI coworkers — all driveable from
+                            outside via MCP.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Create a workspace</h3>
+                        <ol>
+                            <li>Open the Workspace mode from the left rail.</li>
+                            <li>
+                                Click <b>+ New Workspace</b> and give it a name.
+                            </li>
+                            <li>
+                                Optionally link it to a local git repo — Clauge
+                                will scan for subprojects and auto-spawn one
+                                board per subproject.
+                            </li>
+                        </ol>
+
+                        <h3 class="cl-docs-h3">Boards</h3>
+                        <p>
+                            Five default columns:
+                            <b
+                                >Backlog → Todo → In Progress → In Review →
+                                Done</b
+                            >. <em>Review</em> is a safety gate — it's not a
+                            column you skip past. Cards carry priority, tags,
+                            comments, review checklists, and links to the PR +
+                            agent sessions that touched them.
+                        </p>
+
+                        <h3 class="cl-docs-h3">GitHub / GitLab sync</h3>
+                        <p>
+                            Clauge talks to GitHub and GitLab through the
+                            <code>gh</code> and <code>glab</code> CLIs. Install
+                            whichever one matches your remote, authenticate via
+                            the CLI, and the board's <b>Sync</b> button will
+                            pull open issues in and push finished cards back as
+                            pull requests.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Notes</h3>
+                        <p>
+                            A Notion-style WYSIWYG markdown editor. Per-project,
+                            linked to sessions, full-text searchable across
+                            every board, and exposed through MCP so external
+                            agents can read and edit them.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Coworkers</h3>
+                        <p>
+                            Named AI personas with their own prompts and
+                            providers — e.g.
+                            <code>@alex the Brainstormer</code>,
+                            <code>@matt the Developer</code>,
+                            <code>@kim the Reviewer</code>. Create them once in
+                            <b>Settings → Coworkers</b>; then any coworker can
+                            claim a card, comment, request changes, commit, and
+                            raise a PR.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Single-owner card lock</h3>
+                        <p>
+                            At any moment, exactly one entity owns a card —
+                            either a coworker or a terminal session. Switching
+                            owners, claiming from a terminal session, or
+                            chatting in the card drawer all flow through the
+                            same lock. No race conditions, no lost work.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Inbox</h3>
+                        <p>
+                            Mentions, review requests, and approval queues from
+                            every board collapse into the pinned <b>Inbox</b> in
+                            the side panel. Click to jump to the source card.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="rest">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">05</span>
+                            <span class="cl-docs-section-name">REST</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            An HTTP client your AI — and any external agent —
+                            can drive.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Collections + environments</h3>
+                        <p>
+                            Group related requests into <b>collections</b> — set
+                            per-collection auth and pre-script hooks. Use
+                            <b>environments</b> for variables that change
+                            between staging / prod / local; overrides resolve
+                            clearly. Import existing Postman v2 / v2.1
+                            collections or paste a cURL command directly.
+                        </p>
+
+                        <h3 class="cl-docs-h3">AI batch runner</h3>
+                        <p>
+                            Open any collection and ask the AI:
+                            <em>"run the smoke tests in staging"</em>. Clauge
+                            fires the whole collection, tracks pass / fail, and
+                            surfaces the failing request inline so you can
+                            re-run it in one click.
+                        </p>
+
+                        <h3 class="cl-docs-h3">MCP CRUD</h3>
+                        <p>
+                            Agents can
+                            <b>list, read, create, update, and delete</b>
+                            collections, requests, and environments through
+                            Clauge's MCP server. The agent can build a whole
+                            test suite for you — without ever touching the REST
+                            UI.
+                        </p>
+
+                        <h3 class="cl-docs-h3">History</h3>
+                        <p>
+                            Every request you've ever sent is in the History
+                            panel — re-fire, diff against an earlier response,
+                            or resurrect a request into a collection.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="sql">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">06</span>
+                            <span class="cl-docs-section-name">SQL</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            One editor, every engine, schema-aware AI.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Supported engines</h3>
+                        <p>
+                            PostgreSQL · MySQL · ClickHouse · SQLite ·
+                            Cloudflare D1. Same editor, same shortcuts, same AI
+                            assistance across all of them.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Adding a connection</h3>
+                        <ol>
+                            <li><b>+ New Connection</b> in the sidebar.</li>
+                            <li>
+                                Choose the engine, fill in host / port /
+                                database / credentials.
+                            </li>
+                            <li>
+                                (Optional) attach an <b>SSH tunnel</b> — pick an
+                                existing profile from the SSH mode, and Clauge
+                                will route the connection through it.
+                            </li>
+                        </ol>
+
+                        <h3 class="cl-docs-h3">NL → SQL</h3>
+                        <p>
+                            With a connection open, type a question in the AI
+                            panel —
+                            <em>"top customers by revenue this quarter"</em> —
+                            and Clauge produces schema-aware SQL ready to run.
+                            The AI knows your tables, columns, and foreign keys
+                            without you pasting a schema dump.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Cross-dialect translation</h3>
+                        <p>
+                            Have a Postgres query and need its MySQL or
+                            ClickHouse equivalent? Highlight it and ask the AI
+                            to translate. It rewrites for the target engine's
+                            flavor — date functions, window syntax, paginate
+                            idioms, all of it.
+                        </p>
+
+                        <h3 class="cl-docs-h3">DataGrip-style statistics</h3>
+                        <p>
+                            For DML statements (UPDATE / DELETE / INSERT),
+                            Clauge surfaces a statistics panel — rows affected,
+                            execution time, server-side row counts — alongside
+                            the result grid.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="nosql">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">07</span>
+                            <span class="cl-docs-section-name">NOSQL</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Document stores and key-value engines, side by side.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">MongoDB</h3>
+                        <p>
+                            Browse collections like a real database client. The
+                            JSON query editor offers auto-format and schema
+                            hints; the <b>Aggregation Pipeline</b> builder lets
+                            you assemble stages one at a time, previewing the
+                            intermediate output between every step.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Redis</h3>
+                        <p>
+                            Walk keys with TTL and type-aware inspection. Stream
+                            support (<code>XADD</code>, <code>XREAD</code>) and
+                            pub-sub are first-class. An interactive console lets
+                            you run arbitrary commands without leaving the
+                            panel.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Engine-aware AI</h3>
+                        <p>
+                            Ask the AI in plain English —
+                            <em>"users on the pro plan inactive 30 days"</em> —
+                            and it produces the right query for the engine
+                            you're connected to. A Mongo connection gets a
+                            <code>find</code> / aggregation; a Redis connection
+                            gets a <code>SCAN</code> + filter. It never mixes
+                            the two.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="ssh">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">08</span>
+                            <span class="cl-docs-section-name">SSH</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            A terminal with an AI co-pilot that asks before it
+                            writes.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Adding a profile</h3>
+                        <ol>
+                            <li><b>+ New Profile</b> in the SSH sidebar.</li>
+                            <li>
+                                Fill host / port / user. Authenticate via
+                                password, public key, SSH agent, or a jump host.
+                            </li>
+                            <li>
+                                Optionally configure port-forwarding — local or
+                                remote.
+                            </li>
+                        </ol>
+                        <p>
+                            Credentials go straight to your OS keychain. ed25519
+                            is the default key algorithm.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Multiple tabs per host</h3>
+                        <p>
+                            Right-click any active session →
+                            <b>Duplicate Session</b>. You get a fresh terminal
+                            tab against the same host without re-authenticating
+                            — useful when you need to <code>tail -f</code> in
+                            one and run commands in another.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Shared tunnels</h3>
+                        <p>
+                            SSH port-forwards configured here are available to
+                            SQL, NoSQL, and REST. Wire your bastion once and
+                            every mode goes through it.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Two AI modes</h3>
+                        <ul>
+                            <li>
+                                <b>Permission mode</b> — every command the AI
+                                proposes is gated. A confirm dialog shows the
+                                command and the host it will run on; you press
+                                <code>Run</code> to execute or
+                                <code>Cancel</code> to discard. Destructive
+                                commands (<code>rm</code>,
+                                <code>shutdown</code>, etc.) trigger a stricter
+                                confirmation.
+                            </li>
+                            <li>
+                                <b>Auto mode</b> — describe what you need in
+                                plain English; the AI executes immediately and
+                                streams the output back. Use it when you're
+                                moving fast on safe operations.
+                            </li>
+                        </ul>
+                        <p>
+                            Switch modes in the AI panel header. Per-profile
+                            defaults available in profile settings.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="explorer">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">09</span>
+                            <span class="cl-docs-section-name">EXPLORER</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Every backend, one browser, one set of shortcuts.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">Backends</h3>
+                        <p>
+                            Local FS · Amazon S3 (and S3-compatibles: R2, MinIO,
+                            Wasabi, DigitalOcean Spaces) · Azure Blob · SFTP ·
+                            FTP. All unified under one file-browser UI.
+                        </p>
+
+                        <h3 class="cl-docs-h3">One-click presets</h3>
+                        <p>
+                            When adding an S3-compatible connection, pick a
+                            preset (R2, MinIO, Wasabi, DO Spaces, etc.) — Clauge
+                            pre-fills the endpoint, region, and path-style flag.
+                            Drop your access key and you're connected.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Drag-and-drop</h3>
+                        <p>
+                            Drop files from your desktop directly into any
+                            backend, or right-click a remote file →
+                            <b>Download to…</b> to pull it to any local folder.
+                            Transfers run in the background; the transfer panel
+                            logs every operation with progress and a
+                            <b>Cancel</b> button.
+                        </p>
+
+                        <h3 class="cl-docs-h3">AI scan</h3>
+                        <p>
+                            Ask the AI to summarise the current directory —
+                            <em>"what grew today?"</em>,
+                            <em>"find images larger than 5 MB"</em>,
+                            <em>"which folder is hogging space?"</em>. Returns a
+                            short answer with file paths you can click to open.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Inline preview</h3>
+                        <p>
+                            Text, JSON, and CSV files preview inline — no
+                            round-trip download. JSON is pretty-printed; CSV
+                            renders as a table.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="history">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">10</span>
+                            <span class="cl-docs-section-name">HISTORY</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            A queryable log of every session, request, query,
+                            and command.
+                        </h2>
+
+                        <p>
+                            The History mode lives in the left rail. It's a
+                            cross-mode log of everything Clauge has done: agent
+                            sessions, REST runs, SQL queries, SSH commands, file
+                            operations. Filter by mode, date, or text search.
+                            Click any entry to jump back to its source mode with
+                            the original context loaded.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="mcp">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">11</span>
+                            <span class="cl-docs-section-name">MCP SETUP</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Connect Claude Desktop, Cursor, or any MCP client to
+                            your Clauge.
+                        </h2>
+
+                        <p>
+                            Clauge ships a built-in MCP server with
+                            <b>30+ tools</b> across boards, cards, notes, REST
+                            collections, and coworker coordination. The server
+                            <b>auto-starts on app launch</b> — no flag, no
+                            separate process to manage.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Default endpoints</h3>
+                        <ul>
+                            <li>
+                                <b>HTTP</b> —
+                                <code>http://localhost:7421/mcp</code>
+                            </li>
+                            <li>
+                                <b>stdio</b> — pipe directly to the Clauge
+                                binary with
+                                <code>clauge mcp serve --stdio</code>
+                            </li>
+                        </ul>
+
+                        <h3 class="cl-docs-h3">From Claude Desktop</h3>
+                        <p>
+                            Add the following to your
+                            <code>claude_desktop_config.json</code> (macOS:
+                            <code
+                                >~/Library/Application
+                                Support/Claude/claude_desktop_config.json</code
+                            >):
+                        </p>
+                        <pre class="cl-docs-pre"><code>{
+  "mcpServers": {
+    "clauge": {
+      "command": "clauge",
+      "args": ["mcp", "serve", "--stdio"]
+    }
+  }
+}</code></pre>
+                        <p>
+                            Restart Claude Desktop. You'll see "clauge" under
+                            the MCP tools indicator.
+                        </p>
+
+                        <h3 class="cl-docs-h3">
+                            From Cursor / Cline / Continue
+                        </h3>
+                        <p>
+                            Point the client at
+                            <code>http://localhost:7421/mcp</code>. The agent
+                            can now list boards, create cards, append notes,
+                            raise PRs, manage REST collections, and call
+                            coworkers — all from inside its own UI.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Tool prefixes</h3>
+                        <p>
+                            Tools are namespaced: <code>boards_*</code>,
+                            <code>cards_*</code>, <code>notes_*</code>,
+                            <code>rest_collection_*</code>,
+                            <code>coworkers_*</code>, <code>workspace_*</code>,
+                            <code>activity_feed</code>. One worth knowing about:
+                            <code>cards_call_coworker</code> — the agent in your
+                            terminal can <code>@-mention</code> a coworker on a
+                            card, and the coworker picks it up just like a human
+                            assignee.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="cloud-sync">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">12</span>
+                            <span class="cl-docs-section-name">CLOUD SYNC</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Sign in once, work from any machine.
+                        </h2>
+
+                        <p>
+                            Sign in with Google or GitHub from
+                            <b>Settings → Account</b>, and Clauge starts syncing
+                            your workspace across the machines you've signed in
+                            on. Sign out, or skip sign-in entirely, and Clauge
+                            runs fully offline — every mode keeps working,
+                            nothing leaves your device.
+                        </p>
+
+                        <p>
+                            Sync is automatic when you're signed in. There's no
+                            "what to sync" dial to turn — Clauge mirrors what's
+                            needed for your workspace to feel the same on a
+                            second machine. Everything that moves is encrypted
+                            in transit and at rest.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="shortcuts">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">13</span>
+                            <span class="cl-docs-section-name">SHORTCUTS</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            The keystrokes worth memorising.
+                        </h2>
+
+                        <div class="cl-docs-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Action</th>
+                                        <th>macOS</th>
+                                        <th>Windows / Linux</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Agent</td>
+                                        <td><code>⌘1</code></td>
+                                        <td><code>Ctrl+1</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Workspace</td>
+                                        <td><code>⌘2</code></td>
+                                        <td><code>Ctrl+2</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>REST</td>
+                                        <td><code>⌘3</code></td>
+                                        <td><code>Ctrl+3</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>SQL</td>
+                                        <td><code>⌘4</code></td>
+                                        <td><code>Ctrl+4</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>NoSQL</td>
+                                        <td><code>⌘5</code></td>
+                                        <td><code>Ctrl+5</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>SSH</td>
+                                        <td><code>⌘6</code></td>
+                                        <td><code>Ctrl+6</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Explorer</td>
+                                        <td><code>⌘7</code></td>
+                                        <td><code>Ctrl+7</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>History</td>
+                                        <td><code>⌘8</code></td>
+                                        <td><code>Ctrl+8</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Fullscreen</td>
+                                        <td><code>⌘⌃F</code></td>
+                                        <td><code>F11</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Focus AI input</td>
+                                        <td><code>⌘L</code></td>
+                                        <td><code>Ctrl+L</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            New session / connection / profile
+                                        </td>
+                                        <td><code>⌘N</code></td>
+                                        <td><code>Ctrl+N</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Quick search</td>
+                                        <td><code>⌘K</code></td>
+                                        <td><code>Ctrl+K</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="faq">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">14</span>
+                            <span class="cl-docs-section-name">FAQ</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">Things people ask.</h2>
+
+                        <h3 class="cl-docs-h3">Is Clauge free?</h3>
+                        <p>
+                            The desktop app is free for personal use under the
+                            PolyForm Noncommercial license. Commercial use
+                            requires a licence — see the
+                            <a href="enterprise.html">Enterprise</a> page or
+                            email
+                            <a href="mailto:support@clauge.in"
+                                >support@clauge.in</a
+                            >.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Do I have to sign in?</h3>
+                        <p>
+                            No. The sign-in screen on first launch has a
+                            <b>Skip for now</b> option — Clauge runs fully
+                            offline without an account. Sign in later from
+                            Settings → Account if you want cloud sync or Clauge
+                            AI credits.
+                        </p>
+
+                        <h3 class="cl-docs-h3">
+                            Does Clauge see my code or prompts?
+                        </h3>
+                        <p>
+                            The AI providers you configure (Anthropic, OpenAI,
+                            Google, OpenCode, or Clauge AI) see only the prompts
+                            and context you send them inside a session. Clauge
+                            itself doesn't read your code or upload it anywhere
+                            unprompted.
+                        </p>
+
+                        <h3 class="cl-docs-h3">How do I update?</h3>
+                        <p>
+                            Clauge checks for new releases on launch and offers
+                            an in-app update when one's available. You can also
+                            download the latest build any time from
+                            <a
+                                href="https://clauge.in/"
+                                target="_blank"
+                                rel="noopener"
+                                >clauge.in</a
+                            >.
+                        </p>
+
+                        <h3 class="cl-docs-h3">How do I report a bug?</h3>
+                        <p>
+                            <a
+                                href="https://github.com/ansxuman/Clauge/issues"
+                                target="_blank"
+                                rel="noopener"
+                                >github.com/ansxuman/Clauge/issues</a
+                            >. Include your OS, Clauge version (Settings →
+                            About), and a repro if you can.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Will Clauge add more modes?</h3>
+                        <p>
+                            Yes. New modes ship alongside the existing ones —
+                            follow the <a href="changelog.html">changelog</a> to
+                            see what's landing.
+                        </p>
+                    </section>
+                </article>
+            </div>
+        </main>
+
+        <footer class="cl-footer" id="site-footer"></footer>
+
+        <script src="app.js" defer></script>
+    </body>
+</html>

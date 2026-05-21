@@ -664,6 +664,7 @@
         <h6>Product</h6>
         <ul>
           <li><a href="index.html#agent">Modes</a></li>
+          <li><a href="docs.html">Docs</a></li>
           <li><a href="pricing.html">Pricing</a></li>
           <li><a href="changelog.html">Changelog</a></li>
           <li><a href="enterprise.html">Enterprise</a></li>
@@ -716,9 +717,10 @@
       </a>
       <nav class="cl-nav" aria-label="Primary">
         <a href="${homeHref}"><span class="num">01</span>Modes</a>
-        <a href="pricing.html"><span class="num">02</span>Pricing</a>
-        <a href="changelog.html"><span class="num">03</span>Changelog</a>
-        <a href="enterprise.html"><span class="num">04</span>Enterprise</a>
+        <a href="docs.html"><span class="num">02</span>Docs</a>
+        <a href="pricing.html"><span class="num">03</span>Pricing</a>
+        <a href="changelog.html"><span class="num">04</span>Changelog</a>
+        <a href="enterprise.html"><span class="num">05</span>Enterprise</a>
         <a href="https://github.com/ansxuman/Clauge" target="_blank" rel="noopener" class="is-cta"><span class="num">↗</span>GitHub</a>
       </nav>
     </div>
@@ -1023,3 +1025,33 @@
   onScroll();
 })();
 
+
+/* ── Docs page: highlight the active TOC link as the user scrolls through sections ── */
+(() => {
+  const links = document.querySelectorAll('.cl-docs-toc-link');
+  const sections = document.querySelectorAll('.cl-docs-section[id]');
+  if (!links.length || !sections.length) return;
+
+  const byId = new Map();
+  links.forEach((a) => {
+    const id = (a.getAttribute('href') || '').replace(/^#/, '');
+    if (id) byId.set(id, a);
+  });
+
+  const setActive = (id) => {
+    links.forEach((a) => a.classList.remove('is-active'));
+    const a = byId.get(id);
+    if (a) a.classList.add('is-active');
+  };
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((e) => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActive(visible[0].target.id);
+    },
+    { rootMargin: '-80px 0px -60% 0px', threshold: 0 }
+  );
+  sections.forEach((s) => observer.observe(s));
+})();
