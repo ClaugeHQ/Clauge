@@ -21,9 +21,10 @@ export async function recordAiUsage(
   mode: string,
   model: string,
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  toolRounds: number = 0,
 ): Promise<void> {
-  return invoke('record_ai_usage', { mode, model, inputTokens, outputTokens });
+  return invoke('record_ai_usage', { mode, model, inputTokens, outputTokens, toolRounds });
 }
 
 export async function aiChat(

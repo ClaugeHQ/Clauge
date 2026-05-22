@@ -29,6 +29,17 @@ pub async fn stream_anthropic(
     let mut total_output_tokens: u64 = 0;
     let mut tool_rounds: u32 = 0;
     const MAX_TOOL_ROUNDS: u32 = 10;
+    // Track recent tool calls so a loop that re-introspects the same thing
+    // (the classic "model can't see the data so it keeps querying the same
+    // schema") is short-circuited with a synthetic steering result instead
+    // of paying for another upstream round-trip.
+    // (tool_name, args_hash) — last two rounds only.
+    let mut recent_calls: std::collections::VecDeque<(String, u64)> = std::collections::VecDeque::with_capacity(8);
+    // Count consecutive rounds that contain ONLY introspection tools (the
+    // ones that read metadata, never write or execute). After a threshold
+    // we inject a steering tool_result asking the model to commit or ask.
+    let mut consecutive_introspection_rounds: u32 = 0;
+    const INTROSPECTION_BUDGET: u32 = 4;
 
     let anthropic_version = config.anthropic_version.unwrap_or("2023-06-01");
 
@@ -276,9 +287,59 @@ pub async fn stream_anthropic(
                 );
                 let _ = app.emit(
                     &format!("ai:done:{}", session_id),
-                    serde_json::json!({"inputTokens": total_input_tokens, "outputTokens": total_output_tokens}),
+                    serde_json::json!({"inputTokens": total_input_tokens, "outputTokens": total_output_tokens, "toolRounds": tool_rounds}),
                 );
                 break;
+            }
+
+            // ─── Loop discipline ─────────────────────────────────────────
+            // Detect (a) duplicate tool calls (same name + same args as a
+            // recent round → model is stuck) and (b) consecutive rounds of
+            // pure introspection with no execute/apply (analysis paralysis).
+            // Either case appends a steering line to the tool_results we
+            // feed back, nudging the model toward a decision instead of
+            // burning another paid round on the same loop.
+            let this_round_calls: Vec<(String, u64)> = tool_uses
+                .iter()
+                .map(|tu| {
+                    (
+                        tu["name"].as_str().unwrap_or("").to_string(),
+                        dispatch::hash_tool_args(&tu["input"]),
+                    )
+                })
+                .collect();
+            let duplicate_call = this_round_calls
+                .iter()
+                .find(|c| recent_calls.contains(c))
+                .cloned();
+            let all_introspection = !this_round_calls.is_empty()
+                && this_round_calls
+                    .iter()
+                    .all(|(name, _)| dispatch::is_introspection_tool(name));
+            if all_introspection {
+                consecutive_introspection_rounds += 1;
+            } else {
+                consecutive_introspection_rounds = 0;
+            }
+            for c in this_round_calls {
+                if recent_calls.len() >= 8 {
+                    recent_calls.pop_front();
+                }
+                recent_calls.push_back(c);
+            }
+
+            let mut steer: Option<String> = None;
+            if let Some((dup_name, _)) = duplicate_call {
+                steer = Some(format!(
+                    "STEER: you already called `{}` with these exact arguments in a recent round. Re-running it will return the same result. Use the prior tool_result, or stop calling tools and either answer the user or ask one clarifying question.",
+                    dup_name
+                ));
+            } else if consecutive_introspection_rounds >= INTROSPECTION_BUDGET {
+                steer = Some(format!(
+                    "STEER: you have spent {} consecutive rounds inspecting metadata without executing or applying anything. STOP. Either (a) call the execute/apply tool with what you have now, or (b) stop using tools and ask the user ONE clarifying question. Do not introspect further.",
+                    consecutive_introspection_rounds
+                ));
+                consecutive_introspection_rounds = 0;
             }
 
             let mut assistant_blocks: Vec<serde_json::Value> = Vec::new();
@@ -297,9 +358,13 @@ pub async fn stream_anthropic(
                 "content": assistant_blocks,
             }));
 
+            let mut user_content: Vec<serde_json::Value> = tool_results.clone();
+            if let Some(text) = steer {
+                user_content.push(serde_json::json!({"type": "text", "text": text}));
+            }
             conversation_msgs.push(serde_json::json!({
                 "role": "user",
-                "content": tool_results.clone(),
+                "content": user_content,
             }));
 
             tool_uses.clear();
@@ -313,6 +378,7 @@ pub async fn stream_anthropic(
             serde_json::json!({
                 "inputTokens": total_input_tokens,
                 "outputTokens": total_output_tokens,
+                "toolRounds": tool_rounds,
             }),
         );
         break;

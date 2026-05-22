@@ -14,11 +14,13 @@ pub async fn get_ai_usage_stats(
 
     Ok(stats
         .into_iter()
-        .map(|(mode, total_calls, input_tokens, output_tokens)| AiUsageStat {
+        .map(|(mode, total_calls, input_tokens, output_tokens, total_tool_rounds, max_tool_rounds)| AiUsageStat {
             mode,
             total_calls,
             input_tokens,
             output_tokens,
+            total_tool_rounds,
+            max_tool_rounds,
         })
         .collect())
 }
@@ -33,11 +35,13 @@ pub async fn get_ai_provider_stats(
 
     Ok(stats
         .into_iter()
-        .map(|(model, total_calls, input_tokens, output_tokens)| AiProviderStat {
+        .map(|(model, total_calls, input_tokens, output_tokens, total_tool_rounds, max_tool_rounds)| AiProviderStat {
             model,
             total_calls,
             input_tokens,
             output_tokens,
+            total_tool_rounds,
+            max_tool_rounds,
         })
         .collect())
 }
@@ -56,9 +60,18 @@ pub async fn record_ai_usage(
     model: String,
     input_tokens: i64,
     output_tokens: i64,
+    tool_rounds: Option<i64>,
 ) -> Result<(), String> {
     let id = uuid::Uuid::new_v4().to_string();
-    ai_usage_repo::record(pool.inner(), &id, &mode, &model, input_tokens, output_tokens)
-        .await
-        .map_err(|e| e.to_string())
+    ai_usage_repo::record(
+        pool.inner(),
+        &id,
+        &mode,
+        &model,
+        input_tokens,
+        output_tokens,
+        tool_rounds.unwrap_or(0),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }

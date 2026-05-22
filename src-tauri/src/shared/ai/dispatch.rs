@@ -89,6 +89,38 @@ pub fn lookup(name: &str) -> Option<ToolDescriptor> {
         .cloned()
 }
 
+/// Cheap, name-only heuristic: is this tool an "introspection" call
+/// (read-only schema / list / sample) vs an "action" call (executes a
+/// query, writes a file, applies a change)?
+///
+/// Used by the streaming loop to detect "N rounds of inspecting without
+/// committing to an answer" — the classic failure mode that burns paid
+/// credits while the model gets nowhere.
+///
+/// Defaults to introspection on unknown names so a misclassification only
+/// fires the steering message *earlier*, never later.
+pub fn is_introspection_tool(name: &str) -> bool {
+    const ACTION_NEEDLES: &[&str] = &[
+        "execute", "apply", "find", "aggregate", "count", "insert",
+        "create", "update", "delete", "write", "mkdir", "rename",
+        "upload", "download", "run", "submit", "redis_execute",
+    ];
+    let lower = name.to_lowercase();
+    !ACTION_NEEDLES.iter().any(|n| lower.contains(n))
+}
+
+/// Stable hash of a tool-call's arguments. Used by the streaming loop's
+/// dedup detector — if the same (tool_name, args_hash) repeats across
+/// adjacent rounds, the model is stuck and should be nudged.
+pub fn hash_tool_args(args: &serde_json::Value) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let canonical = serde_json::to_string(args).unwrap_or_default();
+    let mut h = DefaultHasher::new();
+    canonical.hash(&mut h);
+    h.finish()
+}
+
 /// Returns descriptors for all tools owned by the given mode.
 #[allow(dead_code)]
 pub fn tools_for_mode(mode: &str) -> Vec<ToolDescriptor> {

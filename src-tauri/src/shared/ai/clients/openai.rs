@@ -115,6 +115,10 @@ pub async fn stream_openai(
 
     let mut tool_rounds: u32 = 0;
     const MAX_TOOL_ROUNDS: u32 = 10;
+    // Loop-discipline state. See the matching block in anthropic.rs.
+    let mut recent_calls: std::collections::VecDeque<(String, u64)> = std::collections::VecDeque::with_capacity(8);
+    let mut consecutive_introspection_rounds: u32 = 0;
+    const INTROSPECTION_BUDGET: u32 = 4;
 
     // Reduced output cap when tools aren't needed: legacy heuristic.
     // 1024 was the original "no-tool" cap; preserved verbatim for parity.
@@ -151,6 +155,11 @@ pub async fn stream_openai(
             if !context.mode.is_empty() {
                 body["mode"] = serde_json::json!(context.mode);
             }
+            // Stable session_id so the worker can group the per-round
+            // request_id inserts back into one chat session. Lets the
+            // operator compute rounds-per-session as the primary signal
+            // for loop-discipline effectiveness.
+            body["session_id"] = serde_json::json!(session_id);
         }
 
         let mut headers = HeaderMap::new();
@@ -507,12 +516,62 @@ pub async fn stream_openai(
             full_msgs.push(assistant_msg.clone());
             conversation_msgs.push(assistant_msg);
 
-            // Execute each tool and add results
-            for (id, name, args_str, _sig) in &tool_calls_collected {
+            // Compute loop-discipline steer BEFORE we execute, so we can
+            // append it to the last tool_result (model sees the nudge
+            // inline with the result it's about to read).
+            let this_round_calls: Vec<(String, u64)> = tool_calls_collected
+                .iter()
+                .map(|(_, name, args_str, _)| {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                    (name.clone(), dispatch::hash_tool_args(&parsed))
+                })
+                .collect();
+            let duplicate_call = this_round_calls
+                .iter()
+                .find(|c| recent_calls.contains(c))
+                .cloned();
+            let all_introspection = !this_round_calls.is_empty()
+                && this_round_calls
+                    .iter()
+                    .all(|(name, _)| dispatch::is_introspection_tool(name));
+            if all_introspection {
+                consecutive_introspection_rounds += 1;
+            } else {
+                consecutive_introspection_rounds = 0;
+            }
+            for c in this_round_calls {
+                if recent_calls.len() >= 8 {
+                    recent_calls.pop_front();
+                }
+                recent_calls.push_back(c);
+            }
+            let steer: Option<String> = if let Some((dup_name, _)) = duplicate_call {
+                Some(format!(
+                    "\n\nSTEER: you already called `{}` with these exact arguments in a recent round. Re-running it returns the same result. Use the prior tool_result, or stop calling tools and either answer the user or ask one clarifying question.",
+                    dup_name
+                ))
+            } else if consecutive_introspection_rounds >= INTROSPECTION_BUDGET {
+                let n = consecutive_introspection_rounds;
+                consecutive_introspection_rounds = 0;
+                Some(format!(
+                    "\n\nSTEER: you have spent {} consecutive rounds inspecting metadata without executing or applying anything. STOP. Either (a) call the execute/apply tool with what you have now, or (b) stop using tools and ask the user ONE clarifying question. Do not introspect further.",
+                    n
+                ))
+            } else {
+                None
+            };
+
+            // Execute each tool and add results. Append steer to the LAST
+            // tool's result so the model reads it next to the data it has
+            // to act on. Inline is more reliable than a separate message
+            // (avoids reorder/filter by upstream OpenAI-compat layers).
+            let last_idx = tool_calls_collected.len().saturating_sub(1);
+            for (i, (id, name, args_str, _sig)) in tool_calls_collected.iter().enumerate() {
                 let tool_input: serde_json::Value =
                     serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
 
-                let tool_result = dispatch::execute(
+                let mut tool_result = dispatch::execute(
                     name,
                     ToolContext {
                         tool_use_id: id,
@@ -526,6 +585,12 @@ pub async fn stream_openai(
                     },
                 )
                 .await;
+
+                if i == last_idx {
+                    if let Some(s) = &steer {
+                        tool_result.push_str(s);
+                    }
+                }
 
                 let _ = app.emit(
                     &format!("ai:tool_end:{}", session_id),
@@ -549,7 +614,7 @@ pub async fn stream_openai(
                 );
                 let _ = app.emit(
                     &format!("ai:done:{}", session_id),
-                    serde_json::json!({"inputTokens": total_input_tokens, "outputTokens": total_output_tokens}),
+                    serde_json::json!({"inputTokens": total_input_tokens, "outputTokens": total_output_tokens, "toolRounds": tool_rounds}),
                 );
                 break;
             }
@@ -562,6 +627,7 @@ pub async fn stream_openai(
             serde_json::json!({
                 "inputTokens": total_input_tokens,
                 "outputTokens": total_output_tokens,
+                "toolRounds": tool_rounds,
             }),
         );
         break;

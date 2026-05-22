@@ -8,7 +8,7 @@ export interface ChatCallbacks {
   onToolStart: (toolName: string) => void;
   onToolEnd: (toolName: string) => void;
   onAction: (action: string, data: any) => void;
-  onDone: (inputTokens: number, outputTokens: number) => void;
+  onDone: (inputTokens: number, outputTokens: number, toolRounds: number) => void;
   onError: (error: string) => void;
 }
 
@@ -43,14 +43,15 @@ export async function sendChatMessage(
     callbacks.onAction(e.payload.action, e.payload.data);
   }));
 
-  unlisteners.push(await listen<{ inputTokens: number; outputTokens: number }>(aiEvent.done(sessionId), (e) => {
-    callbacks.onDone(e.payload.inputTokens, e.payload.outputTokens);
+  unlisteners.push(await listen<{ inputTokens: number; outputTokens: number; toolRounds?: number }>(aiEvent.done(sessionId), (e) => {
+    const rounds = typeof e.payload.toolRounds === 'number' ? e.payload.toolRounds : 0;
+    callbacks.onDone(e.payload.inputTokens, e.payload.outputTokens, rounds);
     // Clauge AI usage is tracked centrally by the worker (visible in the
     // Clauge AI tab via /api/ai/usage), so we skip the local BYOK stats
     // table for those sends — otherwise the BYOK stats would show a
     // `clauge-managed` row alongside the real BYOK models.
     if (provider !== 'clauge') {
-      recordAiUsage(chatMode, model, e.payload.inputTokens, e.payload.outputTokens).catch(() => {});
+      recordAiUsage(chatMode, model, e.payload.inputTokens, e.payload.outputTokens, rounds).catch(() => {});
     }
   }));
 

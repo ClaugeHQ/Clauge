@@ -21,6 +21,8 @@ pub struct AiUsageStat {
     pub total_calls: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub total_tool_rounds: i64,
+    pub max_tool_rounds: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +32,8 @@ pub struct AiProviderStat {
     pub total_calls: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub total_tool_rounds: i64,
+    pub max_tool_rounds: i64,
 }
 
 #[derive(Debug, Deserialize)]

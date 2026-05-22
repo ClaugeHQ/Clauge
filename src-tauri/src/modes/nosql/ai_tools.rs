@@ -268,7 +268,22 @@ pub async fn execute_nosql_tool(
                             if count == 0 {
                                 "No documents matched the filter.".to_string()
                             } else {
-                                format!("Found {} document(s). Results shown in the document viewer.", count)
+                                const MAX_DOCS: usize = 10;
+                                const MAX_BYTES: usize = 4096;
+                                let sample = crate::shared::ai::sample::format_doc_sample(&docs, MAX_DOCS, MAX_BYTES);
+                                let shown = count.min(MAX_DOCS);
+                                let header = if count > shown {
+                                    format!(
+                                        "Found {} document(s). Showing first {} for your reasoning — full result is in the document viewer, do NOT re-print it to the user.",
+                                        count, shown
+                                    )
+                                } else {
+                                    format!(
+                                        "Found {} document(s). Full result is in the document viewer, do NOT re-print it to the user — use the sample below only for your reasoning.",
+                                        count
+                                    )
+                                };
+                                format!("{}\n```json\n{}\n```", header, sample)
                             }
                         }
                         Err(e) => format!("Error executing find: {}", e),
@@ -380,7 +395,22 @@ pub async fn execute_nosql_tool(
                             if count == 0 {
                                 "Aggregation returned 0 results.".to_string()
                             } else {
-                                format!("Aggregation returned {} result(s). Displayed to user.", count)
+                                const MAX_DOCS: usize = 10;
+                                const MAX_BYTES: usize = 4096;
+                                let sample = crate::shared::ai::sample::format_doc_sample(&docs, MAX_DOCS, MAX_BYTES);
+                                let shown = count.min(MAX_DOCS);
+                                let header = if count > shown {
+                                    format!(
+                                        "Aggregation returned {} result(s). Showing first {} for your reasoning — full result is in the document viewer, do NOT re-print it to the user.",
+                                        count, shown
+                                    )
+                                } else {
+                                    format!(
+                                        "Aggregation returned {} result(s). Full result is in the document viewer, do NOT re-print it to the user — use the sample below only for your reasoning.",
+                                        count
+                                    )
+                                };
+                                format!("{}\n```json\n{}\n```", header, sample)
                             }
                         }
                         Err(e) => format!("Error executing aggregation: {}", e),
@@ -540,7 +570,11 @@ pub async fn execute_nosql_tool(
                                         "data": { "documents": docs, "count": count, "collection": collection, "label": "Sample Documents" },
                                     }),
                                 );
-                                format!("{} sample document(s) from '{}'. Displayed to user.", count, collection)
+                                let sample = crate::shared::ai::sample::format_doc_sample(&docs, 5, 4096);
+                                format!(
+                                    "{} sample document(s) from '{}'. Also shown in the document viewer — use these for your reasoning, do NOT re-print to the user:\n```json\n{}\n```",
+                                    count, collection, sample
+                                )
                             }
                         }
                         Err(e) => format!("Error: {}", e),

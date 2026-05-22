@@ -950,6 +950,14 @@ pub async fn execute_sql_tool(
             let mut attempt: u32 = 0;
             let result: Result<(Vec<String>, Vec<Vec<serde_json::Value>>), String> = loop {
                 attempt += 1;
+                // Use the same per-driver row decoders the SQL panel uses
+                // (client.rs::{pg,mysql,sqlite}_row_to_json). Prior to this
+                // refactor the AI path had its own type-probing duplicates
+                // which fell out of date — most visibly, MySQL UNSIGNED and
+                // information_schema VARBINARY columns surfaced as NULL.
+                // Single source of truth: when a new MySQL/Postgres type
+                // needs decoding it gets added to client.rs and both UIs
+                // pick it up.
                 let outcome: Result<(Vec<String>, Vec<Vec<serde_json::Value>>), String> = match pool_entry {
                 DatabasePool::Postgres(p) => {
                     sqlx::query(query)
@@ -961,52 +969,10 @@ pub async fn execute_sql_tool(
                             } else {
                                 rows[0].columns().iter().map(|c| c.name().to_string()).collect()
                             };
-                            let json_rows: Vec<Vec<serde_json::Value>> = rows.iter().map(|row| {
-                                row.columns().iter().map(|col| {
-                                    let idx = col.ordinal();
-                                    // Try numeric types BEFORE string — sqlx won't coerce int to string
-                                    if let Ok(Some(v)) = row.try_get::<Option<bool>, _>(idx) {
-                                        return serde_json::Value::Bool(v);
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<i32>, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<i64>, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<f64>, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<f32>, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<rust_decimal::Decimal>, _>(idx) {
-                                        return serde_json::json!(v.to_string());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<uuid::Uuid>, _>(idx) {
-                                        return serde_json::Value::String(v.to_string());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveDateTime>, _>(idx) {
-                                        return serde_json::Value::String(v.to_string());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(idx) {
-                                        return serde_json::Value::String(v.to_rfc3339());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveDate>, _>(idx) {
-                                        return serde_json::Value::String(v.to_string());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveTime>, _>(idx) {
-                                        return serde_json::Value::String(v.to_string());
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<serde_json::Value>, _>(idx) {
-                                        return v;
-                                    }
-                                    if let Ok(Some(v)) = row.try_get::<Option<String>, _>(idx) {
-                                        return serde_json::Value::String(v);
-                                    }
-                                    serde_json::Value::Null
-                                }).collect()
-                            }).collect();
+                            let json_rows: Vec<Vec<serde_json::Value>> = rows
+                                .iter()
+                                .map(crate::modes::sql::client::pg_row_to_json)
+                                .collect();
                             (columns, json_rows)
                         })
                         .map_err(|e| e.to_string())
@@ -1021,30 +987,10 @@ pub async fn execute_sql_tool(
                             } else {
                                 rows[0].columns().iter().map(|c| c.name().to_string()).collect()
                             };
-                            let json_rows: Vec<Vec<serde_json::Value>> = rows.iter().map(|row| {
-                                row.columns().iter().map(|col| {
-                                    let idx = col.ordinal();
-                                    if let Ok(v) = row.try_get::<bool, _>(idx) {
-                                        return serde_json::Value::Bool(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<i32, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<i64, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<f64, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<f32, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<String, _>(idx) {
-                                        return serde_json::Value::String(v);
-                                    }
-                                    serde_json::Value::Null
-                                }).collect()
-                            }).collect();
+                            let json_rows: Vec<Vec<serde_json::Value>> = rows
+                                .iter()
+                                .map(crate::modes::sql::client::mysql_row_to_json)
+                                .collect();
                             (columns, json_rows)
                         })
                         .map_err(|e| e.to_string())
@@ -1059,21 +1005,10 @@ pub async fn execute_sql_tool(
                             } else {
                                 rows[0].columns().iter().map(|c| c.name().to_string()).collect()
                             };
-                            let json_rows: Vec<Vec<serde_json::Value>> = rows.iter().map(|row| {
-                                row.columns().iter().map(|col| {
-                                    let idx = col.ordinal();
-                                    if let Ok(v) = row.try_get::<i64, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<f64, _>(idx) {
-                                        return serde_json::json!(v);
-                                    }
-                                    if let Ok(v) = row.try_get::<String, _>(idx) {
-                                        return serde_json::Value::String(v);
-                                    }
-                                    serde_json::Value::Null
-                                }).collect()
-                            }).collect();
+                            let json_rows: Vec<Vec<serde_json::Value>> = rows
+                                .iter()
+                                .map(crate::modes::sql::client::sqlite_row_to_json)
+                                .collect();
                             (columns, json_rows)
                         })
                         .map_err(|e| e.to_string())
@@ -1134,10 +1069,24 @@ pub async fn execute_sql_tool(
                     if row_count == 0 {
                         format!("Query returned 0 rows in {}ms.{}", duration_ms, ch_note)
                     } else {
-                        format!(
-                            "Query returned {} row(s) in {}ms. Columns: {}. Results shown in the SQL results panel.{}",
-                            row_count, duration_ms, columns.join(", "), ch_note
-                        )
+                        const SAMPLE_MAX_ROWS: usize = 10;
+                        const SAMPLE_MAX_BYTES: usize = 4096;
+                        let sample = crate::shared::ai::sample::format_row_sample(
+                            &columns, &rows, SAMPLE_MAX_ROWS, SAMPLE_MAX_BYTES,
+                        );
+                        let shown = row_count.min(SAMPLE_MAX_ROWS);
+                        let header = if row_count > shown {
+                            format!(
+                                "Query returned {} row(s) in {}ms.{} Showing first {} for your reasoning — full result is already in the SQL panel, do NOT re-print it to the user.",
+                                row_count, duration_ms, ch_note, shown
+                            )
+                        } else {
+                            format!(
+                                "Query returned {} row(s) in {}ms.{} Full result is already in the SQL panel, do NOT re-print it to the user — use the sample below only for your reasoning.",
+                                row_count, duration_ms, ch_note
+                            )
+                        };
+                        format!("{}\n```json\n{}\n```", header, sample)
                     }
                 }
                 Err(e) => {

@@ -722,7 +722,7 @@
           }
           scrollToBottom();
         },
-        onDone: (_inputTokens, _outputTokens) => {
+        onDone: (_inputTokens, _outputTokens, _toolRounds) => {
           messages[lastIdx].isStreaming = false;
           isStreaming = false;
           scrollToBottom();

@@ -2,6 +2,7 @@ pub mod clients;
 pub mod context;
 pub mod dispatch;
 pub mod providers;
+pub mod sample;
 pub mod types;
 pub mod usage;
 

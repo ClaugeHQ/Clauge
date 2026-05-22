@@ -502,7 +502,15 @@
 
     function fmtUsageTime(iso: string): string {
         try {
-            const d = new Date(iso);
+            // The worker writes `occurred_at` via SQLite's CURRENT_TIMESTAMP,
+            // which returns "YYYY-MM-DD HH:MM:SS" in UTC but WITHOUT any
+            // timezone marker. `new Date(naiveString)` treats it as LOCAL,
+            // so non-UTC users saw times shifted by their offset. Normalise
+            // the SQLite shape to a proper UTC ISO before parsing; leave
+            // already-tagged strings (T+Z, T+offset) alone.
+            const isNaiveSqlite = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(iso);
+            const utcIso = isNaiveSqlite ? iso.replace(" ", "T") + "Z" : iso;
+            const d = new Date(utcIso);
             return d.toLocaleString(undefined, {
                 month: "short",
                 day: "numeric",

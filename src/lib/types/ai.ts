@@ -69,6 +69,8 @@ export interface AiUsageStat {
   totalCalls: number;
   inputTokens: number;
   outputTokens: number;
+  totalToolRounds: number;
+  maxToolRounds: number;
 }
 
 export interface AiProviderStat {
@@ -76,4 +78,6 @@ export interface AiProviderStat {
   totalCalls: number;
   inputTokens: number;
   outputTokens: number;
+  totalToolRounds: number;
+  maxToolRounds: number;
 }

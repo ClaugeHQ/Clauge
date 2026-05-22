@@ -18,7 +18,7 @@ TOOL RULES:
 - "insert test data" or "generate documents" → use insert_documents tool.
 - "how big is this collection" → use get_collection_stats tool.
 - You can access any database on a connected MongoDB server — just provide the database name.
-- Query results are shown in the main document viewer for full interaction. Do NOT repeat the data.
+- find_documents/aggregate return a small sample (up to 10 docs, 4KB) for YOUR reasoning. The user already sees the full result set in the document viewer. Use the sample to verify field shapes and values — do NOT echo documents back to the user.
 
 ERROR HANDLING:
 - If a tool returns a string starting with "Error:" or "Error executing" — that is the database driver's actual error. QUOTE IT VERBATIM to the user in a code block. Never paraphrase as "internal error".
@@ -32,8 +32,6 @@ OUTPUT RULES:
 - No emojis ever
 - Short answers. 1-3 sentences for simple questions
 - Use JSON code blocks for queries and documents
-- When a tool returns "displayed to user", say only "Done." or brief summary
-- Do not repeat data the user can already see
 - When showing an error to the user, prefix with "Database said:" and put the actual error in a code block`;
 
 export const NOSQL_TOOLS = [

@@ -80,9 +80,11 @@ fn execute_current_request<'a>(ctx: &'a ToolContext<'a>) -> ToolFuture<'a> {
                                 },
                             }),
                         );
+                        const MAX_BODY_BYTES: usize = 4096;
+                        let body_sample = crate::shared::ai::sample::format_text_sample(&response.body, MAX_BODY_BYTES);
                         format!(
-                            "Status: {} {}\nDuration: {}ms\nSize: {} bytes\nResponse body displayed to user in the result card.",
-                            response.status, response.status_text, response.duration_ms, response.size_bytes
+                            "Status: {} {}\nDuration: {}ms\nSize: {} bytes\nFull body is in the result card — do NOT re-print it. Sample for your reasoning:\n```\n{}\n```",
+                            response.status, response.status_text, response.duration_ms, response.size_bytes, body_sample
                         )
                     }
                     Err(e) => format!("Execution failed: {}", e),
@@ -314,9 +316,11 @@ fn execute_request<'a>(ctx: &'a ToolContext<'a>) -> ToolFuture<'a> {
                         },
                     }),
                 );
+                const MAX_BODY_BYTES: usize = 4096;
+                let body_sample = crate::shared::ai::sample::format_text_sample(&response.body, MAX_BODY_BYTES);
                 format!(
-                    "Status: {} {}\nDuration: {}ms\nSize: {} bytes\nResponse body displayed to user in the result card.",
-                    response.status, response.status_text, response.duration_ms, response.size_bytes,
+                    "Status: {} {}\nDuration: {}ms\nSize: {} bytes\nFull body is in the result card — do NOT re-print it. Sample for your reasoning:\n```\n{}\n```",
+                    response.status, response.status_text, response.duration_ms, response.size_bytes, body_sample,
                 )
             }
             Err(e) => format!("Execution failed: {}", e),
@@ -455,7 +459,28 @@ fn execute_collection<'a>(ctx: &'a ToolContext<'a>) -> ToolFuture<'a> {
         if results.is_empty() {
             format!("No requests found in collection '{}'.", collection_id_input)
         } else {
-            "Done. Results displayed to user as a report card. Do not list or repeat individual results.".to_string()
+            let total = results.len();
+            let failed = results
+                .iter()
+                .filter(|r| {
+                    r.get("error").is_some()
+                        || r.get("status")
+                            .and_then(|s| s.as_u64())
+                            .map(|s| s >= 400)
+                            .unwrap_or(false)
+                })
+                .count();
+            let passed = total - failed;
+            const MAX_BYTES: usize = 4096;
+            let mut compact = serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string());
+            if compact.len() > MAX_BYTES {
+                compact.truncate(MAX_BYTES);
+                compact.push_str("\n… (summary truncated)");
+            }
+            format!(
+                "Collection executed: {} request(s), {} passed, {} failed. Full report card is in the result panel — do NOT re-print individual results. Per-request summary for your reasoning:\n```json\n{}\n```",
+                total, passed, failed, compact
+            )
         }
     })
 }

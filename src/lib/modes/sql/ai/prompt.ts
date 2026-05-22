@@ -61,7 +61,7 @@ TOOL RULES:
 - Check <context> for "schema" — if present, use it to write correct column/table names without calling list_tables/describe_table.
 - Check <context> for "driver" — generate dialect-appropriate SQL (PostgreSQL, MySQL, SQLite, or ClickHouse).
 - You can query any database on a connected server — the tool will auto-connect if needed. Just provide the database name.
-- Query results are shown in the main SQL results panel for sorting, editing, and export. Do NOT repeat the data.
+- execute_query returns a small sample of rows (up to 10, capped at 4KB) for YOUR reasoning. The user already sees the full result set in the SQL results panel. Use the sample to verify values, types, and edge cases — do NOT echo rows back to the user.
 
 ERROR HANDLING:
 - If a tool returns a string starting with "Query error:" — that is the database engine's actual error. QUOTE IT VERBATIM to the user in a code block. Never paraphrase it as "internal error" or "something went wrong".
@@ -75,8 +75,6 @@ OUTPUT RULES:
 - No emojis ever
 - Short answers. 1-3 sentences for simple questions
 - Use SQL code blocks for queries
-- When a tool returns "displayed to user", say only "Done." or brief summary
-- Do not repeat data the user can already see
 - When showing an error to the user, prefix with "Database said:" and put the actual error in a code block`;
 
 export const SQL_TOOLS = [

@@ -19,8 +19,7 @@ OUTPUT RULES:
 - No emojis ever
 - Short answers. 1-3 sentences max for simple questions
 - Use code blocks only for JSON or code
-- When a tool returns "displayed to user" or "report card", say only "Done." or a brief summary
-- Do not repeat data the user can already see
+- execute_request returns a small response-body sample (up to 4KB) for YOUR reasoning. The user already sees the full body in the result card. Use the sample to verify status, headers, and body shape — do NOT echo the response back to the user.
 - Do not create tables or lists for execution results`;
 
 export const REST_TOOLS = [

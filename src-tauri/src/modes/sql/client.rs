@@ -477,7 +477,7 @@ async fn build_pool_inner(
 
 // --- Helper to convert rows to JSON values ---
 
-fn pg_row_to_json(row: &sqlx::postgres::PgRow) -> Vec<serde_json::Value> {
+pub(crate) fn pg_row_to_json(row: &sqlx::postgres::PgRow) -> Vec<serde_json::Value> {
     use sqlx::types::chrono;
 
     let columns = row.columns();
@@ -700,39 +700,102 @@ pub fn mysql_decode_string(row: &sqlx::mysql::MySqlRow, idx: usize) -> String {
     String::new()
 }
 
-fn mysql_row_to_json(row: &sqlx::mysql::MySqlRow) -> Vec<serde_json::Value> {
+pub(crate) fn mysql_row_to_json(row: &sqlx::mysql::MySqlRow) -> Vec<serde_json::Value> {
+    use sqlx::types::chrono;
     let columns = row.columns();
     columns
         .iter()
         .map(|col| {
+            let idx = col.ordinal();
             let type_name = col.type_info().name();
             match type_name {
                 "BOOLEAN" | "TINYINT(1)" => row
-                    .try_get::<bool, _>(col.ordinal())
-                    .map(|v| serde_json::Value::Bool(v))
+                    .try_get::<bool, _>(idx)
+                    .map(serde_json::Value::Bool)
                     .unwrap_or(serde_json::Value::Null),
                 "TINYINT" | "SMALLINT" | "INT" | "MEDIUMINT" => row
-                    .try_get::<i32, _>(col.ordinal())
+                    .try_get::<i32, _>(idx)
+                    .map(|v| serde_json::json!(v))
+                    .unwrap_or(serde_json::Value::Null),
+                // UNSIGNED variants: sqlx-mysql refuses to decode an UNSIGNED
+                // column into a signed type, so these used to return NULL.
+                // information_schema.tables.TABLE_ROWS is BIGINT UNSIGNED —
+                // that bug surfaced as "row counts always NULL" in user-facing
+                // diagnostics.
+                "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED" | "INT UNSIGNED" => row
+                    .try_get::<u32, _>(idx)
                     .map(|v| serde_json::json!(v))
                     .unwrap_or(serde_json::Value::Null),
                 "BIGINT" => row
-                    .try_get::<i64, _>(col.ordinal())
+                    .try_get::<i64, _>(idx)
                     .map(|v| serde_json::json!(v))
                     .unwrap_or(serde_json::Value::Null),
-                "FLOAT" | "DOUBLE" | "DECIMAL" => row
-                    .try_get::<f64, _>(col.ordinal())
+                "BIGINT UNSIGNED" => row
+                    .try_get::<u64, _>(idx)
                     .map(|v| serde_json::json!(v))
                     .unwrap_or(serde_json::Value::Null),
-                _ => row
-                    .try_get::<String, _>(col.ordinal())
-                    .map(|v| serde_json::Value::String(v))
+                "FLOAT" => row
+                    .try_get::<f32, _>(idx)
+                    .map(|v| serde_json::json!(v))
                     .unwrap_or(serde_json::Value::Null),
+                "DOUBLE" => row
+                    .try_get::<f64, _>(idx)
+                    .map(|v| serde_json::json!(v))
+                    .unwrap_or(serde_json::Value::Null),
+                // DECIMAL was f64 → silent precision loss on monetary columns.
+                // Use rust_decimal → String, same approach as Postgres.
+                "DECIMAL" => row
+                    .try_get::<rust_decimal::Decimal, _>(idx)
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+                "DATETIME" => row
+                    .try_get::<chrono::NaiveDateTime, _>(idx)
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+                "TIMESTAMP" => row
+                    .try_get::<chrono::DateTime<chrono::Utc>, _>(idx)
+                    .map(|v| serde_json::Value::String(v.to_rfc3339()))
+                    .or_else(|_| {
+                        row.try_get::<chrono::NaiveDateTime, _>(idx)
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                    })
+                    .unwrap_or(serde_json::Value::Null),
+                "DATE" => row
+                    .try_get::<chrono::NaiveDate, _>(idx)
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+                "TIME" => row
+                    .try_get::<chrono::NaiveTime, _>(idx)
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+                "JSON" => row
+                    .try_get::<serde_json::Value, _>(idx)
+                    .unwrap_or(serde_json::Value::Null),
+                // Binary-storage types. information_schema columns declared as
+                // VARCHAR are stored as VARBINARY underneath; sqlx reports the
+                // underlying type, so a naive String decode fails and the row
+                // appears NULL. Route through mysql_decode_string (handles
+                // both String and Vec<u8> paths cleanly).
+                "VARBINARY" | "BINARY" | "TINYBLOB" | "BLOB" | "MEDIUMBLOB" | "LONGBLOB" => {
+                    let s = mysql_decode_string(row, idx);
+                    serde_json::Value::String(s)
+                }
+                // Catch-all for text/enum/set/year/other: same defensive
+                // String→Vec<u8> fallback. If the row genuinely has NULL,
+                // mysql_decode_string returns "" — distinguish that by
+                // checking try_get for null first.
+                _ => {
+                    if row.try_get::<Option<String>, _>(idx).map(|o| o.is_none()).unwrap_or(false) {
+                        return serde_json::Value::Null;
+                    }
+                    serde_json::Value::String(mysql_decode_string(row, idx))
+                }
             }
         })
         .collect()
 }
 
-fn sqlite_row_to_json(row: &sqlx::sqlite::SqliteRow) -> Vec<serde_json::Value> {
+pub(crate) fn sqlite_row_to_json(row: &sqlx::sqlite::SqliteRow) -> Vec<serde_json::Value> {
     let columns = row.columns();
     columns
         .iter()
