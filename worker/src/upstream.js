@@ -50,9 +50,27 @@ export function sanitizeFinalUsage(obj) {
   };
 }
 
-export function buildUpstreamRequest({ messages, model, systemSuffix, tools }) {
+export function buildUpstreamRequest({ messages, model, systemSuffix, tools, reasoningEffort }) {
+  // The desktop encodes mode-specific behavior (SQL target_status branching,
+  // REST tool routing, ask-vs-act intent rules, etc.) in messages[] with
+  // role="system". Earlier this function dropped them and only kept
+  // IDENTITY_PROMPT + systemSuffix — which neutered every mode prompt for
+  // Pro users. Now we concatenate caller system messages so the upstream
+  // sees: IDENTITY_PROMPT → operator suffix (KV-tunable) → caller's prompt.
+  // Order matters: identity first so the model's persona is set before any
+  // mode rules; caller's prompt last so the most specific guidance is what
+  // the model sees right before the user turn.
+  const callerSystem = (messages ?? [])
+    .filter((m) => m.role === "system")
+    .map((m) => (typeof m.content === "string" ? m.content : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  const combinedSystem = [IDENTITY_PROMPT, systemSuffix ?? "", callerSystem]
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean)
+    .join("\n\n");
   const withSystem = [
-    { role: "system", content: (systemSuffix ?? "") + "\n" + IDENTITY_PROMPT },
+    { role: "system", content: combinedSystem },
     ...messages.filter((m) => m.role !== "system"),
   ];
   const req = {
@@ -67,6 +85,14 @@ export function buildUpstreamRequest({ messages, model, systemSuffix, tools }) {
   // Explorer) works end-to-end without per-tool worker awareness.
   if (Array.isArray(tools) && tools.length > 0) {
     req.tools = tools;
+  }
+  // Reasoning depth. Upstreams that support a `reasoning` field (Hy3 has
+  // disabled/low/high) use this to balance speed/cost vs depth. Unknown
+  // upstreams ignore the field. Allowed values are whitelisted to keep
+  // junk from the caller (or a stale client) from leaking through.
+  if (typeof reasoningEffort === "string"
+      && ["disabled", "low", "medium", "high"].includes(reasoningEffort)) {
+    req.reasoning = { effort: reasoningEffort };
   }
   return req;
 }
