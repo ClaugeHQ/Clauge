@@ -226,7 +226,7 @@ export async function deleteUser(env, userId) {
 
 // ─── sync_blobs ────────────────────────────────────────────────────
 
-export const SYNC_KINDS = ['rest', 'sql', 'nosql', 'agent', 'ssh', 'explorer'];
+export const SYNC_KINDS = ['rest', 'sql', 'nosql', 'agent', 'ssh', 'explorer', 'coworkers'];
 
 export function isValidKind(kind) {
   return SYNC_KINDS.includes(kind);
