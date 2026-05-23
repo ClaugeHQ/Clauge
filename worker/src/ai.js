@@ -188,13 +188,18 @@ export async function handleAiChat(request, env, userId) {
       // 4. Log the settled usage. UNIQUE on (user_id, request_id) so
       //    a hypothetical replay race that slipped past the SELECT-replay
       //    check at request entry doesn't double-log.
-      //    `mode` is sent by the desktop's stream_openai when provider === clauge.
+      //    `mode` and `session_id` are sent by the desktop's stream_openai
+      //    when provider === clauge. `session_id` lets us derive
+      //    rounds-per-session (each tool round is a distinct request_id
+      //    but shares the same session_id), which is the primary signal
+      //    for measuring loop-discipline changes.
       const mode = typeof body.mode === "string" ? body.mode : null;
+      const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       await env.CLAUGE_DB.prepare(
         `INSERT OR IGNORE INTO credit_usage_log
-           (user_id, operation, clauge_credits, cost_usd_micros, request_id, mode)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(userId, operation, charge, finalUsage.cost_usd_micros, body.request_id, mode).run();
+           (user_id, operation, clauge_credits, cost_usd_micros, request_id, mode, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(userId, operation, charge, finalUsage.cost_usd_micros, body.request_id, mode, sessionId).run();
 
       // 5. Emit live balance event so the client updates without polling.
       //    MUST be written BEFORE [DONE]: SSE clients (incl. our Rust

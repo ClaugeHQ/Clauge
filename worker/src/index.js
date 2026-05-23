@@ -12,6 +12,7 @@ import {
 import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal, handleGetPricing } from './billing.js';
 import { sweepPastDue } from './cron.js';
 import { handleAiChat, handleAiBalance, handleAiUsage } from './ai.js';
+import { handleTelemetryHeartbeat } from './telemetry.js';
 import { checkKeyRpm } from './ratelimit.js';
 
 export default {
@@ -114,6 +115,15 @@ export default {
           return new Response("rate limited", { status: 429 });
         }
         return handleCreatePortal(env, portalUserId);
+      }
+
+      // ─── /api/telemetry/heartbeat — auth OPTIONAL ──────────
+      // Same endpoint for anonymous (no header) and logged-in
+      // (bearer present) cohorts. Handler does its own auth + rate
+      // limiting; we do NOT pre-authenticate here because that would
+      // reject anonymous pings before they reach the handler.
+      if (path === '/api/telemetry/heartbeat' && method === 'POST') {
+        return await handleTelemetryHeartbeat(request, env);
       }
 
       // ─── /api/sync/* — bearer required ─────────────────────

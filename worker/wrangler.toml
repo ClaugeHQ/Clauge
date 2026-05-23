@@ -4,18 +4,20 @@ compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Worker handles:
-#   /auth/token*       — legacy GitHub OAuth exchange (deprecated, kept for 1 release)
-#   /api/auth/*        — cloud auth (exchange, me, link, unlink, refresh)
-#   /api/sync/*        — per-domain blob sync
-#   /api/billing/*     — Polar webhook + checkout + portal + public pricing
-#   /api/ai/*          — Clauge AI proxy (chat SSE, balance, usage)
+#   /auth/token*         — legacy GitHub OAuth exchange (deprecated, kept for 1 release)
+#   /api/auth/*          — cloud auth (exchange, me, link, unlink, refresh)
+#   /api/sync/*          — per-domain blob sync
+#   /api/billing/*       — Polar webhook + checkout + portal + public pricing
+#   /api/ai/*            — Clauge AI proxy (chat SSE, balance, usage)
+#   /api/telemetry/*     — append-only daily heartbeats (anon + logged-in)
 # Pages handles every other path on clauge.in (marketing site, callback HTML, Pages Functions like /api/contact).
 routes = [
-  { pattern = "clauge.in/auth/token*",    zone_name = "clauge.in" },
-  { pattern = "clauge.in/api/auth/*",     zone_name = "clauge.in" },
-  { pattern = "clauge.in/api/sync/*",     zone_name = "clauge.in" },
-  { pattern = "clauge.in/api/billing/*",  zone_name = "clauge.in" },
-  { pattern = "clauge.in/api/ai/*",       zone_name = "clauge.in" }
+  { pattern = "clauge.in/auth/token*",     zone_name = "clauge.in" },
+  { pattern = "clauge.in/api/auth/*",      zone_name = "clauge.in" },
+  { pattern = "clauge.in/api/sync/*",      zone_name = "clauge.in" },
+  { pattern = "clauge.in/api/billing/*",   zone_name = "clauge.in" },
+  { pattern = "clauge.in/api/ai/*",        zone_name = "clauge.in" },
+  { pattern = "clauge.in/api/telemetry/*", zone_name = "clauge.in" }
 ]
 
 [vars]
