@@ -26,7 +26,7 @@ echo "Bumped to v$VERSION"
 # Commit and push only — tag from GitHub UI after writing release notes
 git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json
 git commit -m "chore: bump version to $VERSION"
-git push origin v3-alpha
+git push origin main
 
 echo "Done — version bumped to v$VERSION"
 echo "Next: Go to GitHub → Releases → Create new release → tag v$VERSION → add notes → Publish"
