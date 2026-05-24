@@ -193,7 +193,7 @@ Set keys in **Settings → AI Providers**. Per-mode model choice; per-session mo
 
 ## Cloud sync
 
-Opt-in, per-feature, encrypted. Your boards, notes, REST collections, and SSH profiles sync across machines — or stay local, your call. Sessions and credentials never leave the device unless you explicitly enable sync for them.
+Opt-in, encrypted.Agent Context, Co-Worker Profil, REST collections,SQL/NoSQL and SSH profiles sync across machines — or stay local, your call. Sessions and credentials never leave the device unless you explicitly enable sync for them.
 
 ---
 
