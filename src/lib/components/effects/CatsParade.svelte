@@ -19,6 +19,7 @@
   // the upgrade carrot).
   //
   // Respects `prefers-reduced-motion: reduce` (parade is hidden entirely).
+  import { onDestroy } from "svelte";
   import { appearance } from "$lib/stores/settings";
 
   type Dir = "left" | "right";
@@ -168,6 +169,17 @@
     if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     return audioCtx;
   }
+  // Defensive teardown — browsers cap the number of AudioContext instances
+  // per page (~6 in Chromium). This component lives at the app root so it
+  // typically only unmounts on app close, but HMR / dev rebuilds + a future
+  // refactor where the parade is conditionally mounted could leak contexts
+  // without this.
+  onDestroy(() => {
+    if (audioCtx && audioCtx.state !== "closed") {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+  });
   function playVoice(kind: Kind) {
     const ctx = ensureAudioCtx();
     if (!ctx) return;
@@ -309,7 +321,14 @@
 </script>
 
 {#if active}
-  <div class="cn-parade" aria-hidden="true">
+  <!--
+    Container is intentionally NOT aria-hidden — the <button> children
+    inside are real interactive elements (poke → jump + voice) with
+    aria-labels, and hiding the wrapper would silently break screen-reader
+    discoverability while leaving the buttons keyboard-focusable.
+    Decorative children (leftover SVGs) carry aria-hidden individually.
+  -->
+  <div class="cn-parade">
     {#each animals as anim, i}
       <button
         type="button"
@@ -413,6 +432,7 @@
       <div
         class="cn-leftover cn-leftover-{lo.kind}"
         style="left:{lo.x}px; top:{lo.y}px;"
+        aria-hidden="true"
       >
         {#if lo.kind === "cat"}
           <!-- Three diagonal claw marks. -->

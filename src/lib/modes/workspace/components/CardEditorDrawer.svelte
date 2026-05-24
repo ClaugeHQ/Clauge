@@ -533,7 +533,7 @@
         comments = comments.filter((c) => c.id !== optimisticId && c.id !== thinkingId);
         chatDraft = body;
       }
-      errorToast('', e);
+      errorToast('Send message', e);
     } finally {
       // Critical: use the snapshotted cardId, not card.id — `card`
       // may be null by now if the user closed the drawer. If the

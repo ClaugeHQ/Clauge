@@ -361,12 +361,19 @@
             showToast("Type your handle exactly to confirm", "error");
             return;
         }
+        // Snapshot BEFORE the async block — `setDisconnected()` clears
+        // `$cloudUser` and `$cloudSub`, which the derived `isProRecurring`
+        // reads from. Without this snapshot, a Pro user would get the
+        // wrong success copy ("local data intact" instead of
+        // "subscription cancelled") because the derived value reads
+        // post-disconnect state.
+        const wasProRecurring = isProRecurring;
         deleting = true;
         try {
             await cloudDeleteAccount(deleteSlugInput.trim());
             setDisconnected();
             showToast(
-                isProRecurring
+                wasProRecurring
                     ? "Account deleted and subscription cancelled"
                     : "Account deleted — local data intact",
                 "success",
