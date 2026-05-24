@@ -356,15 +356,34 @@ pub async fn cloud_logout(
 
 #[tauri::command]
 pub async fn cloud_wipe_remote(
-    app: AppHandle,
+    _app: AppHandle,
     pool: State<'_, SqlitePool>,
     state: State<'_, AuthState>,
-    pro_state: State<'_, ProStateManager>,
+    _pro_state: State<'_, ProStateManager>,
 ) -> Result<(), String> {
     client::sync_wipe(pool.inner(), &state)
         .await
         .map_err(String::from)?;
-    cloud_logout(app, pool, state, pro_state).await
+
+    // Clear local sync bookkeeping AFTER the wipe succeeds. Without this,
+    // the next 5s-debounced auto-push would compare its content_hash
+    // against `cloud:hash:<kind>` (still matching the pre-wipe state),
+    // see "no change", and skip the upload — leaving the cloud empty
+    // forever until the user makes a local change. Clearing these rows
+    // forces the next push to actually run.
+    //
+    // We DO NOT call `cloud_logout` here (previous behaviour). That
+    // contradicted the UI promise of "your account stays — you can
+    // re-push anytime" and forced the user to sign back in. After this
+    // change: account stays signed in, cloud is empty, any local
+    // mutation re-pushes fresh on the next auto-push tick.
+    let _ = sqlx::query(
+        "DELETE FROM settings WHERE key LIKE 'cloud:hash:%' OR key LIKE 'cloud:synced_at:%'",
+    )
+    .execute(pool.inner())
+    .await;
+
+    Ok(())
 }
 
 #[tauri::command]

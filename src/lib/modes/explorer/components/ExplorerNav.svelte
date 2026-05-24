@@ -10,6 +10,7 @@
   import { newExplorerTabKey, connectionIdFromTabKey } from '$lib/modes/explorer/tabkey';
   import { openSession, closeSession, deleteConnection, deleteSecrets } from '$lib/modes/explorer/commands';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import NewSftpConnectionModal from './connection-modal/NewSftpConnectionModal.svelte';
@@ -205,7 +206,7 @@
         next.set(tabKey, 'error');
         return next;
       });
-      showToast(`Connection failed: ${err}`, 'error');
+      errorToast('Connection failed', err);
     }
   }
 
@@ -291,7 +292,7 @@
       await loadExplorerConnections();
       showToast(`Deleted ${pendingDelete.name}`, 'success');
     } catch (err: any) {
-      showToast(`Delete failed: ${err}`, 'error');
+      errorToast('Delete failed', err);
     }
     pendingDelete = null;
   }

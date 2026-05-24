@@ -16,6 +16,7 @@
     type Completion,
   } from '@codemirror/autocomplete';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import FormKVEditor from './FormKVEditor.svelte';
   import MultipartEditor from './MultipartEditor.svelte';
   import BinaryPicker from './BinaryPicker.svelte';
@@ -112,7 +113,7 @@
       envVarCache = Object.entries(vars).map(([key, value]) => ({ key, value }));
       showToast(`Added {{${name}}} to environment`, 'success');
     } catch (e) {
-      showToast(`Failed to create variable: ${e}`, 'error');
+      errorToast('Failed to create variable', e);
     }
   }
 

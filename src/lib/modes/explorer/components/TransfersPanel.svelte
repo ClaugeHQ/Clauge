@@ -10,6 +10,7 @@
   import { explorerTransfers } from '$lib/modes/explorer/stores';
   import { cancelTransfer } from '$lib/modes/explorer/commands';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
 
   /** Pretty byte-size — matches FilesBrowser.formatSize but inlined here
    *  to keep this component self-contained. */
@@ -30,7 +31,7 @@
     try {
       await cancelTransfer(id);
     } catch (e: any) {
-      showToast(`Cancel failed: ${e}`, 'error');
+      errorToast('Cancel failed', e);
     }
   }
 

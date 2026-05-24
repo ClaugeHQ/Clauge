@@ -36,6 +36,7 @@
   import { currentUserActor, describeActor, formatAttribution } from '../attribution';
   import type { WorkspaceBoard, WorkspaceBoardCard } from '../types';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import CardEditorDrawer from './CardEditorDrawer.svelte';
@@ -270,7 +271,7 @@
       nameDraft = board.name;
       await loadBoardContents(id);
     } catch (e) {
-      showToast(`Failed to load board: ${e}`, 'error');
+      errorToast('Failed to load board', e);
     }
   }
 
@@ -285,7 +286,7 @@
       const myTab = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === `board:${current.id}`);
       if (myTab) updateTab(myTab.id, { label: trimmed });
     } catch (e) {
-      showToast(`Rename failed: ${e}`, 'error');
+      errorToast('Rename failed', e);
       nameDraft = current.name;
     }
   }
@@ -333,7 +334,7 @@
       );
       cardsByBoard.set(new Map(map).set(boardId, next));
     } catch (err) {
-      showToast(`Move failed: ${err}`, 'error');
+      errorToast('Move failed', err);
       await loadBoardContents(boardId);
     }
   }
@@ -352,7 +353,7 @@
       });
       await loadBoardContents(boardId);
     } catch (e) {
-      showToast(`Add card failed: ${e}`, 'error');
+      errorToast('Add card failed', e);
     }
   }
 
@@ -364,7 +365,7 @@
       await loadBoardContents(boardId);
       showToast('Approved', 'success');
     } catch (e) {
-      showToast(`Approve failed: ${e}`, 'error');
+      errorToast('Approve failed', e);
     }
   }
 
@@ -387,7 +388,7 @@
       await loadBoardContents(boardId);
       showToast(`Moved back to ${active.name}`, 'success');
     } catch (e) {
-      showToast(`Request changes failed: ${e}`, 'error');
+      errorToast('Request changes failed', e);
     }
   }
 
@@ -479,7 +480,7 @@
       await loadBoardContents(boardId);
       showToast(`Deleted "${target.title}"`, 'success');
     } catch (e) {
-      showToast(`Delete failed: ${e}`, 'error');
+      errorToast('Delete failed', e);
     }
   }
 

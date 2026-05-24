@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <!--
+    Atelier theme wallpaper. Rose-wine botanical line art on a 1200×800
+    canvas, scaled to cover any viewport via CSS background-size: cover.
+    Two stroke weights for depth (1.5 for accents, 2.5 for primary stems),
+    full opacity here so the visible strength is governed entirely by the
+    theme's surface alpha (set in src/lib/utils/theme.ts).
+  -->
+  <g fill="none" stroke="#9c2d4a" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- ─── Top-left cluster ─────────────────────────────────────── -->
+    <g stroke-width="2.5">
+      <path d="M 60 40 Q 110 100 95 170 Q 80 240 130 290"/>
+      <ellipse cx="100" cy="140" rx="20" ry="8" transform="rotate(25 100 140)"/>
+      <ellipse cx="85" cy="180" rx="17" ry="7" transform="rotate(55 85 180)"/>
+      <ellipse cx="120" cy="220" rx="14" ry="6" transform="rotate(85 120 220)"/>
+      <ellipse cx="130" cy="290" rx="18" ry="7" transform="rotate(110 130 290)"/>
+    </g>
+    <g stroke-width="1.5" opacity="0.7">
+      <path d="M 180 60 Q 220 100 200 160"/>
+      <ellipse cx="210" cy="120" rx="10" ry="4" transform="rotate(30 210 120)"/>
+      <circle cx="240" cy="80" r="3"/>
+      <circle cx="260" cy="130" r="2.5"/>
+    </g>
+
+    <!-- ─── Top-right cluster ────────────────────────────────────── -->
+    <g stroke-width="2.5">
+      <path d="M 1140 60 Q 1090 140 1110 220 Q 1130 300 1080 360"/>
+      <ellipse cx="1100" cy="180" rx="20" ry="8" transform="rotate(160 1100 180)"/>
+      <ellipse cx="1115" cy="240" rx="17" ry="7" transform="rotate(130 1115 240)"/>
+      <ellipse cx="1085" cy="300" rx="14" ry="6" transform="rotate(105 1085 300)"/>
+      <ellipse cx="1080" cy="360" rx="18" ry="7" transform="rotate(75 1080 360)"/>
+    </g>
+    <g stroke-width="1.5" opacity="0.7">
+      <path d="M 1020 80 Q 990 130 1010 180"/>
+      <ellipse cx="1000" cy="150" rx="10" ry="4" transform="rotate(-30 1000 150)"/>
+      <circle cx="960" cy="100" r="3"/>
+      <circle cx="940" cy="180" r="2.5"/>
+    </g>
+
+    <!-- ─── Mid-left flourish ────────────────────────────────────── -->
+    <g stroke-width="2">
+      <path d="M 80 440 Q 140 420 200 440 Q 260 460 320 430"/>
+      <ellipse cx="160" cy="430" rx="14" ry="6" transform="rotate(15 160 430)"/>
+      <ellipse cx="250" cy="450" rx="14" ry="6" transform="rotate(-20 250 450)"/>
+      <circle cx="120" cy="500" r="3"/>
+      <circle cx="200" cy="510" r="3"/>
+      <circle cx="280" cy="495" r="3"/>
+    </g>
+
+    <!-- ─── Mid-right flourish ───────────────────────────────────── -->
+    <g stroke-width="2">
+      <path d="M 1130 460 Q 1060 480 990 460 Q 920 440 860 470"/>
+      <ellipse cx="1050" cy="470" rx="14" ry="6" transform="rotate(-15 1050 470)"/>
+      <ellipse cx="950" cy="450" rx="14" ry="6" transform="rotate(20 950 450)"/>
+      <circle cx="1090" cy="520" r="3"/>
+      <circle cx="1010" cy="535" r="3"/>
+      <circle cx="920" cy="510" r="3"/>
+    </g>
+
+    <!-- ─── Center sprinkle (sparse — leaves breathing room) ─────── -->
+    <g stroke-width="1.5" opacity="0.6">
+      <circle cx="450" cy="200" r="2.5"/>
+      <circle cx="600" cy="160" r="2.5"/>
+      <circle cx="750" cy="220" r="2.5"/>
+      <circle cx="400" cy="380" r="2"/>
+      <circle cx="800" cy="380" r="2"/>
+      <circle cx="500" cy="500" r="2.5"/>
+      <circle cx="650" cy="540" r="2.5"/>
+      <circle cx="720" cy="450" r="2"/>
+      <ellipse cx="550" cy="280" rx="9" ry="4" transform="rotate(20 550 280)"/>
+      <ellipse cx="680" cy="360" rx="9" ry="4" transform="rotate(-15 680 360)"/>
+    </g>
+
+    <!-- ─── Bottom-left cluster ──────────────────────────────────── -->
+    <g stroke-width="2.5">
+      <path d="M 80 760 Q 150 700 200 640 Q 250 580 230 510"/>
+      <ellipse cx="230" cy="510" rx="20" ry="8" transform="rotate(75 230 510)"/>
+      <ellipse cx="210" cy="560" rx="17" ry="7" transform="rotate(95 210 560)"/>
+      <ellipse cx="180" cy="610" rx="14" ry="6" transform="rotate(115 180 610)"/>
+      <ellipse cx="140" cy="680" rx="18" ry="7" transform="rotate(140 140 680)"/>
+    </g>
+    <g stroke-width="1.5" opacity="0.7">
+      <path d="M 280 740 Q 320 700 310 650"/>
+      <ellipse cx="310" cy="680" rx="10" ry="4" transform="rotate(70 310 680)"/>
+      <circle cx="350" cy="730" r="3"/>
+      <circle cx="380" cy="690" r="2.5"/>
+    </g>
+
+    <!-- ─── Bottom-right cluster ─────────────────────────────────── -->
+    <g stroke-width="2.5">
+      <path d="M 1120 760 Q 1050 700 1000 640 Q 950 580 970 510"/>
+      <ellipse cx="970" cy="510" rx="20" ry="8" transform="rotate(105 970 510)"/>
+      <ellipse cx="990" cy="560" rx="17" ry="7" transform="rotate(85 990 560)"/>
+      <ellipse cx="1020" cy="610" rx="14" ry="6" transform="rotate(65 1020 610)"/>
+      <ellipse cx="1060" cy="680" rx="18" ry="7" transform="rotate(40 1060 680)"/>
+    </g>
+    <g stroke-width="1.5" opacity="0.7">
+      <path d="M 920 740 Q 880 700 890 650"/>
+      <ellipse cx="890" cy="680" rx="10" ry="4" transform="rotate(110 890 680)"/>
+      <circle cx="850" cy="730" r="3"/>
+      <circle cx="820" cy="690" r="2.5"/>
+    </g>
+  </g>
+</svg>

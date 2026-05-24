@@ -28,6 +28,7 @@
   import type { Workspace, WorkspaceNote, WorkspaceBoard } from '../types';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import InlineInput from '$lib/components/nav/InlineInput.svelte';
   import { tabs as sharedTabs, addTab, activateTab, updateTab, closeTab } from '$lib/shared/stores/tabs';
@@ -140,7 +141,7 @@
         openBoard(b);
       }
     } catch (e) {
-      showToast(`Failed to create ${kind}: ${e}`, 'error');
+      showToast(`Failed to create ${kind}: ${friendlyError(e)}`, 'error');
     }
   }
 
@@ -205,7 +206,7 @@
         color: workspace.color,
       });
     } catch (e) {
-      showToast(`Rename failed: ${e}`, 'error');
+      errorToast('Rename failed', e);
     }
   }
 
@@ -240,7 +241,7 @@
       await deleteWorkspace(workspace.id, hasWorktrees && deleteWorktrees);
       showToast(`Deleted "${workspace.name}"`, 'success');
     } catch (e) {
-      showToast(`Delete failed: ${e}`, 'error');
+      errorToast('Delete failed', e);
     }
   }
 
@@ -255,7 +256,7 @@
       if (t) closeTab(t.id);
       showToast(`Deleted "${label}"`, 'success');
     } catch (e) {
-      showToast(`Delete failed: ${e}`, 'error');
+      errorToast('Delete failed', e);
     }
   }
 

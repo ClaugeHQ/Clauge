@@ -7,6 +7,7 @@
   import { tabs as tabsStore, closeTab } from '$lib/shared/stores/tabs';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import NewSshProfileModal from './NewSshProfileModal.svelte';
   import EditSshProfileModal from './EditSshProfileModal.svelte';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
@@ -181,10 +182,10 @@
           next.set(tabKey, 'error');
           return next;
         });
-        showToast(`SFTP connection failed: ${err}`, 'error');
+        errorToast('SFTP connection failed', err);
       }
     } catch (e: any) {
-      showToast(`Open files failed: ${e}`, 'error');
+      errorToast('Open files failed', e);
     }
   }
 

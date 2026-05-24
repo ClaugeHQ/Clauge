@@ -16,6 +16,7 @@
   import { get } from 'svelte/store';
   import { posixDirname, posixJoin, pathSegments } from '$lib/modes/explorer/utils/path';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import Modal from '$lib/shared/primitives/Modal.svelte';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
@@ -152,7 +153,7 @@
           await fsMkdir(tabKey, posixJoin(cwd, name));
           await refresh();
         } catch (err: any) {
-          showToast(`mkdir failed: ${err}`, 'error');
+          errorToast('mkdir failed', err);
         }
       },
     });
@@ -170,7 +171,7 @@
       await refresh();
       showToast(`Deleted ${pendingDeletePaths.length} item(s)`, 'success');
     } catch (err: any) {
-      showToast(`Delete failed: ${err}`, 'error');
+      errorToast('Delete failed', err);
     }
     pendingDeletePaths = [];
   }
@@ -200,10 +201,10 @@
       if (typeof dest !== 'string' || !dest) return;
       const id = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`) as string;
       downloadFile(id, tabKey, e.path, dest).catch((err) =>
-        showToast(`Download failed: ${err}`, 'error'),
+        errorToast('Download failed', err),
       );
     } catch (err: any) {
-      showToast(`Download failed: ${err}`, 'error');
+      errorToast('Download failed', err);
     }
   }
 
@@ -267,7 +268,7 @@
       const dest = posixJoin(cwd, name);
       uploadFile(id, tabKey, p, dest)
         .then(() => refresh())
-        .catch((err) => showToast(`Upload failed: ${err}`, 'error'));
+        .catch((err) => errorToast('Upload failed', err));
     }
   }
 
@@ -283,7 +284,7 @@
           await fsRename(tabKey, e.path, posixJoin(posixDirname(e.path), next));
           await refresh();
         } catch (err: any) {
-          showToast(`Rename failed: ${err}`, 'error');
+          errorToast('Rename failed', err);
         }
       },
     });
@@ -355,7 +356,7 @@
             next.set(tabKey, 'error');
             return next;
           });
-          showToast(`Connection failed: ${err}`, 'error');
+          errorToast('Connection failed', err);
         });
     }
   });

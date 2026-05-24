@@ -229,6 +229,61 @@ pub async fn get_available_themes() -> Result<Vec<ThemeInfo>, String> {
             preview_bg: "#232136".to_string(),
             preview_accent: "#c4a7e7".to_string(),
         },
+        ThemeInfo {
+            id: "rose-pine-dawn".to_string(),
+            name: "Rose Pine Dawn".to_string(),
+            description: "Warm cream light — Rose Pine sister to Moon".to_string(),
+            preview_bg: "#faf4ed".to_string(),
+            preview_accent: "#907aa9".to_string(),
+        },
+        // Atelier — premium theme. `premium: true` lives in the JS registry
+        // (theme.ts), which the picker reads to render the lock + paywall.
+        // The pixel-critter parade is rendered by
+        // src/lib/components/effects/CatsParade.svelte and gated to the
+        // active appearance.theme — non-Pro previewers see the palette
+        // without the critters, which is the upgrade carrot. The botanical
+        // wallpaper lives on `body.fx-atelier` (see app.css).
+        ThemeInfo {
+            id: "atelier".to_string(),
+            name: "Atelier".to_string(),
+            description: "Blush + botanical wallpaper — pixel critters wander the footer".to_string(),
+            preview_bg: "#fdf2f5".to_string(),
+            preview_accent: "#b8395a".to_string(),
+        },
+        // Petal — premium theme. `premium: true` lives in the JS registry
+        // (theme.ts). Falling cherry-blossom petals (PetalFall.svelte) +
+        // plum-violet palette. Gated on appearance.theme so non-Pro
+        // previewers see the palette but no petals.
+        ThemeInfo {
+            id: "petal".to_string(),
+            name: "Petal".to_string(),
+            description: "Plum twilight with falling cherry petals".to_string(),
+            preview_bg: "#14091e".to_string(),
+            preview_accent: "#f4a5b8".to_string(),
+        },
+        // Celeste — premium theme. Cosmic violet-black with twinkling
+        // stars + occasional shooting stars (Starfield.svelte). Gated on
+        // appearance.theme so non-Pro previewers see the palette but no
+        // starfield.
+        ThemeInfo {
+            id: "celeste".to_string(),
+            name: "Celeste".to_string(),
+            description: "Cosmic violet-black with twinkling stars".to_string(),
+            preview_bg: "#0a0814".to_string(),
+            preview_accent: "#a8b8e8".to_string(),
+        },
+        // Hearth — premium theme. `premium: true` lives in the JS registry
+        // (theme.ts). The animated ember swarm is rendered by
+        // src/lib/components/effects/Embers.svelte and gated to the active
+        // appearance.theme — non-Pro previewers see the warm palette but
+        // no embers (the embers are the upgrade carrot).
+        ThemeInfo {
+            id: "hearth".to_string(),
+            name: "Hearth".to_string(),
+            description: "Warm charcoal with rising embers — animated firelight".to_string(),
+            preview_bg: "#14100c".to_string(),
+            preview_accent: "#ff8c42".to_string(),
+        },
         // `aurora-drift`, `carbon-grain`, and `crt-phosphor` are intentionally
         // not registered here — they don't appear in the picker. Their JS
         // theme entries, terminal palettes, preview swatches, and CSS rules

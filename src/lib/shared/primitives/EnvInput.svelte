@@ -5,6 +5,7 @@
   import { getEnvVariablesForResolution } from '$lib/modes/rest/commands';
   import { get } from 'svelte/store';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
 
   let { value = '', placeholder = '', type = 'text', onchange }: {
     value: string;
@@ -173,7 +174,7 @@
       selectItem(name);
       showToast(`Added {{${name}}} to environment`, 'success');
     } catch (e) {
-      showToast(`Failed to create variable: ${e}`, 'error');
+      errorToast('Failed to create variable', e);
     }
   }
 

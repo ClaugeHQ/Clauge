@@ -265,6 +265,95 @@ body.fx-aurora::before {
   body.fx-aurora::before { animation: none; }
 }
 
+/* Petal — premium theme. Plum-violet body so any uncovered viewport
+   spots match the theme. PetalFall.svelte renders the falling petals on
+   top (z-index 5). No body overlay glow — the petals carry the visual. */
+body.fx-petal {
+  background-color: #14091e;
+}
+
+/* Celeste — premium theme. Cosmic violet-black body. Starfield.svelte
+   renders the twinkling stars + shooting stars on top (z-index 5). A
+   subtle radial dim at the top makes the upper sky read as "deeper
+   space" without darkening the whole canvas — mix-blend-mode: multiply
+   selectively darkens lighter pixels only. */
+body.fx-celeste {
+  background-color: #0a0814;
+}
+body.fx-celeste::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 0%,
+    rgba(10, 6, 25, 0.55) 0%,
+    rgba(10, 6, 25, 0.15) 45%,
+    transparent 80%
+  );
+  mix-blend-mode: multiply;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.fx-celeste::after { opacity: 0.4; }
+}
+
+/* Hearth — premium theme. Warm-charcoal body with a subtle radial
+   firelight glow at the bottom-center via `body::after`. The implied
+   "fire" is what the rising embers from Embers.svelte drift up from.
+   `mix-blend-mode: screen` adds warm light over the dark chrome
+   without darkening anything. Embers themselves render at z-index 5
+   (Embers.svelte), so they're on top of the glow but below modals
+   (z 1000) and walking critters (the critters only run on Atelier
+   anyway, so no overlap in practice). */
+body.fx-hearth {
+  background-color: #14100c;
+}
+body.fx-hearth::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(
+    ellipse 70% 35% at 50% 100%,
+    rgba(255, 140, 66, 0.18) 0%,
+    rgba(255, 140, 66, 0.08) 35%,
+    transparent 75%
+  );
+  mix-blend-mode: screen;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.fx-hearth::after { opacity: 0.5; }
+}
+
+/* Atelier — premium theme. Blush body background + a fixed wallpaper
+   overlay painted on top of the app surfaces via `body::after`. We use
+   `mix-blend-mode: multiply` so the rose-wine line art DARKENS the pink
+   surfaces underneath wherever the SVG has lines, making the pattern
+   visibly tint the whole window without relying on surface translucency.
+   z-index 5 sits above the app shell (z-auto) but below the walking-
+   critters in CatsParade.svelte (z: var(--z-sticky, 50)) and above-app
+   overlays like modals (z: 1000), so the wallpaper tints the chrome
+   without overlaying dialog text or the critters.
+   `pointer-events: none` lets every click pass through. */
+body.fx-atelier {
+  background-color: #fdf2f5;
+}
+body.fx-atelier::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: url("/atelier-wallpaper.svg") center / cover no-repeat;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.fx-atelier::after { display: none; }
+}
+
 /* Carbon Grain — static SVG turbulence noise on `body::after`. The data-URI
    is an inline SVG with feTurbulence; renders once per repaint, no animation.
    `feTurbulence` emits grayscale noise (light peaks, dark valleys) which is

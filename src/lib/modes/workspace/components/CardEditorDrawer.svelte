@@ -57,6 +57,7 @@
   } from '../stores';
   import type { Workspace, WorkspaceBoardCard, WorkspaceCardComment, WorkspaceCoworker } from '../types';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import Modal from '$lib/shared/primitives/Modal.svelte';
   import GhNotInstalledModal from './GhNotInstalledModal.svelte';
@@ -414,7 +415,7 @@
         actor: currentUserActor(),
       });
       onsave?.();
-    } catch (e) { showToast(`Save failed: ${e}`, 'error'); }
+    } catch (e) { errorToast('Save failed', e); }
   }
   function onPriorityChange() { if (card) persistCard(); }
   function onTagsChange()     { if (card) persistCard(); }
@@ -474,7 +475,7 @@
           comments = comments.filter((c) => c.id !== optimisticId);
           chatDraft = body;
         }
-        showToast(`Comment failed: ${e}`, 'error');
+        errorToast('Comment failed', e);
       } finally {
         if (card) {
           chatting = false;
@@ -532,7 +533,7 @@
         comments = comments.filter((c) => c.id !== optimisticId && c.id !== thinkingId);
         chatDraft = body;
       }
-      showToast(`${e}`, 'error');
+      errorToast('Send message', e);
     } finally {
       // Critical: use the snapshotted cardId, not card.id — `card`
       // may be null by now if the user closed the drawer. If the
@@ -589,7 +590,7 @@
       showToast('Work-stream released', 'success');
       claim = await workspaceCardGetClaim(card.id);
       releaseDeleteWorktree = false;
-    } catch (e) { showToast(`Release failed: ${e}`, 'error'); }
+    } catch (e) { errorToast('Release failed', e); }
   }
 
   let showGhNotInstalled = $state(false);

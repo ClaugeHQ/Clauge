@@ -18,6 +18,7 @@
   import { loadCoworkers } from '../stores';
   import type { WorkspaceCoworker } from '../types';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import CoworkerAvatar from './CoworkerAvatar.svelte';
   import { cloudPlan, upgradeModalOpen } from '$lib/stores/cloud';
 
@@ -143,7 +144,7 @@
       onsaved?.(cw);
       show = false;
     } catch (e) {
-      showToast(`Save failed: ${e}`, 'error');
+      errorToast('Save failed', e);
     } finally {
       saving = false;
     }
@@ -157,7 +158,7 @@
       await loadCoworkers();
       show = false;
     } catch (e) {
-      showToast(`Delete failed: ${e}`, 'error');
+      errorToast('Delete failed', e);
     } finally {
       saving = false;
       confirmingDelete = false;

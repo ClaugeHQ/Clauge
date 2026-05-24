@@ -1,6 +1,7 @@
 <script lang="ts">
   import Modal from '$lib/shared/primitives/Modal.svelte';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { createWorkspace, updateWorkspace } from '../stores';
   import { agentSessions } from '$lib/modes/agent/stores';
@@ -63,7 +64,7 @@
         }
       }
     } catch (e) {
-      showToast(`Folder pick failed: ${e}`, 'error');
+      errorToast('Folder pick failed', e);
     }
   }
 
@@ -82,7 +83,7 @@
       show = false;
       onclose?.();
     } catch (e) {
-      showToast(`Failed: ${e}`, 'error');
+      errorToast('Failed', e);
     } finally {
       loading = false;
     }

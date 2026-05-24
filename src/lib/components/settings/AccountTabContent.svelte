@@ -57,6 +57,27 @@
     let confirmingWipe = $state(false);
     let confirmingDelete = $state(false);
     let deleteSlugInput = $state("");
+    // In-flight flags so the danger buttons disable + show "…ing" copy
+    // and a fat-finger double-click can't fire the action twice.
+    let wiping = $state(false);
+    let deleting = $state(false);
+    // Live slug-match indicator — drives the validation hint and the
+    // submit-button disabled state. `null` (cloudUser missing) is treated
+    // as "no match" so the button stays disabled in the edge case.
+    let slugExpected = $derived($cloudUser?.slug ?? "");
+    let slugMatches = $derived(
+        deleteSlugInput.trim().length > 0 &&
+            deleteSlugInput.trim() === slugExpected,
+    );
+    // Pro recurring users need the extra "your subscription will be cancelled"
+    // callout. Lifetime users don't (no recurring charge); free users don't
+    // (no subscription at all). Drives the yellow warning block in delete confirm.
+    let isProRecurring = $derived(
+        $cloudPlan === "pro" &&
+            !!$cloudSub &&
+            !$cloudSub.isLifetime &&
+            ($cloudSub.interval === "monthly" || $cloudSub.interval === "yearly"),
+    );
 
     let menuOpen = $state(false);
     let menuAnchor: HTMLElement | null = $state(null);
@@ -316,30 +337,53 @@
     }
 
     async function wipeRemote() {
+        if (wiping) return; // guard against double-click
+        wiping = true;
         try {
             await cloudWipeRemote();
-            setDisconnected();
+            // Backend no longer logs the user out on wipe (intentional —
+            // matches the "your account stays" UI promise). We refresh the
+            // status so the `lastSyncedByKind` row in the UI clears to
+            // reflect the empty cloud state.
+            await refreshStatus();
             showToast("Cloud data wiped — local data intact", "success");
             confirmingWipe = false;
         } catch (e) {
             showToast(friendlyError(e), "error");
+        } finally {
+            wiping = false;
         }
     }
 
     async function deleteAccount() {
-        const expected = $cloudUser?.slug ?? "";
-        if (deleteSlugInput.trim() !== expected) {
+        if (deleting) return; // guard against double-click
+        if (!slugMatches) {
             showToast("Type your handle exactly to confirm", "error");
             return;
         }
+        // Snapshot BEFORE the async block — `setDisconnected()` clears
+        // `$cloudUser` and `$cloudSub`, which the derived `isProRecurring`
+        // reads from. Without this snapshot, a Pro user would get the
+        // wrong success copy ("local data intact" instead of
+        // "subscription cancelled") because the derived value reads
+        // post-disconnect state.
+        const wasProRecurring = isProRecurring;
+        deleting = true;
         try {
             await cloudDeleteAccount(deleteSlugInput.trim());
             setDisconnected();
-            showToast("Account deleted — local data intact", "success");
+            showToast(
+                wasProRecurring
+                    ? "Account deleted and subscription cancelled"
+                    : "Account deleted — local data intact",
+                "success",
+            );
             confirmingDelete = false;
             deleteSlugInput = "";
         } catch (e) {
             showToast(friendlyError(e), "error");
+        } finally {
+            deleting = false;
         }
     }
 
@@ -1166,37 +1210,122 @@
                     </div>
                 {/if}
                 {#if confirmingWipe}
-                    <div class="acc-confirm">
+                    <div
+                        class="acc-confirm"
+                        role="alertdialog"
+                        aria-label="Confirm wipe cloud data"
+                        onkeydown={(e) => {
+                            if (e.key === "Escape" && !wiping) {
+                                confirmingWipe = false;
+                            }
+                        }}
+                    >
                         <p>
                             This deletes synced data from our servers. Your
-                            local data stays. Confirm?
+                            local data stays — your account stays. You can
+                            re-push anytime.
                         </p>
                         <div class="acc-confirm-row">
                             <button
                                 class="acc-btn acc-btn-ghost"
+                                disabled={wiping}
                                 onclick={() => (confirmingWipe = false)}
                                 >Cancel</button
                             >
-                            <button class="acc-danger-btn" onclick={wipeRemote}
-                                >Yes, wipe cloud data</button
+                            <button
+                                class="acc-danger-btn"
+                                disabled={wiping}
+                                onclick={wipeRemote}
+                                >{wiping
+                                    ? "Wiping…"
+                                    : "Yes, wipe cloud data"}</button
                             >
                         </div>
                     </div>
                 {/if}
                 {#if confirmingDelete}
-                    <div class="acc-confirm">
+                    <div
+                        class="acc-confirm"
+                        role="alertdialog"
+                        aria-label="Confirm delete account"
+                        onkeydown={(e) => {
+                            if (e.key === "Escape" && !deleting) {
+                                confirmingDelete = false;
+                                deleteSlugInput = "";
+                            } else if (
+                                e.key === "Enter" &&
+                                slugMatches &&
+                                !deleting
+                            ) {
+                                deleteAccount();
+                            }
+                        }}
+                    >
+                        {#if isProRecurring}
+                            <div class="acc-confirm-warn" role="alert">
+                                <strong>⚠ Active subscription</strong>
+                                <p>
+                                    Deleting your account will also cancel
+                                    your Clauge Pro
+                                    {$cloudSub?.interval}
+                                    subscription{$cloudSub?.currentPeriodEnd
+                                        ? ` (next renewal: ${new Date($cloudSub.currentPeriodEnd).toLocaleDateString()})`
+                                        : ""}.
+                                    You will not be charged again. Access ends
+                                    immediately. This cannot be undone.
+                                </p>
+                            </div>
+                        {/if}
                         <p>
-                            This permanently removes your Clauge account. Type
-                            your handle <code>{$cloudUser.slug}</code> to confirm:
+                            This permanently removes:
+                        </p>
+                        <ul class="acc-confirm-bullets">
+                            <li>
+                                Your Clauge account and handle
+                                <code>@{slugExpected}</code>
+                            </li>
+                            <li>All linked sign-in providers</li>
+                            <li>All synced cloud data</li>
+                            {#if isProRecurring}
+                                <li>
+                                    Your active Pro subscription (cancelled at
+                                    Polar)
+                                </li>
+                            {/if}
+                        </ul>
+                        <p>
+                            Type your handle <code>{slugExpected}</code>
+                            to confirm:
                         </p>
                         <input
                             class="acc-confirm-input"
                             bind:value={deleteSlugInput}
-                            placeholder={$cloudUser.slug}
+                            placeholder="Type your handle exactly"
+                            aria-label="Type your handle to confirm deletion"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            disabled={deleting}
+                            {@attach (node) => {
+                                // Autofocus when the confirm panel opens so the
+                                // user can start typing immediately.
+                                node.focus();
+                            }}
                         />
+                        {#if deleteSlugInput.trim().length > 0}
+                            <p
+                                class="acc-confirm-hint"
+                                class:acc-confirm-hint-ok={slugMatches}
+                            >
+                                {slugMatches
+                                    ? "✓ Handle matches"
+                                    : "Doesn't match — keep typing"}
+                            </p>
+                        {/if}
                         <div class="acc-confirm-row">
                             <button
                                 class="acc-btn acc-btn-ghost"
+                                disabled={deleting}
                                 onclick={() => {
                                     confirmingDelete = false;
                                     deleteSlugInput = "";
@@ -1205,8 +1334,10 @@
                             <button
                                 class="acc-danger-btn acc-danger-strong"
                                 onclick={deleteAccount}
-                                disabled={deleteSlugInput.trim() !==
-                                    $cloudUser.slug}>Delete account</button
+                                disabled={!slugMatches || deleting}
+                                >{deleting
+                                    ? "Deleting…"
+                                    : "Delete account"}</button
                             >
                         </div>
                     </div>
@@ -2064,6 +2195,55 @@
         display: flex;
         gap: 8px;
         justify-content: flex-end;
+    }
+    /* Yellow warning block shown to Pro recurring users in the delete-
+       account confirm panel — tells them the subscription is part of
+       what gets cancelled. Doesn't apply to free or lifetime users. */
+    .acc-confirm-warn {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: 1px solid rgba(245, 166, 35, 0.45);
+        background: rgba(245, 166, 35, 0.08);
+        color: var(--t1);
+        font-size: 12.5px;
+        line-height: 1.5;
+    }
+    .acc-confirm-warn strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--warn);
+    }
+    .acc-confirm-warn p {
+        margin: 0;
+        color: var(--t2);
+    }
+    /* "Here's exactly what gets deleted" bullet list, replaces the old
+       prose-only description so the user can scan it. */
+    .acc-confirm-bullets {
+        margin: 0 0 12px;
+        padding: 0 0 0 18px;
+        color: var(--t2);
+        font-size: 12.5px;
+        line-height: 1.7;
+    }
+    .acc-confirm-bullets code {
+        font-family: var(--mono, ui-monospace);
+        color: var(--t1);
+        background: rgba(0, 0, 0, 0.25);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+    /* Live validation hint under the slug input. Red until match, green
+       when match. Hidden while the input is empty so the user isn't
+       scolded before they've typed anything. */
+    .acc-confirm-hint {
+        margin: -4px 0 10px;
+        font-size: 12px;
+        color: var(--err);
+    }
+    .acc-confirm-hint-ok {
+        color: var(--ok);
     }
 
     /* Spinners */

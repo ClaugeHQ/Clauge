@@ -9,6 +9,7 @@
 
   import Modal from '$lib/shared/primitives/Modal.svelte';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast } from '$lib/utils/errors';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { workspaceBoardSetProject } from '../commands';
 
@@ -50,7 +51,7 @@
         projectPath = selected;
       }
     } catch (e) {
-      showToast(`Folder pick failed: ${e}`, 'error');
+      errorToast('Folder pick failed', e);
     }
   }
 
@@ -64,7 +65,7 @@
       show = false;
       onclose?.();
     } catch (e) {
-      showToast(`Save failed: ${e}`, 'error');
+      errorToast('Save failed', e);
     } finally {
       saving = false;
     }
@@ -80,7 +81,7 @@
       show = false;
       onclose?.();
     } catch (e) {
-      showToast(`Clear failed: ${e}`, 'error');
+      errorToast('Clear failed', e);
     } finally {
       saving = false;
     }

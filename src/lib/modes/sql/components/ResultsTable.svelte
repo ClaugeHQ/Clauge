@@ -7,7 +7,7 @@
   import { showToast } from '$lib/shared/primitives/toast';
   import { setSqlPending, sqlRowLimit } from '../stores';
   import { sqlExecuteQuery } from '../commands';
-  import { friendlyError } from '$lib/utils/errors';
+  import { friendlyError, errorToast } from '$lib/utils/errors';
   import { APP_EVENT } from '$lib/shared/constants/events';
   import Modal from '$lib/shared/primitives/Modal.svelte';
 
@@ -375,7 +375,7 @@
         successCount++;
       } catch (e: any) {
         errorCount++;
-        showToast(`Failed: ${e}`, 'error');
+        errorToast('Failed', e);
       }
     }
 

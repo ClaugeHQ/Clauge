@@ -9,6 +9,7 @@
   import { describeActor, formatAttribution, currentUserActor } from '../attribution';
   import type { WorkspaceNote } from '../types';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { agentSessions, activeAgentSession } from '$lib/modes/agent/stores';
   import { mode } from '$lib/stores/app';
   import { activateTabAcrossMode } from '$lib/utils/tabActivation';
@@ -73,7 +74,7 @@
         }
       }
     } catch (e) {
-      showToast(`Failed to load note: ${e}`, 'error');
+      errorToast('Failed to load note', e);
     }
   }
 
@@ -123,7 +124,7 @@
         updateTab(myTab.id, { label: refreshed.title || 'Untitled' });
       }
     } catch (e) {
-      showToast(`Save failed: ${e}`, 'error');
+      errorToast('Save failed', e);
     } finally {
       saving = false;
     }
@@ -237,7 +238,7 @@ ${body}
       await workspaceNoteExportToFile(dest, content);
       showToast(`Exported to ${dest}`, 'success');
     } catch (e: any) {
-      showToast(`Export failed: ${e?.message ?? e}`, 'error');
+      errorToast('Export failed', e);
     }
   }
 </script>

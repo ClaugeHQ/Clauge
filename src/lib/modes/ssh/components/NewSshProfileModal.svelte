@@ -3,6 +3,7 @@
   import { sshCreateProfile, sshReadConfigHosts, sshImportConfigHosts } from '../commands';
   import { loadSshProfiles, sshProfiles } from '../stores';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import type { SshAuthType, SshProfile, SshConfigHost } from '../types';
   import { get } from 'svelte/store';
   import { SSH_EVENT } from '$lib/shared/constants/events';
@@ -231,7 +232,7 @@
       showToast(`Imported ${count} ${count === 1 ? 'host' : 'hosts'}`, 'success');
       show = false;
     } catch (e: any) {
-      showToast(`Import failed: ${e}`, 'error');
+      errorToast('Import failed', e);
     } finally {
       importing = false;
     }

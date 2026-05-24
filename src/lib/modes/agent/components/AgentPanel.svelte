@@ -48,6 +48,7 @@
   import GeminiNotInstalledModal from './GeminiNotInstalledModal.svelte';
   import OpenCodeNotInstalledModal from './OpenCodeNotInstalledModal.svelte';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { refreshAgentGitStatus, refreshAgentContextUsage, loadAgentSessions, agentGitBranchName, agentGitFiles, agentGitAhead, agentGitBehind } from '../stores';
   import { getTerminalTheme } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
@@ -1493,7 +1494,7 @@
       try {
         await agentRemoveWorktree(session.projectPath, session.worktreePath);
       } catch (e) {
-        showToast(`Worktree cleanup failed: ${e}. The directory may remain at ${session.worktreePath}.`, 'error');
+        showToast(`Worktree cleanup failed: ${friendlyError(e)}. The directory may remain at ${session.worktreePath}.`, 'error');
       }
     }
 
@@ -1502,7 +1503,7 @@
     try {
       await agentDeleteSession(session.id);
     } catch (e) {
-      showToast(`Failed to delete session: ${e}`, 'error');
+      errorToast('Failed to delete session', e);
       return;
     }
 

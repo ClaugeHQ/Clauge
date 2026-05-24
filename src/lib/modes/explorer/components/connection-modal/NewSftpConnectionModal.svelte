@@ -4,6 +4,7 @@
   import { createConnection, updateConnection, setSecret, getSecret } from '$lib/modes/explorer/commands';
   import { loadExplorerConnections } from '$lib/modes/explorer/stores';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import type { ExplorerConnection } from '$lib/modes/explorer/types';
 
@@ -158,7 +159,7 @@
       show = false;
       onclose?.();
     } catch (e: any) {
-      showToast(`Save failed: ${e}`, 'error');
+      errorToast('Save failed', e);
     } finally {
       saving = false;
     }

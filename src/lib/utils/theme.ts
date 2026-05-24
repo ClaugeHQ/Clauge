@@ -209,6 +209,180 @@ const themes: Record<string, Theme> = {
     tokens: { str: '#f6c177', num: '#ea9a97', key: '#9ccfd8', boo: '#ea9a97' },
     glass: false,
   },
+  // Rose Pine Dawn — official light sister of Rose Pine Moon. Warm cream
+  // base instead of harsh #ffffff. Palette is straight from the upstream
+  // Rose Pine spec (base/surface/overlay/text/subtle/muted + accent roles
+  // pine/foam/iris/rose/love/gold) and matches its VSCode/Helix/Neovim
+  // ports so anything that uses the Rose Pine convention reads correctly.
+  // The surfaceCard/Hover use rgba(0,0,0,…) rather than rgba(255,255,255,…)
+  // because the dark-theme "lighten" wash needs to invert to "darken" on
+  // a light base — the alpha contract still holds (legible at any depth).
+  'rose-pine-dawn': {
+    id: 'rose-pine-dawn',
+    name: 'Rose Pine Dawn',
+    description: 'Warm cream light — Rose Pine sister to Moon',
+    sidebar: '#fffaf3',
+    nav: '#faf4ed',
+    navHeader: '#f2e9e1',
+    content: '#faf4ed',
+    editor: '#fffaf3',
+    border: '#dfdad9',
+    borderHover: '#cecacd',
+    borderSubtle: '#f4ede8',
+    textPrimary: '#575279',
+    textSecondary: '#6e6a86',
+    textMuted: '#797593',
+    textFaint: '#9893a5',
+    modalBg: '#fffaf3',
+    surfaceCard: 'rgba(0,0,0,0.025)',
+    surfaceHover: 'rgba(0,0,0,0.05)',
+    ok: '#286983',
+    warn: '#ea9d34',
+    err: '#b4637a',
+    tokens: { str: '#286983', num: '#d7827e', key: '#907aa9', boo: '#56949f' },
+    glass: false,
+    accent: '#907aa9',
+  },
+  // Atelier — premium theme. Soft blush-pink surfaces (NOT another dark
+  // theme) with deep wine-ink text and a rose accent. A botanical SVG
+  // wallpaper is painted ON TOP of the chrome via `body.fx-atelier::after`
+  // with `mix-blend-mode: multiply` (see app.css), so the rose-wine line
+  // art tints the whole window visibly — boudoir / Parisian-salon vibe.
+  // Surfaces are FULLY OPAQUE here because visibility comes from the
+  // overlay blend, not surface transmission. The walking critters in
+  // CatsParade.svelte stay above the overlay (z-index 50 > overlay 5)
+  // so they're not tinted; their warm tones harmonize with the rose accent.
+  'atelier': {
+    id: 'atelier',
+    name: 'Atelier',
+    description: 'Blush + botanical wallpaper — pixel critters wander the footer',
+    sidebar: '#fbe8eb',
+    nav: '#f9e0e5',
+    navHeader: '#f3d4dc',
+    content: '#fdf2f5',
+    editor: '#fbe8eb',
+    border: '#e6c4cd',
+    borderHover: '#d9aab6',
+    borderSubtle: '#f0d8de',
+    textPrimary: '#4a1f2c',
+    textSecondary: '#6e3a48',
+    textMuted: '#9c6b78',
+    textFaint: '#c49aa6',
+    modalBg: '#fbe8eb',
+    surfaceCard: 'rgba(74,31,44,0.03)',
+    surfaceHover: 'rgba(74,31,44,0.06)',
+    ok: '#5a8a6b',
+    warn: '#c87a3f',
+    err: '#b8395a',
+    tokens: { str: '#5a8a6b', num: '#b8395a', key: '#7a4b8a', boo: '#c87a3f' },
+    glass: false,
+    accent: '#b8395a',
+    effectClass: 'fx-atelier',
+    premium: true,
+  },
+  // Petal — premium theme. Deep plum-violet surfaces with cherry-pink
+  // accent. Animation: cherry blossom petals (PetalFall.svelte) drift
+  // diagonally across the viewport while spinning — falling motion + spin
+  // is mechanically different from Hearth's rising particles or Aurora
+  // Drift's gradient swirl. Japanese garden at twilight aesthetic.
+  'petal': {
+    id: 'petal',
+    name: 'Petal',
+    description: 'Plum twilight with falling cherry petals',
+    sidebar: '#221730',
+    nav: '#1a0f28',
+    navHeader: '#2c1d3d',
+    content: '#14091e',
+    editor: '#1a1126',
+    border: '#3d2a4d',
+    borderHover: '#523a66',
+    borderSubtle: '#20152e',
+    textPrimary: '#f4dde6',
+    textSecondary: '#d8b8c8',
+    textMuted: '#9a7d96',
+    textFaint: '#5a4660',
+    modalBg: '#221730',
+    surfaceCard: 'rgba(244,221,230,0.04)',
+    surfaceHover: 'rgba(244,221,230,0.07)',
+    ok: '#98d4a8',
+    warn: '#e8a875',
+    err: '#e87592',
+    tokens: { str: '#98d4a8', num: '#e8a875', key: '#b8a8e0', boo: '#e87592' },
+    glass: false,
+    accent: '#f4a5b8',
+    effectClass: 'fx-petal',
+    premium: true,
+  },
+
+  // Celeste — premium theme. Deep cosmic violet-black with silver
+  // accent. Animation: 70 twinkling pinpoint stars (Starfield.svelte) at
+  // independent pulse rates, plus 2 rare shooting stars streaking across
+  // the viewport. Stationary pulse + rare burst — mechanically different
+  // from every other theme's continuous motion. Night observatory feel.
+  'celeste': {
+    id: 'celeste',
+    name: 'Celeste',
+    description: 'Cosmic violet-black with twinkling stars',
+    sidebar: '#0d0a1a',
+    nav: '#08061a',
+    navHeader: '#13102a',
+    content: '#0a0814',
+    editor: '#0d0a1a',
+    border: '#25204a',
+    borderHover: '#3a3565',
+    borderSubtle: '#131028',
+    textPrimary: '#e0d8f0',
+    textSecondary: '#b8b0d0',
+    textMuted: '#7a7595',
+    textFaint: '#45405d',
+    modalBg: '#0d0a1a',
+    surfaceCard: 'rgba(224,216,240,0.04)',
+    surfaceHover: 'rgba(224,216,240,0.07)',
+    ok: '#a8d8c0',
+    warn: '#d8b88c',
+    err: '#d88c9c',
+    tokens: { str: '#a8d8c0', num: '#d8b88c', key: '#a8b8e8', boo: '#d8a0e0' },
+    glass: false,
+    accent: '#a8b8e8',
+    effectClass: 'fx-celeste',
+    premium: true,
+  },
+
+  // Hearth — premium theme. Deep warm charcoal with amber accent, and
+  // an animated swarm of rising embers (rendered by Embers.svelte, gated
+  // to the active appearance.theme). A subtle bottom-radial firelight
+  // glow on body.fx-hearth (see app.css) anchors the embers as if they
+  // were drifting up from a hidden fire. Different KIND of animation
+  // from Aurora Drift (particle motion vs gradient drift) so the two
+  // premium themes feel distinct.
+  'hearth': {
+    id: 'hearth',
+    name: 'Hearth',
+    description: 'Warm charcoal with rising embers — animated firelight',
+    sidebar: '#1c1812',
+    nav: '#18140f',
+    navHeader: '#25201a',
+    content: '#14100c',
+    editor: '#1a1612',
+    border: '#3a3024',
+    borderHover: '#4d4030',
+    borderSubtle: '#20180f',
+    textPrimary: '#f5d8b8',
+    textSecondary: '#d9b888',
+    textMuted: '#a08850',
+    textFaint: '#5a4830',
+    modalBg: '#1c1812',
+    surfaceCard: 'rgba(245,216,184,0.04)',
+    surfaceHover: 'rgba(245,216,184,0.07)',
+    ok: '#b8c878',
+    warn: '#ff8c42',
+    err: '#d97462',
+    tokens: { str: '#b8c878', num: '#ff8c42', key: '#88c4d4', boo: '#c4906a' },
+    glass: false,
+    accent: '#ff8c42',
+    effectClass: 'fx-hearth',
+    premium: true,
+  },
   'carbon-grain': {
     id: 'carbon-grain',
     name: 'Carbon Grain',
@@ -431,6 +605,65 @@ export const TERMINAL_THEMES: Record<string, Record<string, string>> = {
     blue: '#9ccfd8', magenta: '#c4a7e7', cyan: '#ea9a97', white: '#e0def4',
     brightBlack: '#6e6a86', brightRed: '#eb6f92', brightGreen: '#3e8fb0', brightYellow: '#f6c177',
     brightBlue: '#9ccfd8', brightMagenta: '#c4a7e7', brightCyan: '#ea9a97', brightWhite: '#e0def4',
+  },
+  // Rose Pine Dawn — per the official xterm spec. Same green=pine,
+  // cyan=rose warm-cyan convention as Moon (intentional Rose Pine quirk).
+  // `black` is overlay (the soft cream) so dim ANSI black reads as a low-
+  // contrast neutral on the cream base instead of disappearing.
+  'rose-pine-dawn': {
+    background: '#faf4ed',
+    foreground: '#575279',
+    cursor: '#575279',
+    cursorAccent: '#faf4ed',
+    selectionBackground: 'rgba(110,106,134,0.3)',
+    black: '#f2e9e1', red: '#b4637a', green: '#286983', yellow: '#ea9d34',
+    blue: '#56949f', magenta: '#907aa9', cyan: '#d7827e', white: '#575279',
+    brightBlack: '#9893a5', brightRed: '#b4637a', brightGreen: '#286983', brightYellow: '#ea9d34',
+    brightBlue: '#56949f', brightMagenta: '#907aa9', brightCyan: '#d7827e', brightWhite: '#575279',
+  },
+  'atelier': {
+    background: '#fdf2f5',
+    foreground: '#4a1f2c',
+    cursor: '#b8395a',
+    cursorAccent: '#fdf2f5',
+    selectionBackground: 'rgba(184,57,90,0.18)',
+    black: '#e6c4cd', red: '#b8395a', green: '#5a8a6b', yellow: '#c87a3f',
+    blue: '#5a7a9c', magenta: '#7a4b8a', cyan: '#5a9c9c', white: '#4a1f2c',
+    brightBlack: '#c49aa6', brightRed: '#a32d4d', brightGreen: '#4a7a5b', brightYellow: '#b56934',
+    brightBlue: '#4a6a8c', brightMagenta: '#6a3b7a', brightCyan: '#4a8a8a', brightWhite: '#2a0f17',
+  },
+  'petal': {
+    background: '#14091e',
+    foreground: '#f4dde6',
+    cursor: '#f4a5b8',
+    cursorAccent: '#14091e',
+    selectionBackground: 'rgba(244,165,184,0.22)',
+    black: '#3d2a4d', red: '#e87592', green: '#98d4a8', yellow: '#e8a875',
+    blue: '#b8a8e0', magenta: '#d68ad0', cyan: '#a0c4d4', white: '#f4dde6',
+    brightBlack: '#5a4660', brightRed: '#f0a0b5', brightGreen: '#b0e0bc', brightYellow: '#f0c094',
+    brightBlue: '#cbc0e8', brightMagenta: '#e0a4dc', brightCyan: '#b8d0dc', brightWhite: '#ffffff',
+  },
+  'celeste': {
+    background: '#0a0814',
+    foreground: '#e0d8f0',
+    cursor: '#a8b8e8',
+    cursorAccent: '#0a0814',
+    selectionBackground: 'rgba(168,184,232,0.22)',
+    black: '#25204a', red: '#d88c9c', green: '#a8d8c0', yellow: '#d8b88c',
+    blue: '#a8b8e8', magenta: '#d8a0e0', cyan: '#a0c4d8', white: '#e0d8f0',
+    brightBlack: '#45405d', brightRed: '#e0a4b0', brightGreen: '#bce0cc', brightYellow: '#e4c8a4',
+    brightBlue: '#bccaf0', brightMagenta: '#e4b4ec', brightCyan: '#b4d0e0', brightWhite: '#ffffff',
+  },
+  'hearth': {
+    background: '#14100c',
+    foreground: '#f5d8b8',
+    cursor: '#ff8c42',
+    cursorAccent: '#14100c',
+    selectionBackground: 'rgba(255,140,66,0.22)',
+    black: '#3a3024', red: '#d97462', green: '#b8c878', yellow: '#ff8c42',
+    blue: '#88c4d4', magenta: '#c4906a', cyan: '#a0c4c4', white: '#f5d8b8',
+    brightBlack: '#5a4830', brightRed: '#e89380', brightGreen: '#c8d489', brightYellow: '#ffaa6a',
+    brightBlue: '#a4d4e0', brightMagenta: '#d6a585', brightCyan: '#b8d4d4', brightWhite: '#ffffff',
   },
   'carbon-grain': {
     background: '#0c0c0e',

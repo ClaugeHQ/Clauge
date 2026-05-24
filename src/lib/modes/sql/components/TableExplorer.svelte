@@ -3,6 +3,7 @@
   import { sqlListTables, sqlDescribeTable, sqlListDatabases } from '../commands';
   import { activeConnection, connectedIds, getLiveId } from '../stores';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { errorToast, friendlyError } from '$lib/utils/errors';
 
   interface Props {
     oninsertquery?: (query: string) => void;
@@ -61,7 +62,7 @@
     try {
       tables = await sqlListTables(parts.connId, selectedDatabase || parts.db);
     } catch (err: any) {
-      showToast('Failed to load tables: ' + err.toString(), 'error');
+      errorToast('Failed to load tables', err);
       tables = [];
     } finally {
       loadingTables = false;
@@ -81,7 +82,7 @@
         const cols = await sqlDescribeTable(parts.connId, selectedDatabase || parts.db, tableName);
         tableColumns = { ...tableColumns, [tableName]: cols };
       } catch (err: any) {
-        showToast('Failed to describe table: ' + err.toString(), 'error');
+        errorToast('Failed to describe table', err);
       } finally {
         loadingColumns = null;
       }

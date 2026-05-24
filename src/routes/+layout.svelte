@@ -10,6 +10,10 @@
     import NavPanel from "$lib/components/nav/NavPanel.svelte";
     import Topbar from "$lib/components/topbar/Topbar.svelte";
     import StatusBar from "$lib/components/statusbar/StatusBar.svelte";
+    import CatsParade from "$lib/components/effects/CatsParade.svelte";
+    import Embers from "$lib/components/effects/Embers.svelte";
+    import PetalFall from "$lib/components/effects/PetalFall.svelte";
+    import Starfield from "$lib/components/effects/Starfield.svelte";
     import Toast from "$lib/shared/primitives/Toast.svelte";
     import ContextMenu from "$lib/shared/primitives/ContextMenu.svelte";
     import EnvManagerModal from "$lib/components/env/EnvManagerModal.svelte";
@@ -130,6 +134,7 @@
         activeTabId,
         activateTab,
         openSettingsTab,
+        closeTab,
     } from "$lib/shared/stores/tabs";
     import type { AgentSession } from "$lib/modes/agent/types";
     import {
@@ -714,6 +719,20 @@
             (e) => proState.set(e.payload.state),
         );
 
+        // Account-deleted: Rust emits this after a successful DELETE
+        // /api/auth/me + cleanup. We close any open Settings tab so the
+        // user lands back on whatever they were doing before, in the
+        // signed-out state (cloudConnected = false, set by setDisconnected
+        // in AccountTabContent's deleteAccount success path). Local data
+        // is intentionally preserved — they can re-sign-in with any
+        // provider and start fresh, or keep using the app offline.
+        listen("cloud:account-deleted", () => {
+            const settingsTab = get(tabs).find((t) => t.mode === "settings");
+            if (settingsTab) {
+                closeTab(settingsTab.id);
+            }
+        });
+
         // Apply to existing and future inputs/textareas
         document
             .querySelectorAll("input, textarea")
@@ -1227,6 +1246,12 @@
     </div>
     <AIPanel />
 </div>
+
+<!-- Premium theme decorations — each renders nothing for non-matching themes. -->
+<CatsParade />
+<Embers />
+<PetalFall />
+<Starfield />
 
 {#if showSessionPicker}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
