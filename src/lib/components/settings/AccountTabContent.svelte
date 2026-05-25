@@ -85,8 +85,18 @@
     // Lifetime Pro users get their own callout — different copy because
     // there's no recurring charge to cancel, but the one-time purchase
     // amount IS non-refundable, which the user needs to acknowledge.
+    //
+    // Accept EITHER `isLifetime === true` OR `interval === "lifetime"` as
+    // the lifetime signal. In practice both are always set together by
+    // the worker's `buildMeBody`, but `is_lifetime` is `#[serde(default)]`
+    // on the Rust side — a partial/legacy response that ships `interval`
+    // but drops `is_lifetime` would otherwise drop a lifetime user into
+    // the free-user UI on delete confirm (no warning, wrong toast). Mirror
+    // of the both-signals approach `isProRecurring` already uses.
     let isProLifetime = $derived(
-        isPro && !!$cloudSub && $cloudSub.isLifetime === true,
+        isPro &&
+            !!$cloudSub &&
+            ($cloudSub.isLifetime === true || $cloudSub.interval === "lifetime"),
     );
 
     let menuOpen = $state(false);
