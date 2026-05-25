@@ -18,7 +18,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-7c5cf8?style=flat-square" alt="License"></a>
   <a href="https://github.com/ansxuman/Clauge/stargazers"><img src="https://img.shields.io/github/stars/ansxuman/Clauge?style=flat-square&color=f5a623" alt="Stars"></a>
   <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-CE422B?style=flat-square" alt="Rust + Tauri">
-  <img src="https://img.shields.io/badge/binary-~20%20MB-4f94d4?style=flat-square" alt="~20 MB">
+  <img src="https://img.shields.io/badge/binary-~25%20MB-4f94d4?style=flat-square" alt="~20 MB">
   <img src="https://img.shields.io/badge/MCP-built--in-1dc880?style=flat-square" alt="MCP built-in">
   <a href="https://x.com/clauge_in"><img src="https://img.shields.io/badge/X%2FTwitter-white?logo=x&style=flat&logoColor=black"></a>
   
@@ -30,6 +30,10 @@
   <a href="https://clauge.in/changelog.html">Changelog</a> ·
   <a href="https://github.com/ansxuman/Clauge/releases/latest"><strong>Download →</strong></a> ·
   <a href="https://github.com/ansxuman/Clauge/issues">Report a bug</a>
+</p>
+
+<p align="center">
+<b>Clauge has no associated cryptocurrency or token. Any tokens using our name are scams </b>
 </p>
 
 ---
