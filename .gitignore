@@ -24,3 +24,9 @@ vite.config.ts.timestamp-*
 
 # Tauri
 /src-tauri/target/
+
+# npm / node-gyp scratch dirs (created during native-module installs
+# like @codemirror/search, sql-formatter, etc. — random hex-name temp
+# folders that node-gyp leaves at the repo root).
+.*-node-gyp/
+.*.node-gyp/
