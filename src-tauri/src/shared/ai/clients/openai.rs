@@ -13,6 +13,31 @@ use crate::shared::ai::dispatch::{self, ToolContext};
 use crate::shared::ai::types::ChatContext;
 use crate::shared::ai::ProviderConfig;
 
+/// Return a loggable representation of `url` with userinfo and query string
+/// removed. This prevents API keys embedded as query params (or basic-auth
+/// credentials in the authority) from appearing in log files.
+///
+/// Examples:
+///   "http://user:pass@host/path?key=secret" → "http://host/path"
+///   "https://api.example.com/v1?api_key=xyz" → "https://api.example.com/v1"
+///   "http://localhost:11434/v1/chat/completions" → unchanged
+fn redact_url(url: &str) -> String {
+    // Strip query string (may contain API keys as params).
+    let without_query = match url.find('?') {
+        Some(i) => &url[..i],
+        None => url,
+    };
+    // Strip userinfo: "scheme://user:pass@host/…" → "scheme://host/…".
+    if let Some(scheme_end) = without_query.find("://") {
+        let after_scheme = scheme_end + 3;
+        let rest = &without_query[after_scheme..];
+        if let Some(at) = rest.find('@') {
+            return format!("{}://{}", &without_query[..scheme_end], &rest[at + 1..]);
+        }
+    }
+    without_query.to_string()
+}
+
 pub async fn stream_openai(
     client: &reqwest::Client,
     app: &AppHandle,
@@ -186,7 +211,7 @@ pub async fn stream_openai(
             }
         }
 
-        log::info!("[AI OpenAI] POST {} model={}", api_url, model_id);
+        log::info!("[AI OpenAI] POST {} model={}", redact_url(api_url), model_id);
 
         let response = client
             .post(api_url)
