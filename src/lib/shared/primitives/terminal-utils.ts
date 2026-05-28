@@ -4,7 +4,55 @@
 // keep it in the panel; this module is intentionally narrow.
 
 import type { Terminal } from '@xterm/xterm';
+import type { AppearanceConfig } from '$lib/types';
 import { isLinux } from '$lib/utils/platform';
+
+/**
+ * Default xterm.js fontFamily stack — used when the user hasn't picked a
+ * specific terminal font in Settings → Appearance. Must stay in sync with
+ * `DEFAULT_TERMINAL_FONT_FAMILY` in src-tauri/src/appearance/vibrancy.rs so
+ * a fresh install renders identically before the SQLite default lands.
+ */
+export const DEFAULT_TERMINAL_FONT_FAMILY =
+  '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Menlo", monospace';
+
+/**
+ * Curated monospace fonts offered in the Appearance picker. Each preset is a
+ * full CSS `font-family` value with monospace as the last fallback so the
+ * terminal renders even when the named face isn't installed. `id` is the
+ * stable key persisted in settings; an empty `id` means "use the default
+ * stack" and is what fresh installs see.
+ */
+export interface TerminalFontPreset {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export const TERMINAL_FONT_FAMILY_PRESETS: readonly TerminalFontPreset[] = [
+  { id: '', label: 'Default (JetBrains Mono stack)', value: DEFAULT_TERMINAL_FONT_FAMILY },
+  { id: 'jetbrains-mono', label: 'JetBrains Mono', value: '"JetBrains Mono", monospace' },
+  { id: 'fira-code', label: 'Fira Code', value: '"Fira Code", monospace' },
+  { id: 'cascadia-code', label: 'Cascadia Code', value: '"Cascadia Code", monospace' },
+  { id: 'sf-mono', label: 'SF Mono', value: '"SF Mono", monospace' },
+  { id: 'menlo', label: 'Menlo', value: 'Menlo, monospace' },
+  { id: 'monaco', label: 'Monaco', value: 'Monaco, monospace' },
+  { id: 'consolas', label: 'Consolas', value: 'Consolas, monospace' },
+  { id: 'courier-new', label: 'Courier New', value: '"Courier New", monospace' },
+  { id: 'ibm-plex-mono', label: 'IBM Plex Mono', value: '"IBM Plex Mono", monospace' },
+  { id: 'source-code-pro', label: 'Source Code Pro', value: '"Source Code Pro", monospace' },
+  { id: 'system-monospace', label: 'System monospace', value: 'monospace' },
+] as const;
+
+/**
+ * Resolve the CSS `font-family` value to pass to `new Terminal({ fontFamily })`
+ * based on the current appearance config. Empty / missing values fall back to
+ * the default stack so terminals always have a usable fontFamily.
+ */
+export function getTerminalFontFamily(app: AppearanceConfig | null | undefined): string {
+  const raw = app?.terminalFontFamily?.trim();
+  return raw && raw.length > 0 ? raw : DEFAULT_TERMINAL_FONT_FAMILY;
+}
 
 /**
  * Decode the base64-encoded PTY chunk emitted by the Rust backend into a

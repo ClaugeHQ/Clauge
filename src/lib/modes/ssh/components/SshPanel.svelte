@@ -25,7 +25,7 @@
   import { getTerminalTheme } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
   import { showToast } from '$lib/shared/primitives/toast';
-  import { base64ToBytes, deferUntilFrame, loadWebGLAddon } from '$lib/shared/primitives/terminal-utils';
+  import { base64ToBytes, deferUntilFrame, getTerminalFontFamily, loadWebGLAddon } from '$lib/shared/primitives/terminal-utils';
   import { resolveSshCapture, rejectAllSshCaptures, type SshCaptureRequest } from '../ai/execute';
   import type { SshProfile, SshTerminalPayload } from '../types';
   import { SSH_EVENT } from '$lib/shared/constants/events';
@@ -208,7 +208,7 @@
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Menlo", monospace',
+      fontFamily: getTerminalFontFamily(get(appearance)),
       theme: getCurrentTermTheme(),
       allowTransparency: true,
       scrollback: 10000,
@@ -711,12 +711,35 @@
     }
   });
 
+  // React to theme + terminal font changes — update every cached entry.
+  // fontFamily changes cell metrics so we must refit each terminal and
+  // notify its PTY of the new cols/rows; theme-only changes don't need that.
+  let lastAppliedTermFontFamily = getTerminalFontFamily(get(appearance));
   const unsubAppearance = appearance.subscribe((app) => {
     if (!app) return;
     const theme = getTerminalTheme(app.theme, app.accentColor);
+    const fontFamily = getTerminalFontFamily(app);
+    const fontChanged = fontFamily !== lastAppliedTermFontFamily;
     termBg = theme.background || '#0d0d18';
     for (const entry of termEntries.values()) {
-      try { entry.term.options.theme = theme; } catch { /* ignore */ }
+      try {
+        entry.term.options.theme = theme;
+        if (fontChanged) entry.term.options.fontFamily = fontFamily;
+      } catch { /* ignore */ }
+    }
+    if (fontChanged) {
+      lastAppliedTermFontFamily = fontFamily;
+      requestAnimationFrame(() => {
+        for (const entry of termEntries.values()) {
+          try {
+            entry.fitAddon.fit();
+            if (entry.terminalId) {
+              const dims = entry.fitAddon.proposeDimensions();
+              if (dims) sshResizeTerminal(entry.terminalId, dims.cols, dims.rows).catch(() => {});
+            }
+          } catch { /* ignore */ }
+        }
+      });
     }
   });
 

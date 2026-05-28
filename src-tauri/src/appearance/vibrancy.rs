@@ -7,6 +7,13 @@ use tauri::State;
 pub struct AppearanceConfig {
     pub theme: String,
     pub accent_color: String,
+    /// CSS `font-family` value applied to xterm.js terminals. Empty means
+    /// "use the built-in default stack" on the renderer side — see
+    /// `DEFAULT_TERMINAL_FONT_FAMILY` in
+    /// `src/lib/shared/primitives/terminal-utils.ts`. Stored verbatim in the
+    /// `settings` table under the `terminal_font_family` key.
+    #[serde(default)]
+    pub terminal_font_family: String,
 }
 
 /// Default theme per OS:
@@ -25,6 +32,7 @@ impl Default for AppearanceConfig {
         Self {
             theme: default_theme(),
             accent_color: "#6366f1".to_string(),
+            terminal_font_family: String::new(),
         }
     }
 }
@@ -157,6 +165,15 @@ pub async fn get_appearance(pool: State<'_, SqlitePool>) -> Result<AppearanceCon
         config.accent_color = row.0;
     }
 
+    if let Ok(Some(row)) = sqlx::query_as::<_, (String,)>(
+        "SELECT value FROM settings WHERE key = 'terminal_font_family'",
+    )
+    .fetch_optional(pool.inner())
+    .await
+    {
+        config.terminal_font_family = row.0;
+    }
+
     Ok(config)
 }
 
@@ -179,6 +196,7 @@ pub async fn set_appearance(
     let settings = [
         ("theme", config.theme.as_str()),
         ("accent_color", config.accent_color.as_str()),
+        ("terminal_font_family", config.terminal_font_family.as_str()),
     ];
 
     for (key, value) in &settings {
