@@ -45,6 +45,7 @@
     import { applyTheme, getThemes, getTheme } from "$lib/utils/theme";
     import { showToast } from "$lib/shared/primitives/toast";
   import { errorToast, friendlyError } from '$lib/utils/errors';
+    import { TERMINAL_FONT_FAMILY_PRESETS } from "$lib/shared/primitives/terminal-utils";
     import type { AppearanceConfig } from "$lib/types";
     import {
         testAiKey,
@@ -659,6 +660,7 @@
     let accentColor = $derived(
         $appearance.accentColor || FALLBACK_ACCENT_COLOR,
     );
+    let terminalFontFamily = $derived($appearance.terminalFontFamily ?? "");
     // Pro themes can lock the accent — the picker is disabled and a small
     // note tells the user why. `getTheme()` looks up the theme registry.
     let activeThemeDef = $derived(getTheme(currentTheme));
@@ -666,6 +668,16 @@
 
     // Re-export for template usage (Svelte each blocks resolve from script scope).
     const ACCENT_COLORS = ACCENT_PALETTE;
+    const TERMINAL_FONTS = TERMINAL_FONT_FAMILY_PRESETS;
+    // Unique group labels in their first-appearance order — drives the
+    // <optgroup> rendering in the picker without hardcoding the list here.
+    const terminalFontGroups: string[] = Array.from(
+        new Set(
+            TERMINAL_FONT_FAMILY_PRESETS.map((f) => f.group).filter(
+                (g): g is string => typeof g === "string",
+            ),
+        ),
+    );
 
     const THEME_DESCRIPTIONS: Record<string, string> = {
         "dark-glass": "Translucent with native blur",
@@ -881,6 +893,7 @@
         const config: AppearanceConfig = {
             theme: themeId,
             accentColor: accentColor,
+            terminalFontFamily,
         };
         appearance.set(config);
         await saveAppearance(config);
@@ -924,6 +937,7 @@
             const config: AppearanceConfig = {
                 theme: themeId,
                 accentColor: accentColor,
+                terminalFontFamily,
             };
             appearance.set(config);
             saveAppearance(config).catch(() => {});
@@ -935,10 +949,37 @@
         const config: AppearanceConfig = {
             theme: currentTheme,
             accentColor: color,
+            terminalFontFamily,
         };
         appearance.set(config);
         await saveAppearance(config);
     }
+
+    async function handleTerminalFontChange(id: string) {
+        const preset = TERMINAL_FONTS.find((p) => p.id === id);
+        // Persist the resolved CSS string (not the preset id) so the value
+        // is renderer-ready and future-proof against picker reshuffling.
+        const nextFontFamily = id === "" ? "" : (preset?.value ?? "");
+        const config: AppearanceConfig = {
+            theme: currentTheme,
+            accentColor,
+            terminalFontFamily: nextFontFamily,
+        };
+        appearance.set(config);
+        await saveAppearance(config);
+    }
+
+    // Map the persisted CSS string back to a preset id for the <select>.
+    // If the user has a custom string (set via DB edit or future custom-font
+    // UI), we render the active option as "Custom" so the select still has
+    // a valid value but doesn't lie about which preset is selected.
+    let terminalFontSelectId = $derived.by(() => {
+        if (!terminalFontFamily) return "";
+        const match = TERMINAL_FONTS.find(
+            (p) => p.value === terminalFontFamily,
+        );
+        return match ? match.id : "__custom__";
+    });
 
     function handleClose() {
         activeTab = "general";
@@ -2217,6 +2258,52 @@
                                 ></button>
                             {/each}
                         </div>
+                    </div>
+
+                    <div class="stg-section">
+                        <span class="stg-section-label">Terminal Font</span>
+                        <select
+                            class="stg-select"
+                            aria-label="Terminal font family"
+                            value={terminalFontSelectId}
+                            onchange={(e) =>
+                                handleTerminalFontChange(
+                                    e.currentTarget.value,
+                                )}
+                            style="max-width: 360px;"
+                        >
+                            <!-- Ungrouped entry (Default). Grouped entries
+                                 render below under their <optgroup>. -->
+                            {#each TERMINAL_FONTS.filter((f) => !f.group) as font}
+                                <option value={font.id}>{font.label}</option>
+                            {/each}
+                            {#each terminalFontGroups as groupName}
+                                <optgroup label={groupName}>
+                                    {#each TERMINAL_FONTS.filter((f) => f.group === groupName) as font}
+                                        <option value={font.id}
+                                            >{font.label}</option
+                                        >
+                                    {/each}
+                                </optgroup>
+                            {/each}
+                            {#if terminalFontSelectId === "__custom__"}
+                                <option value="__custom__"
+                                    >Custom · {terminalFontFamily}</option
+                                >
+                            {/if}
+                        </select>
+                        <p
+                            style="font-family: {terminalFontFamily ||
+                                'var(--mono)'}; font-size: 12.5px; color: var(--t3); margin: 10px 0 2px;"
+                        >
+                            The quick brown fox jumps over the lazy dog · 0123456789
+                        </p>
+                        <p
+                            style="font-family: {terminalFontFamily ||
+                                'var(--mono)'}; font-size: 12.5px; color: var(--t3); margin: 0;"
+                        >
+                            繁體中文預覽 · 永和的青空 · 0123456789
+                        </p>
                     </div>
                 {:else if activeTab === "ai"}
                     <!-- Top-level split: Clauge AI (managed credits + history)

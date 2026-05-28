@@ -52,7 +52,7 @@
   import { refreshAgentGitStatus, refreshAgentContextUsage, loadAgentSessions, agentGitBranchName, agentGitFiles, agentGitAhead, agentGitBehind } from '../stores';
   import { getTerminalTheme } from '$lib/utils/theme';
   import { appearance } from '$lib/stores/settings';
-  import { base64ToBytes, deferUntilFrame, loadWebGLAddon } from '$lib/shared/primitives/terminal-utils';
+  import { base64ToBytes, deferUntilFrame, getTerminalFontFamily, loadWebGLAddon } from '$lib/shared/primitives/terminal-utils';
   import { getPurposePrompt } from '../ai/prompt';
   import { AGENT_EVENT } from '$lib/shared/constants/events';
   import {
@@ -357,11 +357,15 @@
     return getTerminalTheme(app.theme, app.accentColor);
   }
 
+  function getCurrentTermFontFamily(): string {
+    return getTerminalFontFamily(get(appearance));
+  }
+
   function createTermEntry(sessionId: string): { term: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon; container: HTMLDivElement; terminalId: string | null; _exitBuffer?: string } {
     const t = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Menlo", monospace',
+      fontFamily: getCurrentTermFontFamily(),
       theme: getCurrentTermTheme(),
       allowTransparency: true,
       scrollback: 10000,
@@ -480,7 +484,7 @@
     const t = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Menlo", monospace',
+      fontFamily: getCurrentTermFontFamily(),
       theme: getCurrentTermTheme(),
       scrollback: 5000,
       lineHeight: 1.35,
@@ -1225,18 +1229,34 @@
     window.addEventListener('mouseup', onUp);
   }
 
-  // React to theme changes — update all terminal instances
+  // React to theme + terminal font changes — update all terminal instances.
+  // fontFamily changes cell metrics so we must refit the active terminals
+  // (and notify the PTY) after applying the new value; theme-only changes
+  // don't need a refit.
+  let lastAppliedTermFontFamily = getTerminalFontFamily(get(appearance));
   const unsubAppearance = appearance.subscribe((app) => {
     if (!app) return;
     const termTheme = getTerminalTheme(app.theme, app.accentColor);
+    const termFontFamily = getTerminalFontFamily(app);
+    const fontChanged = termFontFamily !== lastAppliedTermFontFamily;
     termBg = termTheme.background || '#0d0d18';
     const tMap = get(agentTerminalMap);
     for (const [, entry] of tMap) {
-      if (entry?.term) entry.term.options.theme = termTheme;
+      if (entry?.term) {
+        entry.term.options.theme = termTheme;
+        if (fontChanged) entry.term.options.fontFamily = termFontFamily;
+      }
     }
     const sMap = get(agentShellMap);
     for (const [, entry] of sMap) {
-      if (entry?.term) entry.term.options.theme = termTheme;
+      if (entry?.term) {
+        entry.term.options.theme = termTheme;
+        if (fontChanged) entry.term.options.fontFamily = termFontFamily;
+      }
+    }
+    if (fontChanged) {
+      lastAppliedTermFontFamily = termFontFamily;
+      refitAll(true);
     }
   });
 

@@ -7,6 +7,7 @@ export const settings = writable<Record<string, string>>({});
 export const appearance = writable<AppearanceConfig>({
   theme: 'dark-glass',
   accentColor: DEFAULT_ACCENT_COLOR,
+  terminalFontFamily: '',
 });
 
 export async function loadSettings() {
