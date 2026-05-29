@@ -48,8 +48,22 @@ async fn local_setting(pool: &SqlitePool, key: &str) -> Option<String> {
         .await
         .ok()
         .flatten()
-        .map(|s| s.value)
-        .filter(|v| !v.trim().is_empty())
+        .map(|s| s.value.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Canonicalize a user-entered local base URL into the chat-completions
+/// endpoint we POST to. Trims whitespace, drops a trailing slash, and appends
+/// `/chat/completions` when missing. Shared by `ai_chat` (request URL) and
+/// `test_local_endpoint` (which derives the `/models` listing from it) so both
+/// agree on the same canonical form regardless of how the user typed it.
+fn normalize_local_base_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.ends_with("/chat/completions") {
+        trimmed.to_string()
+    } else {
+        format!("{}/chat/completions", trimmed)
+    }
 }
 
 /// Helper to test an OpenAI-compatible API key (Groq, Mistral, etc.)
@@ -169,12 +183,12 @@ async fn test_local_endpoint(pool: &SqlitePool, api_key: &str) -> Result<String,
     let base = local_setting(pool, "ai_local_base_url")
         .await
         .unwrap_or_else(|| "http://localhost:11434/v1/chat/completions".to_string());
-    // Derive the models-listing URL from whatever form the user entered.
-    let models_url = if let Some(root) = base.split("/chat/completions").next() {
-        format!("{}/models", root.trim_end_matches('/'))
-    } else {
-        format!("{}/models", base.trim_end_matches('/'))
-    };
+    // Canonicalize to the same form `ai_chat` POSTs to, then derive the
+    // sibling `/models` listing from its root so the health check and the
+    // real request target the same server path.
+    let canonical = normalize_local_base_url(&base);
+    let root = canonical.trim_end_matches("/chat/completions");
+    let models_url = format!("{}/models", root.trim_end_matches('/'));
 
     let client = crate::shared::http::build_app_http_client(pool).await?;
     let mut req = client.get(&models_url);
@@ -283,7 +297,9 @@ pub async fn ai_chat(
     // (they vary per machine), overriding the registry placeholders.
     let (url_override, model_override) = if provider == "local" {
         (
-            local_setting(pool.inner(), "ai_local_base_url").await,
+            local_setting(pool.inner(), "ai_local_base_url")
+                .await
+                .map(|b| normalize_local_base_url(&b)),
             local_setting(pool.inner(), "ai_local_model").await,
         )
     } else {

@@ -618,6 +618,11 @@
     let aiHasKey = $derived(!!$settings[`ai_api_key_${aiProvider}`]?.trim());
     let aiIsLocal = $derived(aiProvider === "local");
     let aiLocalConfigured = $derived(!!$settings["ai_local_base_url"]?.trim());
+    // Local needs no API key, so key-based "configured" checks don't apply to
+    // it — gate on a saved base URL instead.
+    let aiIsConfigured = $derived(
+        (aiIsLocal && aiLocalConfigured) || (!aiIsLocal && aiHasKey),
+    );
 
     // Every provider that has a saved API key — feeds the "Configured
     // providers" list under the Configuration sub-tab so the user always
@@ -1023,6 +1028,14 @@
         }
         aiTestStatus = "testing";
         aiTestMessage = "";
+        // Snapshot prior values so a failed health check can roll back — the
+        // backend reads the base URL from settings, so we must persist before
+        // testing, but we don't want a failed connect to leave new config behind.
+        const prev = {
+            base: $settings["ai_local_base_url"] ?? "",
+            model: $settings["ai_local_model"] ?? "",
+            key: $settings["ai_api_key_local"] ?? "",
+        };
         try {
             // Persist first so the backend health check reads the new URL.
             await handleSettingChange("ai_local_base_url", base);
@@ -1034,6 +1047,10 @@
             await handleSettingChange("ai_provider", "local");
             showToast("Local model connected and saved", "success");
         } catch (e: any) {
+            // Restore the prior config so the failed attempt isn't persisted.
+            await handleSettingChange("ai_local_base_url", prev.base);
+            await handleSettingChange("ai_local_model", prev.model);
+            await handleSettingChange("ai_api_key_local", prev.key);
             aiTestStatus = "error";
             aiTestMessage =
                 typeof e === "string" ? e : e.message || "Connection failed";
@@ -2585,13 +2602,13 @@
                             <button
                                 class="ai-subtab"
                                 class:active={aiSubTab === "usage"}
-                                class:disabled={!aiHasKey}
+                                class:disabled={!aiIsConfigured}
                                 onclick={() => {
-                                    if (aiHasKey) aiSubTab = "usage";
+                                    if (aiIsConfigured) aiSubTab = "usage";
                                 }}
                             >
                                 Usage Stats
-                                {#if !aiHasKey}
+                                {#if !aiIsConfigured}
                                     <svg
                                         class="ai-subtab-lock"
                                         viewBox="0 0 24 24"
@@ -2861,6 +2878,10 @@
                                                                     "",
                                                                 );
                                                                 aiApiKey = "";
+                                                                aiLocalBaseUrl =
+                                                                    "http://localhost:11434/v1/chat/completions";
+                                                                aiLocalModel =
+                                                                    "";
                                                                 aiTestStatus =
                                                                     "idle";
                                                                 showToast(
