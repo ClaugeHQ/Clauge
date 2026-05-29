@@ -28,10 +28,13 @@ fn redact_url(url: &str) -> String {
         None => url,
     };
     // Strip userinfo: "scheme://user:pass@host/…" → "scheme://host/…".
+    // Only inspect the authority (up to the first '/'), so a '@' inside the
+    // path can't be mistaken for a userinfo delimiter.
     if let Some(scheme_end) = without_query.find("://") {
         let after_scheme = scheme_end + 3;
         let rest = &without_query[after_scheme..];
-        if let Some(at) = rest.find('@') {
+        let authority_end = rest.find('/').unwrap_or(rest.len());
+        if let Some(at) = rest[..authority_end].find('@') {
             return format!("{}://{}", &without_query[..scheme_end], &rest[at + 1..]);
         }
     }
@@ -690,4 +693,38 @@ pub async fn stream_openai(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_url;
+
+    #[test]
+    fn strips_query_string() {
+        assert_eq!(
+            redact_url("https://api.example.com/v1?api_key=xyz"),
+            "https://api.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn strips_userinfo() {
+        assert_eq!(
+            redact_url("http://user:pass@host/path?key=secret"),
+            "http://host/path"
+        );
+    }
+
+    #[test]
+    fn leaves_plain_url_unchanged() {
+        let url = "http://localhost:11434/v1/chat/completions";
+        assert_eq!(redact_url(url), url);
+    }
+
+    #[test]
+    fn does_not_treat_at_in_path_as_userinfo() {
+        // '@' in the path must not be mistaken for a userinfo delimiter.
+        let url = "https://host/path@segment";
+        assert_eq!(redact_url(url), url);
+    }
 }

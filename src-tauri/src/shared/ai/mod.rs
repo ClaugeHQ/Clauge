@@ -344,3 +344,30 @@ pub fn ai_resolve_pending_tool(
         None => Err(format!("No pending tool with id {}", tool_use_id)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_local_base_url;
+
+    #[test]
+    fn keeps_canonical_url() {
+        let url = "http://localhost:11434/v1/chat/completions";
+        assert_eq!(normalize_local_base_url(url), url);
+    }
+
+    #[test]
+    fn appends_chat_completions_when_missing() {
+        assert_eq!(
+            normalize_local_base_url("http://localhost:11434/v1"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn trims_whitespace_and_trailing_slash() {
+        assert_eq!(
+            normalize_local_base_url("  http://localhost:1234/v1/  "),
+            "http://localhost:1234/v1/chat/completions"
+        );
+    }
+}
