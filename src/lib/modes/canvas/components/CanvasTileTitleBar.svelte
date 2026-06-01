@@ -32,12 +32,12 @@
     align-items: center;
     gap: 6px;
     padding: 0 10px;
-    background: var(--cv-tile-titlebar-bg, rgba(255, 255, 255, 0.04));
-    border-bottom: 1px solid var(--cv-tile-border, rgba(255, 255, 255, 0.08));
+    background: var(--cv-tile-titlebar-bg, var(--surface-card));
+    border-bottom: 1px solid var(--cv-tile-border, var(--b1));
     cursor: grab;
     user-select: none;
     font-size: 12px;
-    color: var(--cv-tile-title-fg, rgba(255, 255, 255, 0.85));
+    color: var(--cv-tile-title-fg, var(--t1));
   }
   .cv-tile-titlebar:active {
     cursor: grabbing;

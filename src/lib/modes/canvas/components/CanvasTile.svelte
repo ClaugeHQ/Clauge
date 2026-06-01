@@ -41,8 +41,8 @@
 <style>
   .cv-tile {
     position: absolute;
-    background: var(--cv-tile-bg, #0d0a22);
-    border: 1px solid var(--cv-tile-border, rgba(255, 255, 255, 0.08));
+    background: var(--cv-tile-bg, var(--c));
+    border: 1px solid var(--cv-tile-border, var(--b1));
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     overflow: hidden;
@@ -52,7 +52,7 @@
     contain: strict;
   }
   .cv-tile.focused {
-    border-color: var(--cv-tile-focus, rgba(74, 158, 255, 0.6));
-    box-shadow: 0 4px 16px rgba(74, 158, 255, 0.25), 0 4px 12px rgba(0, 0, 0, 0.5);
+    border-color: var(--cv-tile-focus, var(--acc));
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--acc) 25%, transparent), 0 4px 12px rgba(0, 0, 0, 0.5);
   }
 </style>

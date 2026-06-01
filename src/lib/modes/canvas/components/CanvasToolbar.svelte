@@ -172,7 +172,7 @@
     display: flex;
     gap: 4px;
     padding: 4px;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c);
     border-radius: 8px;
     backdrop-filter: blur(8px);
   }
@@ -181,7 +181,7 @@
     min-width: 28px;
     padding: 0 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--t1);
     border: 0;
     border-radius: 4px;
     cursor: pointer;
@@ -191,19 +191,19 @@
     justify-content: center;
   }
   .cv-tb-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-hover);
   }
   .cv-tb-pct {
     min-width: 56px;
     font-variant-numeric: tabular-nums;
   }
   .cv-tb-term {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--t1);
   }
   .cv-cwd-menu {
     position: fixed;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--c);
+    border: 1px solid var(--b1);
     border-radius: 6px;
     padding: 4px;
     backdrop-filter: blur(8px);
@@ -215,7 +215,7 @@
   }
   .cv-menu-item {
     background: transparent;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--t1);
     border: 0;
     text-align: left;
     padding: 6px 12px;
@@ -224,10 +224,10 @@
     font-size: 13px;
   }
   .cv-menu-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-hover);
   }
   .cv-menu-item.active {
-    background: rgba(74, 158, 255, 0.2);
-    color: rgba(255, 255, 255, 1);
+    background: color-mix(in srgb, var(--acc) 20%, transparent);
+    color: var(--t1);
   }
 </style>

@@ -30,7 +30,7 @@
   }
   .cv-guide {
     position: absolute;
-    background: var(--cv-guide-color, rgba(74, 158, 255, 0.7));
+    background: var(--cv-guide-color, color-mix(in srgb, var(--acc) 70%, transparent));
   }
   .cv-guide-x {
     top: 0;

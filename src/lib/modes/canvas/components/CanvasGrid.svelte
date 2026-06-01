@@ -11,7 +11,7 @@
 <div
   class="cv-grid"
   style="
-    background-image: radial-gradient(circle, var(--cv-grid-dot, rgba(255,255,255,0.07)) {dotSize}px, transparent {dotSize + 0.5}px);
+    background-image: radial-gradient(circle, var(--cv-grid-dot, rgba(255,255,255,0.05)) {dotSize}px, transparent {dotSize + 0.5}px);
     background-size: {spacing}px {spacing}px;
     background-position: {offsetX}px {offsetY}px;
   "

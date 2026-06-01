@@ -38,16 +38,16 @@
     align-items: center;
     justify-content: center;
     padding: 32px;
-    background: var(--cv-bg, #060414);
+    background: var(--cv-bg, var(--n));
     overflow: auto;
   }
   .cv-intro-content {
     max-width: 520px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--t1);
   }
   .cv-intro-icon {
-    color: rgba(74, 158, 255, 0.85);
+    color: var(--acc);
     margin-bottom: 24px;
     display: flex;
     justify-content: center;
@@ -56,26 +56,26 @@
     font-size: 28px;
     font-weight: 600;
     margin: 0 0 12px;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--t1);
   }
   .cv-intro-desc {
     font-size: 14px;
     line-height: 1.6;
     margin: 0 0 20px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--t2);
   }
   .cv-intro-list {
     text-align: left;
     margin: 0 auto 28px;
     padding: 0 0 0 20px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--t2);
     font-size: 13px;
     line-height: 1.8;
     max-width: 360px;
   }
   .cv-intro-cta {
-    background: rgba(74, 158, 255, 0.9);
-    color: white;
+    background: var(--acc);
+    color: var(--t1);
     border: 0;
     padding: 10px 24px;
     border-radius: 8px;
@@ -84,11 +84,11 @@
     font-weight: 500;
   }
   .cv-intro-cta:hover {
-    background: rgba(74, 158, 255, 1);
+    background: color-mix(in srgb, var(--acc) 85%, white);
   }
   .cv-intro-foot {
     margin: 16px 0 0;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--t4);
   }
 </style>

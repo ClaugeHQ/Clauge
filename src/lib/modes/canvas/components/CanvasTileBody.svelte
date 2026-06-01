@@ -41,6 +41,6 @@
     min-width: 0;
     overflow: hidden;
     background: var(--cv-tile-body-bg, transparent);
-    color: var(--cv-tile-body-fg, rgba(255, 255, 255, 0.9));
+    color: var(--cv-tile-body-fg, var(--t1));
   }
 </style>
