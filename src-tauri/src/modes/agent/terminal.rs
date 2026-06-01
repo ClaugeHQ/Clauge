@@ -144,10 +144,9 @@ pub async fn agent_spawn_terminal(
     Ok(terminal_id)
 }
 
-#[tauri::command]
-pub fn agent_spawn_shell(
-    state: State<'_, TerminalState>,
-    project_path: String,
+fn spawn_shell_pty(
+    cwd: &str,
+    state: &TerminalState,
     on_output: Channel<TerminalOutputPayload>,
 ) -> Result<String, String> {
     let terminal_id = Uuid::new_v4().to_string();
@@ -161,7 +160,7 @@ pub fn agent_spawn_shell(
     for arg in shell_kind.interactive_login_args() {
         cmd.arg(arg);
     }
-    cmd.cwd(&project_path);
+    cmd.cwd(cwd);
     if let Some(home) = dirs::home_dir() { cmd.env("HOME", home.to_string_lossy().to_string()); }
     apply_windows_env(&mut cmd);
     cmd.env("TERM", "xterm-256color");
@@ -189,6 +188,26 @@ pub fn agent_spawn_shell(
 
     state.terminals.lock().insert(terminal_id.clone(), TerminalEntry { master: pty_pair.master, writer, child });
     Ok(terminal_id)
+}
+
+#[tauri::command]
+pub fn agent_spawn_shell(
+    state: State<'_, TerminalState>,
+    project_path: String,
+    on_output: Channel<TerminalOutputPayload>,
+) -> Result<String, String> {
+    spawn_shell_pty(&project_path, &*state, on_output)
+}
+
+#[tauri::command]
+pub fn canvas_shell_terminal_spawn(
+    state: State<'_, TerminalState>,
+    workspace_id: String,
+    cwd: String,
+    on_output: Channel<TerminalOutputPayload>,
+) -> Result<String, String> {
+    let _ = workspace_id; // reserved for future logging / multi-window scope
+    spawn_shell_pty(&cwd, &*state, on_output)
 }
 
 #[tauri::command]

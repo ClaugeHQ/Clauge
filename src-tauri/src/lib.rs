@@ -555,6 +555,7 @@ pub fn run() {
             modes::canvas::commands::canvas_delete_tile,
             modes::canvas::commands::canvas_get_viewport,
             modes::canvas::commands::canvas_set_viewport,
+            modes::agent::terminal::canvas_shell_terminal_spawn,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

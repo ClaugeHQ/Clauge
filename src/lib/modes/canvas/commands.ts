@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 
 /** Must match the tab_kind CHECK constraint in src-tauri/migrations/19_canvas_tables.sql and 20_canvas_shell_terminal.sql. */
 export type TabKind =
@@ -77,3 +77,16 @@ export const canvasSetViewport = (
   lastFocusedTab: string | null,
 ) =>
   invoke<void>('canvas_set_viewport', { workspaceId, offsetX, offsetY, zoom, lastFocusedTab });
+
+export interface ShellOutput {
+  terminalId: string;
+  data: string; // base64-encoded PTY output; empty string on exit
+  exit?: boolean; // true when PTY closed
+}
+
+export const canvasShellTerminalSpawn = (
+  workspaceId: string,
+  cwd: string,
+  onOutput: Channel<ShellOutput>,
+) =>
+  invoke<string>('canvas_shell_terminal_spawn', { workspaceId, cwd, onOutput });
