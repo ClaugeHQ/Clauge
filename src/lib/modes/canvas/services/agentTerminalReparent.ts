@@ -14,11 +14,18 @@ export function attachAgentTerminal(sessionId: string, slot: HTMLElement): void 
   const entry = get(agentTerminalMap).get(sessionId);
   if (!entry) return;
   slot.appendChild(entry.container);
+  // Lazy term.open: xterm's `terminal.element` is set after the first
+  // `open(container)` call. For sessions that were created but never
+  // mounted (Canvas-only view of an inactive Agent session), term.element
+  // is undefined and the container is empty. Open here, with the container
+  // already in a live slot, to avoid the WebGL-on-detached-canvas issue.
   try {
-    entry.fitAddon.fit();
-  } catch {
-    // Slot may not have measurable dimensions yet; the first ResizeObserver
-    // tick after layout will fit. Swallow silently.
+    if (!entry.term?.element) {
+      entry.term.open(entry.container);
+    }
+    entry.fitAddon?.fit();
+  } catch (err) {
+    console.error('[canvas] attachAgentTerminal fit/open failed:', err);
   }
 }
 

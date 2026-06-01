@@ -102,6 +102,30 @@
         }
       }
     }
+
+    // Clean up: ensure no OTHER session's shell container is loose in the
+    // document. xterm's container parented outside both shellEl and terminalEl
+    // (e.g., a stale Canvas tile or document.body) causes ghost rendering at (0,0).
+    const activeSessionId = session.id;
+    for (const [sid, sentry] of $agentShellMap) {
+      if (sid === activeSessionId) continue;
+      const c = sentry?.container;
+      if (!c) continue;
+      const parent = c.parentElement;
+      if (parent && parent !== shellEl && parent !== terminalEl) {
+        parent.removeChild(c);
+      }
+    }
+    // Same cleanup for main (agent) terminal containers.
+    for (const [sid, tentry] of $agentTerminalMap) {
+      if (sid === activeSessionId) continue;
+      const c = tentry?.container;
+      if (!c) continue;
+      const parent = c.parentElement;
+      if (parent && parent !== terminalEl && parent !== shellEl) {
+        parent.removeChild(c);
+      }
+    }
   });
 
   // Active terminal entry refs
