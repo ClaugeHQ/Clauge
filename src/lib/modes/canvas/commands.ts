@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-/** Must match the tab_kind CHECK constraint in src-tauri/migrations/19_canvas_tables.sql. */
+/** Must match the tab_kind CHECK constraint in src-tauri/migrations/19_canvas_tables.sql and 20_canvas_shell_terminal.sql. */
 export type TabKind =
   | 'agent_terminal'
   | 'ssh_terminal'
@@ -9,7 +9,8 @@ export type TabKind =
   | 'mongo_query'
   | 'redis_query'
   | 'workspace_note'
-  | 'workspace_board';
+  | 'workspace_board'
+  | 'shell_terminal';
 
 export interface CanvasTile {
   workspaceId: string;
