@@ -11,6 +11,8 @@
   import { canvasAdapterRegistry } from '$lib/modes/canvas/adapter-registry';
   import { agentTerminalAdapter } from '$lib/modes/agent/canvas-adapter';
   import { sshTerminalAdapter } from '$lib/modes/ssh/canvas-adapter';
+  import { shellTerminalAdapter } from '$lib/modes/canvas/adapters/shellTerminalAdapter';
+  import { loadCanvasSettings } from '$lib/modes/canvas/stores/canvasSettingsStore';
   import CanvasViewport from './CanvasViewport.svelte';
 
   // Phase 2 stub: hardcoded workspace id so the surface mounts. Phase 4
@@ -21,8 +23,10 @@
   canvasAdapterRegistry.clear();
   canvasAdapterRegistry.register(agentTerminalAdapter);
   canvasAdapterRegistry.register(sshTerminalAdapter);
+  canvasAdapterRegistry.register(shellTerminalAdapter);
 
   onMount(async () => {
+    await loadCanvasSettings();
     setActiveWorkspace(ACTIVE_WORKSPACE_ID);
     const v = await canvasGetViewport(ACTIVE_WORKSPACE_ID);
     viewport.set({ offsetX: v.offsetX, offsetY: v.offsetY, zoom: v.zoom });
@@ -34,7 +38,10 @@
     const sshTabs = sshTerminalAdapter
       .listOpenTabs(ACTIVE_WORKSPACE_ID)
       .map((t) => ({ tabKind: 'ssh_terminal' as const, tabId: t.id }));
-    await loadCanvas(ACTIVE_WORKSPACE_ID, [...agentTabs, ...sshTabs]);
+    const shellTabs = shellTerminalAdapter
+      .listOpenTabs(ACTIVE_WORKSPACE_ID)
+      .map((t) => ({ tabKind: 'shell_terminal' as const, tabId: t.id }));
+    await loadCanvas(ACTIVE_WORKSPACE_ID, [...agentTabs, ...sshTabs, ...shellTabs]);
   });
 
   onDestroy(() => {
