@@ -15,6 +15,14 @@ export const sshTerminalIds = writable<Map<string, string>>(new Map());
 export type SshConnState = 'connecting' | 'connected' | 'disconnected';
 export const sshConnStates = writable<Map<string, SshConnState>>(new Map());
 
+// Per-tab xterm entries for SSH terminals. Key = tabKey (`profileId#timestamp-N`).
+// Lifted from SshPanel.svelte for Canvas mode's cross-surface xterm reparenting.
+// Shape mirrors SshPanel's TermEntry (typed as `any` to avoid importing @xterm/xterm here):
+//   { term: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon;
+//     container: HTMLDivElement; terminalId: string | null;
+//     profileId: string; tabKey: string; generation: number; capture: ... | null }
+export const sshTerminalMap = writable<Map<string, any>>(new Map());
+
 export async function loadSshProfiles() {
   try {
     const profiles = await sshListProfiles();

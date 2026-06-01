@@ -11,6 +11,7 @@
     sshProfiles,
     sshTerminalIds,
     sshConnStates,
+    sshTerminalMap,
     loadSshProfiles,
   } from '../stores';
   import {
@@ -73,9 +74,8 @@
     resolveSshCapture(cap.requestId, cleaned + note);
   }
 
-  // Map keyed by tabKey. Each spawn gets a unique key (`profileId#timestamp-N`)
-  // so a single profile can have multiple independent tabs (Duplicate Session).
-  const termEntries = new Map<string, TermEntry>();
+  // Per-tab xterm entries lifted into sshTerminalMap store for Canvas reparenting.
+  // Local helpers shadow plain-Map calls with copy-on-mutate store operations.
   let activeEntry: TermEntry | null = null;
 
   // Track which tabs have an exited terminal (for reconnect banner).
@@ -288,7 +288,7 @@
       }, RESIZE_DEBOUNCE_MS);
     }).observe(container);
 
-    termEntries.set(tabKey, entry);
+    sshTerminalMap.update((m) => { const next = new Map(m); next.set(tabKey, entry); return next; });
     return entry;
   }
 
@@ -321,7 +321,7 @@
   }
 
   function markExited(tabKey: string) {
-    const entry = termEntries.get(tabKey);
+    const entry = get(sshTerminalMap).get(tabKey);
     if (entry) entry.terminalId = null;
     sshTerminalIds.update((m) => {
       m.delete(tabKey);
@@ -452,7 +452,7 @@
       // Clean up the local entry — connection never came up, no PTY to keep around.
       try { entry.container.remove(); } catch { /* ignore */ }
       try { entry.term.dispose(); } catch { /* ignore */ }
-      termEntries.delete(entry.tabKey);
+      sshTerminalMap.update((m) => { const next = new Map(m); next.delete(entry.tabKey); return next; });
       sshConnStates.update((m) => { m.set(entry.tabKey, 'disconnected'); return new Map(m); });
       // Close the tab and return to home so the user can pick a profile and retry.
       const allTabs = get(tabsStore);
@@ -491,7 +491,7 @@
     }
 
     // Re-attach existing entry if still alive
-    let entry = termEntries.get(tabKey);
+    let entry = get(sshTerminalMap).get(tabKey);
     if (entry && entry.terminalId) {
       if (entry.container.parentElement !== terminalEl) {
         terminalEl.appendChild(entry.container);
@@ -507,7 +507,7 @@
       // Stale — recreate xterm to avoid showing prior buffer for a new connection
       try { entry.container.remove(); } catch { /* ignore */ }
       try { entry.term.dispose(); } catch { /* ignore */ }
-      termEntries.delete(tabKey);
+      sshTerminalMap.update((m) => { const next = new Map(m); next.delete(tabKey); return next; });
     }
 
     currentTabKey = tabKey;
@@ -523,14 +523,14 @@
   // is the hard floor.
   //
   // Tab keys are `<profileId>#<timestamp>-<counter>`, NOT `profile.id`. Use
-  // `currentTabKey` to match what termEntries / sshTerminalIds / sshConnStates
+  // `currentTabKey` to match what sshTerminalMap / sshTerminalIds / sshConnStates
   // are actually keyed by, otherwise this whole function operates on a key
   // nobody else has and the in-flight spawn happily completes and writes
   // 'connected' to the real key.
   async function cancelConnect() {
     if (!currentTabKey) return;
     const tabKey = currentTabKey;
-    const entry = termEntries.get(tabKey);
+    const entry = get(sshTerminalMap).get(tabKey);
 
     // Bump generation BEFORE anything else so the in-flight spawnFor's
     // post-await success block sees a stale gen and skips writing
@@ -545,7 +545,7 @@
     if (entry) {
       try { entry.container.remove(); } catch { /* ignore */ }
       try { entry.term.dispose(); } catch { /* ignore */ }
-      termEntries.delete(tabKey);
+      sshTerminalMap.update((m) => { const next = new Map(m); next.delete(tabKey); return next; });
     }
     spawning = false;
     termReady = false;
@@ -567,7 +567,7 @@
     const profile = get(activeSshProfile);
     if (!profile) return;
     const tabKey = profile.id;
-    const entry = termEntries.get(tabKey);
+    const entry = get(sshTerminalMap).get(tabKey);
     if (!entry) {
       activateProfile(profile);
       return;
@@ -629,12 +629,12 @@
     const wasActive = activeEntry?.tabKey === tabKey
       || get(activeSshProfile)?.id === tabKey;
 
-    const entry = termEntries.get(tabKey);
+    const entry = get(sshTerminalMap).get(tabKey);
     if (entry) {
       if (entry.terminalId) sshKillTerminal(entry.terminalId).catch(() => {});
       try { entry.container.remove(); } catch { /* ignore */ }
       try { entry.term.dispose(); } catch { /* ignore */ }
-      termEntries.delete(tabKey);
+      sshTerminalMap.update((m) => { const next = new Map(m); next.delete(tabKey); return next; });
     }
     sshTerminalIds.update((m) => {
       m.delete(tabKey);
@@ -715,7 +715,7 @@
     if (!app) return;
     const theme = getTerminalTheme(app.theme, app.accentColor);
     termBg = theme.background || '#0d0d18';
-    for (const entry of termEntries.values()) {
+    for (const entry of get(sshTerminalMap).values()) {
       try { entry.term.options.theme = theme; } catch { /* ignore */ }
     }
   });
@@ -729,7 +729,7 @@
     if (activeEntry && activeEntry.profileId === profileId && activeEntry.terminalId) {
       target = activeEntry;
     } else {
-      for (const entry of termEntries.values()) {
+      for (const entry of get(sshTerminalMap).values()) {
         if (entry.profileId === profileId && entry.terminalId) { target = entry; break; }
       }
     }
