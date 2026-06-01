@@ -1964,7 +1964,7 @@
     opacity: 0;
   }
 
-  .agent-term-hidden {
+  :global(.agent-term-hidden) {
     display: none !important;
   }
 
