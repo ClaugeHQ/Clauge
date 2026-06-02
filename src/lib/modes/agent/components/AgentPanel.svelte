@@ -104,9 +104,18 @@
     }
   });
 
+  // Re-fit when mode returns to agent (e.g. Canvas → Agent round-trip).
+  $effect(() => {
+    const m = $mode;
+    if (m === 'agent') scheduleFit();
+  });
+
   // Active terminal entry refs
   let activeTermEntry: { term: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon; container: HTMLDivElement; terminalId: string | null; _exitBuffer?: string } | null = null;
   let activeShellEntry: { term: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon; container: HTMLDivElement; terminalId: string | null } | null = null;
+
+  // Outer-container ResizeObserver (set up in onMount, torn down in onDestroy)
+  let _containerResizeObserver: ResizeObserver | null = null;
 
   // Divider drag state
   let dragging = $state(false);
@@ -618,6 +627,20 @@
         }
       }
     });
+  }
+
+  // Debounced fit triggered by container resize or store changes.
+  // Belt-and-suspenders on top of the per-entry ResizeObservers — those
+  // observe the inner xterm container; this one fires when the outer wrapper
+  // (terminalEl / shellEl) changes size, e.g. when agentShellOpen closes.
+  let _fitTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleFit() {
+    if (_fitTimer !== null) clearTimeout(_fitTimer);
+    _fitTimer = setTimeout(() => {
+      _fitTimer = null;
+      try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
+      try { activeShellEntry?.fitAddon?.fit(); } catch (_) {}
+    }, 60);
   }
 
   function refitAll(sendPtyResize = false) {
@@ -1325,6 +1348,9 @@
         activeShellEntry = null;
       }
       refitAll();
+      // scheduleFit fires 60 ms after layout settles, catching any residual
+      // height change that refitAll's double-rAF may still miss.
+      scheduleFit();
     }
   });
 
@@ -1601,9 +1627,19 @@
       currentSessionId = null; // Force selectSession to process
       requestAnimationFrame(() => selectSession(currentSession));
     }
+
+    // Watch outer wrapper containers for size changes — fires when agentShellOpen
+    // toggles (display:none removes the panel, terminalEl expands) and on any
+    // other host-driven resize not covered by the per-entry ResizeObservers.
+    _containerResizeObserver = new ResizeObserver(() => scheduleFit());
+    if (terminalEl) _containerResizeObserver.observe(terminalEl);
+    if (shellEl) _containerResizeObserver.observe(shellEl);
   });
 
   onDestroy(() => {
+    _containerResizeObserver?.disconnect();
+    _containerResizeObserver = null;
+    if (_fitTimer !== null) { clearTimeout(_fitTimer); _fitTimer = null; }
     unsubSession();
     unsubShell();
     unsubAppearance();
