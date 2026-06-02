@@ -517,6 +517,7 @@
         try { entry.term.focus(); } catch (_) {}
       }
     });
+    scheduleFitRetries();
   }
 
   function createShellEntry(sessionId: string): { term: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon; container: HTMLDivElement; terminalId: string | null } {
@@ -627,6 +628,7 @@
         }
       }
     });
+    scheduleFitRetries();
   }
 
   // Debounced fit triggered by container resize or store changes.
@@ -641,6 +643,20 @@
       try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
       try { activeShellEntry?.fitAddon?.fit(); } catch (_) {}
     }, 60);
+  }
+
+  function scheduleFitRetries() {
+    // Multiple delayed fits to catch slow-settling layouts (fresh launch,
+    // mode-switch with animations, etc.).
+    scheduleFit(); // 60ms default
+    setTimeout(() => {
+      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      try { activeShellEntry?.fitAddon.fit(); } catch {}
+    }, 200);
+    setTimeout(() => {
+      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      try { activeShellEntry?.fitAddon.fit(); } catch {}
+    }, 500);
   }
 
   function refitAll(sendPtyResize = false) {
@@ -1634,6 +1650,9 @@
     _containerResizeObserver = new ResizeObserver(() => scheduleFit());
     if (terminalEl) _containerResizeObserver.observe(terminalEl);
     if (shellEl) _containerResizeObserver.observe(shellEl);
+
+    // Fresh launch gets retry chain too
+    scheduleFitRetries();
   });
 
   onDestroy(() => {
