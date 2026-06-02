@@ -260,7 +260,7 @@
     <svg viewBox="0 0 24 24"><path d="M12 3l1.6 4.8L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.2L12 3z"/><path d="M18.5 14l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>
   </SidebarButton>
   <!-- Canvas sits with Agent + Workspace as the "meta" group (top); data/protocol modes follow. -->
-  <SidebarButton label="Canvas" tip="Canvas" active={$mode === 'canvas'} id="sbi-canvas" onclick={() => setMode('canvas')}>
+  <SidebarButton label="Atlas" tip="Atlas" active={$mode === 'canvas'} id="sbi-canvas" onclick={() => setMode('canvas')}>
     <!-- Frame corners — spatial canvas / freeform workspace -->
     <svg viewBox="0 0 24 24"><path d="M2 7V3h4"/><path d="M22 7V3h-4"/><path d="M2 17v4h4"/><path d="M22 17v4h-4"/><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
   </SidebarButton>

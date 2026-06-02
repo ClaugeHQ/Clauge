@@ -307,7 +307,7 @@
     sql: 'SQL',
     nosql: 'NoSQL',
     agent: 'Agent',
-    canvas: 'Canvas',
+    canvas: 'Atlas',
     ssh: 'SSH',
     explorer: 'Explorer',
     workspace: 'Workspace',

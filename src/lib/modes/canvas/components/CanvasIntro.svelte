@@ -14,7 +14,7 @@
         <rect x="7" y="7" width="10" height="10" rx="1.5"></rect>
       </svg>
     </div>
-    <h2 class="cv-intro-title">Canvas mode</h2>
+    <h2 class="cv-intro-title">Atlas mode</h2>
     <p class="cv-intro-desc">
       Spread all your open terminals — Agent sessions, SSH connections, quick shells — across an infinite spatial workspace.
       Drag windows around, zoom in and out, snap to neighbors, and stop alt-tabbing.
@@ -25,8 +25,8 @@
       <li>Spawn shells anywhere with one click</li>
       <li>State preserved across mode switches</li>
     </ul>
-    <button class="cv-intro-cta" onclick={openCanvasSettings}>Open Canvas Settings</button>
-    <p class="cv-intro-foot">Canvas is experimental. Enable in Settings → Canvas.</p>
+    <button class="cv-intro-cta" onclick={openCanvasSettings}>Open Atlas Settings</button>
+    <p class="cv-intro-foot">Atlas is experimental. Enable in Settings → Atlas.</p>
   </div>
 </div>
 

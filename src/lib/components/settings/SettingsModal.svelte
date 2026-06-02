@@ -745,7 +745,7 @@
         {
             kind: "tab",
             key: "canvas",
-            label: "Canvas",
+            label: "Atlas",
             icon: '<path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4"/><rect x="7" y="7" width="10" height="10" rx="1.5"/>',
         },
         {
@@ -4914,7 +4914,7 @@
                                     >
                                 </span>
                                 <div class="stg-card-titles">
-                                    <h3 class="stg-card-title">Canvas (experimental)</h3>
+                                    <h3 class="stg-card-title">Atlas (experimental)</h3>
                                     <p class="stg-card-sub">
                                         Spatial workspace that shows every open terminal as a
                                         window on an infinite pan/zoom canvas. Supports Agent
@@ -4924,7 +4924,7 @@
                             </header>
                             <div class="stg-card-body">
                                 <div class="stg-card-row">
-                                    <label class="stg-card-row-label">Enable Canvas mode</label>
+                                    <label class="stg-card-row-label">Enable Atlas mode</label>
                                     <label class="stg-toggle">
                                         <input
                                             type="checkbox"
