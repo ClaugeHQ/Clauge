@@ -34,6 +34,7 @@
   // REST save prompt state
   let showCloseConfirm = $state(false);
   let closeConfirmTabId = $state(-1);
+  let closeConfirmKeepMode = $state(false);
 
   /** DOM ref to the scrolling tabs container. Used by the effect below
    *  to auto-scroll a newly-created or newly-activated tab into view
@@ -198,27 +199,34 @@
     // tab took its place. activateTabAcrossMode handles REST loadRequest
     // / Agent activeAgentSession; SSH/SQL/NoSQL/Explorer panels self-heal
     // via their own activeTabId subscribers.
-    const newActiveId = get(activeTabId);
-    if (newActiveId === -1) {
-      clearActiveRequest();
-      return;
+    //
+    // Skip realignment when the close was triggered from Canvas — the
+    // user is already on Canvas and should stay there.
+    if (!closeConfirmKeepMode) {
+      const newActiveId = get(activeTabId);
+      if (newActiveId === -1) {
+        closeConfirmKeepMode = false;
+        clearActiveRequest();
+        return;
+      }
+      const newActive = get(tabs).find(t => t.id === newActiveId);
+      if (newActive && newActive.mode !== get(mode)) {
+        activateTabAcrossMode(newActive.id);
+      } else if (newActive?.mode === 'rest') {
+        // Same-mode REST close: ensure the editor loads the new active
+        // request (closeTab doesn't run side effects on its own).
+        if (newActive.key) loadRequest(newActive.key);
+        else clearActiveRequest();
+      } else if (newActive?.mode === 'agent' && newActive.key) {
+        // Same-mode agent close: switch the active session to the promoted tab.
+        // closeTab only updates the tab bar; activeAgentSession must be set
+        // explicitly or the panel stays blank until the user clicks the tab.
+        const sessions = get(agentSessions);
+        const nextSession = sessions.find(s => s.id === newActive.key);
+        if (nextSession) activeAgentSession.set(nextSession);
+      }
     }
-    const newActive = get(tabs).find(t => t.id === newActiveId);
-    if (newActive && newActive.mode !== get(mode)) {
-      activateTabAcrossMode(newActive.id);
-    } else if (newActive?.mode === 'rest') {
-      // Same-mode REST close: ensure the editor loads the new active
-      // request (closeTab doesn't run side effects on its own).
-      if (newActive.key) loadRequest(newActive.key);
-      else clearActiveRequest();
-    } else if (newActive?.mode === 'agent' && newActive.key) {
-      // Same-mode agent close: switch the active session to the promoted tab.
-      // closeTab only updates the tab bar; activeAgentSession must be set
-      // explicitly or the panel stays blank until the user clicks the tab.
-      const sessions = get(agentSessions);
-      const nextSession = sessions.find(s => s.id === newActive.key);
-      if (nextSession) activeAgentSession.set(nextSession);
-    }
+    closeConfirmKeepMode = false;  // Always reset.
   }
 
   // REST-only save prompt handlers
@@ -516,6 +524,7 @@
   const onCanvasCloseRequest = (e: Event) => {
     const tabId = (e as CustomEvent<{ tabId: number }>).detail?.tabId;
     if (typeof tabId !== 'number') return;
+    closeConfirmKeepMode = true;  // Skip mode realignment — user is on Canvas.
     const synthetic = new MouseEvent('click');
     handleTabClose(synthetic, tabId);
   };
@@ -687,6 +696,9 @@
   }}
   ondiscard={() => {
     handleDiscardAndClose();
+  }}
+  oncancel={() => {
+    closeConfirmKeepMode = false;
   }}
 />
 
