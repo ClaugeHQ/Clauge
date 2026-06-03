@@ -16,7 +16,6 @@
     shellTerminalAdapter,
     performShellClose,
   } from '$lib/modes/canvas/adapters/shellTerminalAdapter';
-  import { loadCanvasSettings } from '$lib/modes/canvas/stores/canvasSettingsStore';
   import { canvasEnabled } from '$lib/modes/canvas/stores/canvasEnabled';
   import CanvasViewport from './CanvasViewport.svelte';
   import CanvasIntro from './CanvasIntro.svelte';
@@ -83,7 +82,6 @@
     canvasAdapterRegistry.register(shellTerminalAdapter);
 
     setActiveWorkspace(ACTIVE_WORKSPACE_ID);
-    await loadCanvasSettings();
     const v = await canvasGetViewport(ACTIVE_WORKSPACE_ID);
     viewport.set({ offsetX: v.offsetX, offsetY: v.offsetY, zoom: v.zoom });
 

@@ -1,4 +1,5 @@
 import type { CanvasTile } from '$lib/modes/canvas/commands';
+import { ZOOM_MIN, ZOOM_MAX } from '$lib/modes/canvas/stores/canvasStore';
 
 export interface Rect {
   x: number;
@@ -35,7 +36,8 @@ export function fitAllViewport(
   const availH = Math.max(1, containerSize.height - 2 * marginPx);
   const zoomX = availW / Math.max(1, tilesWidth);
   const zoomY = availH / Math.max(1, tilesHeight);
-  const zoom = Math.min(zoomX, zoomY, 1.5); // never zoom in past 1.5x
+  // Clamp to the same bounds the zoomable action enforces, never exceed 1.5x.
+  const zoom = Math.max(ZOOM_MIN, Math.min(zoomX, zoomY, 1.5, ZOOM_MAX));
 
   // Centre the bounding box in the container.
   const offsetX = (containerSize.width - tilesWidth * zoom) / 2 - minX * zoom;

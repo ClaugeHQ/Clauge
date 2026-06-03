@@ -74,6 +74,12 @@ export function pannable(node: HTMLElement) {
     return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
   }
 
+  function onContextMenu(e: MouseEvent) {
+    // Right-button is our pan gesture; suppress the OS context menu that
+    // would otherwise pop at button release at the end of every drag.
+    e.preventDefault();
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     if (e.code === 'Space' && !spaceHeld && !isTypingTarget(e.target)) {
       spaceHeld = true;
@@ -93,6 +99,7 @@ export function pannable(node: HTMLElement) {
   node.addEventListener('pointerup', endPan);
   node.addEventListener('pointercancel', endPan);
   node.addEventListener('wheel', onWheel, { passive: false });
+  node.addEventListener('contextmenu', onContextMenu);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
 
@@ -103,6 +110,7 @@ export function pannable(node: HTMLElement) {
       node.removeEventListener('pointerup', endPan);
       node.removeEventListener('pointercancel', endPan);
       node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     },

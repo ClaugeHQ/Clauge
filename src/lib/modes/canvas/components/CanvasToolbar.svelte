@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { homeDir } from '@tauri-apps/api/path';
   import {
     viewport,
@@ -8,38 +7,17 @@
     ZOOM_DEFAULT,
     flushViewportSoon,
   } from '$lib/modes/canvas/stores/canvasStore';
-  import {
-    shellDefaultCwd,
-    setShellDefaultCwd,
-    type ShellCwdChoice,
-  } from '$lib/modes/canvas/stores/canvasSettingsStore';
   import { spawnShellTerminal } from '$lib/modes/canvas/services/shellTerminalLifecycle';
 
   const ACTIVE_WORKSPACE_ID = '__phase2_stub__';
-  // Phase 5 will replace this hardcoded workspace project root.
-  const WORKSPACE_ROOT_STUB = '/Users/macbook/Personal';
-
-  let menuOpen = $state(false);
-  let menuX = $state(0);
-  let menuY = $state(0);
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-
-  async function resolveCwd(choice: ShellCwdChoice): Promise<string> {
-    if (choice === 'home') {
-      try {
-        return await homeDir();
-      } catch {
-        return '/';
-      }
-    }
-    if (choice === 'workspace') {
-      return WORKSPACE_ROOT_STUB;
-    }
-    return choice; // absolute path
-  }
 
   async function openTerminal() {
-    const cwd = await resolveCwd($shellDefaultCwd);
+    let cwd: string;
+    try {
+      cwd = await homeDir();
+    } catch {
+      cwd = '/';
+    }
     try {
       await spawnShellTerminal(ACTIVE_WORKSPACE_ID, cwd);
     } catch (err) {
@@ -60,79 +38,14 @@
     flushViewportSoon();
   }
 
-  function showMenuAt(clientX: number, clientY: number) {
-    menuX = clientX;
-    menuY = clientY;
-    menuOpen = true;
-  }
-
-  function onTerminalPointerDown(e: PointerEvent) {
-    longPressTimer = setTimeout(() => {
-      showMenuAt(e.clientX, e.clientY);
-      longPressTimer = null;
-    }, 500);
-  }
-
-  function onTerminalPointerUp() {
-    if (longPressTimer !== null) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-    }
-  }
-
-  function onTerminalContextMenu(e: MouseEvent) {
-    e.preventDefault();
-    showMenuAt(e.clientX, e.clientY);
-  }
-
-  async function pickHome() {
-    await setShellDefaultCwd('home');
-    menuOpen = false;
-  }
-
-  async function pickWorkspace() {
-    await setShellDefaultCwd('workspace');
-    menuOpen = false;
-  }
-
-  async function pickBrowse() {
-    menuOpen = false;
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({ directory: true, multiple: false, title: 'Choose terminal working directory' });
-      if (typeof selected === 'string' && selected.length > 0) {
-        await setShellDefaultCwd(selected);
-      }
-    } catch {
-      // plugin-dialog unavailable in this build — no-op.
-    }
-  }
-
   const zoomPct = $derived(Math.round($viewport.zoom * 100));
-
-  function closeMenuOnOutside(e: MouseEvent) {
-    if (!menuOpen) return;
-    // Bail if the click is on the terminal button itself or inside the cwd menu —
-    // their own onclick handlers manage menuOpen state.
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('.cv-tb-term') || target?.closest('.cv-cwd-menu')) return;
-    menuOpen = false;
-  }
-
-  onMount(() => {
-    window.addEventListener('pointerdown', closeMenuOnOutside);
-    return () => window.removeEventListener('pointerdown', closeMenuOnOutside);
-  });
 </script>
 
 <div class="cv-toolbar">
   <button
     class="cv-tb-btn cv-tb-term"
     onclick={openTerminal}
-    onpointerdown={onTerminalPointerDown}
-    onpointerup={onTerminalPointerUp}
-    oncontextmenu={onTerminalContextMenu}
-    title="Open terminal (right-click for options)"
+    title="Open terminal in home directory"
     aria-label="Open terminal"
   >
     <!-- Inline SVG: terminal prompt icon -->
@@ -145,24 +58,6 @@
   <button class="cv-tb-btn cv-tb-pct" onclick={reset} title="Reset view" aria-label="Reset view">{zoomPct}%</button>
   <button class="cv-tb-btn" onclick={() => setZoom($viewport.zoom * 1.2)} aria-label="Zoom in">+</button>
 </div>
-
-{#if menuOpen}
-  <div
-    class="cv-cwd-menu"
-    style="left: {menuX}px; top: {menuY}px;"
-    onclick={(e) => e.stopPropagation()}
-  >
-    <button class="cv-menu-item" class:active={$shellDefaultCwd === 'home'} onclick={pickHome}>
-      Home
-    </button>
-    <button class="cv-menu-item" class:active={$shellDefaultCwd === 'workspace'} onclick={pickWorkspace}>
-      Workspace
-    </button>
-    <button class="cv-menu-item" onclick={pickBrowse}>
-      Browse…
-    </button>
-  </div>
-{/if}
 
 <style>
   .cv-toolbar {
@@ -198,36 +93,6 @@
     font-variant-numeric: tabular-nums;
   }
   .cv-tb-term {
-    color: var(--t1);
-  }
-  .cv-cwd-menu {
-    position: fixed;
-    background: var(--c);
-    border: 1px solid var(--b1);
-    border-radius: 6px;
-    padding: 4px;
-    backdrop-filter: blur(8px);
-    z-index: 1000;
-    min-width: 140px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .cv-menu-item {
-    background: transparent;
-    color: var(--t1);
-    border: 0;
-    text-align: left;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .cv-menu-item:hover {
-    background: var(--surface-hover);
-  }
-  .cv-menu-item.active {
-    background: color-mix(in srgb, var(--acc) 20%, transparent);
     color: var(--t1);
   }
 </style>
