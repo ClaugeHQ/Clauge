@@ -31,7 +31,7 @@ mode.subscribe(v => {
  */
 export const effectiveMode = derived(
   [mode, focusedTileMode],
-  ([$m, $tile]) => ($m === 'canvas' && $tile ? ($tile as AppMode) : $m),
+  ([$m, $tile]) => ($m === 'canvas' && $tile ? $tile : $m),
 );
 
 export const navOpen = writable<boolean>(true);

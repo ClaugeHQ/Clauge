@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
-import type { CanvasTile, TabRef } from '$lib/modes/canvas/commands';
+import type { CanvasTile, TabKind, TabRef } from '$lib/modes/canvas/commands';
+import type { AppMode } from '$lib/stores/app';
 import {
   canvasResolveTiles,
   canvasSetViewport,
@@ -123,7 +124,7 @@ export const tilesSortedByZ = derived(tilesByTab, ($map) =>
  * hotkey routing on canvas; safe to consume now even though plumbing is
  * still hidden behind v2 polish work.
  */
-const TAB_KIND_TO_MODE: Partial<Record<string, string>> = {
+const TAB_KIND_TO_MODE: Partial<Record<TabKind, AppMode>> = {
   agent_terminal: 'agent',
   ssh_terminal: 'ssh',
   shell_terminal: 'canvas',
@@ -138,10 +139,10 @@ const TAB_KIND_TO_MODE: Partial<Record<string, string>> = {
 
 export const focusedTileMode = derived(
   [focusedTabId, tilesByTab],
-  ([$id, $map]) => {
+  ([$id, $map]): AppMode | null => {
     if (!$id) return null;
     const tile = $map.get($id);
     if (!tile) return null;
-    return TAB_KIND_TO_MODE[tile.tabKind] ?? null;
+    return TAB_KIND_TO_MODE[tile.tabKind as TabKind] ?? null;
   },
 );
