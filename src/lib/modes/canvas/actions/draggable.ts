@@ -28,6 +28,9 @@ export function draggable(node: HTMLElement, params: DraggableParams) {
     // close X). Buttons inside the title bar own their own click events.
     const target = e.target as HTMLElement | null;
     if (target?.closest('button')) return;
+    // Yield to svelte-dnd-action draggable items (board cards, etc.) so
+    // card drags inside a tile body don't fight the tile drag.
+    if (target?.closest('[draggable="true"]')) return;
     const tile = get(tilesByTab).get(tabId);
     if (!tile) return;
     e.stopPropagation();

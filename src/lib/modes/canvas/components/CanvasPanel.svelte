@@ -16,6 +16,17 @@
     shellTerminalAdapter,
     performShellClose,
   } from '$lib/modes/canvas/adapters/shellTerminalAdapter';
+  import { restRequestAdapter } from '$lib/modes/rest/canvas-adapter';
+  import { explorerFileBrowserAdapter } from '$lib/modes/explorer/canvas-adapter';
+  import {
+    mongoQueryAdapter,
+    redisQueryAdapter,
+  } from '$lib/modes/nosql/canvas-adapter';
+  import { sqlEditorAdapter } from '$lib/modes/sql/canvas-adapter';
+  import {
+    workspaceNoteAdapter,
+    workspaceBoardAdapter,
+  } from '$lib/modes/workspace/canvas-adapter';
   import { canvasEnabled } from '$lib/modes/canvas/stores/canvasEnabled';
   import CanvasViewport from './CanvasViewport.svelte';
   import CanvasIntro from './CanvasIntro.svelte';
@@ -83,6 +94,13 @@
     canvasAdapterRegistry.register(agentTerminalAdapter);
     canvasAdapterRegistry.register(sshTerminalAdapter);
     canvasAdapterRegistry.register(shellTerminalAdapter);
+    canvasAdapterRegistry.register(explorerFileBrowserAdapter);
+    canvasAdapterRegistry.register(restRequestAdapter);
+    canvasAdapterRegistry.register(mongoQueryAdapter);
+    canvasAdapterRegistry.register(redisQueryAdapter);
+    canvasAdapterRegistry.register(sqlEditorAdapter);
+    canvasAdapterRegistry.register(workspaceNoteAdapter);
+    canvasAdapterRegistry.register(workspaceBoardAdapter);
 
     setActiveWorkspace(ACTIVE_WORKSPACE_ID);
     const v = await canvasGetViewport(ACTIVE_WORKSPACE_ID);
@@ -97,6 +115,13 @@
       agentTerminalAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
       sshTerminalAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
       shellTerminalAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      explorerFileBrowserAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      restRequestAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      mongoQueryAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      redisQueryAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      sqlEditorAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      workspaceNoteAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
+      workspaceBoardAdapter.subscribe(ACTIVE_WORKSPACE_ID, scheduleResolve),
     );
   }
 
