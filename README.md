@@ -53,6 +53,7 @@ You've been flipping between multiple apps to do one job. Clauge runs all of the
 | `05` | **NoSQL** | Document and key-value stores, side by side. | MongoDB · Redis · aggregation pipeline builder · interactive Redis console · engine-aware AI |
 | `06` | **SSH** | A terminal with an AI co-pilot. | Profiles · multi-tab per host · port forwarding · keychain-backed creds · **two AI modes**: permission-gated and auto |
 | `07` | **Explorer** | Every storage, one browser. | Local FS · S3 (and S3-compatibles) · Azure Blob · SFTP · FTP · drag-and-drop transfers · AI scan |
+| `08` | **Atlas** | Drag, resize, and snap your open tabs into a free-form spatial workspace. | Pan / zoom canvas · per-workspace layouts · Atlas-spawned shells · hosts Agent, SSH, REST, SQL, NoSQL, and Explorer tabs |
 
 Plus a cross-mode **History** layer — a queryable log of every session, request, query, and command across modes.
 
@@ -145,6 +146,16 @@ Every backend, one browser, one set of shortcuts.
 - **Drag-and-drop transfers** — drop files into any backend, right-click "Download to…", with a live transfer panel showing progress and cancel
 - **AI assistance** — *"what grew today?"*, *"find images larger than 5 MB"* — natural-language file ops
 - **Inline preview** — text, JSON, CSV without a round-trip download
+
+### Atlas
+
+A free-form spatial workspace where every open tab becomes a draggable window. Pan, zoom, snap to neighbors, and stop alt-tabbing.
+
+- **Universal tile** — Agent sessions, SSH terminals, REST requests, SQL editors, NoSQL queries, Explorer file browsers, and Atlas-spawned shells all coexist as resizable windows on one canvas.
+- **State preserved across modes** — switching to Atlas and back doesn't reset anything; CodeMirror undo stacks, scroll positions, terminal scrollback, and connection state survive the round-trip.
+- **In-tile control surfaces** — SQL tiles get a Run button + results table + connection picker; NoSQL tiles get a connection/collection picker; REST tiles get the full headers/auth/params/body editor + env picker + Send.
+- **Snap guides + per-workspace layouts** — tiles snap to the edges of neighbors while dragging; tile positions are persisted per workspace, so each project has its own canvas memory.
+- **Spawn shells anywhere** — a shell-spawn button drops a fresh terminal onto the canvas, scoped to that workspace.
 
 ---
 
