@@ -104,7 +104,7 @@
     } from "$lib/commands/cloud";
     import { listen } from "@tauri-apps/api/event";
     import { cloudConflicts } from "$lib/stores/cloud";
-    import { activeModal, aiPanelOpen, effectiveMode, mode, setMode } from "$lib/stores/app";
+    import { activeModal, aiPanelOpen, mode, setMode } from "$lib/stores/app";
     import {
         agentSessionKey,
         agentCodexToken,
@@ -1236,7 +1236,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="app-shell" onmousedown={handleGlobalMousedown}>
     <Sidebar />
-    {#if $effectiveMode !== 'canvas'}
+    {#if $mode !== 'canvas'}
         <NavPanel />
     {/if}
     <div class="app-content">
@@ -1246,7 +1246,7 @@
         </div>
         <StatusBar />
     </div>
-    {#if $effectiveMode !== 'canvas'}
+    {#if $mode !== 'canvas'}
         <AIPanel />
     {/if}
 </div>

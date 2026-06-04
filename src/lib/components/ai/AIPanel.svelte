@@ -1,11 +1,7 @@
 <script lang="ts">
   import { mod } from '$lib/utils/platform';
   const m = mod();
-  import { aiPanelOpen, aiPanelOpenPerMode, effectiveMode, getModeChatMessages, setModeChatMessages, clearModeChatMessages, type AppMode } from '$lib/stores/app';
-  // Inside this component, "$mode" always refers to the effective mode so
-  // AI on Atlas follows the focused tile's source mode without touching
-  // every per-mode dictionary lookup or context switch below.
-  const mode = effectiveMode;
+  import { aiPanelOpen, aiPanelOpenPerMode, mode, getModeChatMessages, setModeChatMessages, clearModeChatMessages, type AppMode } from '$lib/stores/app';
   import { settings } from '$lib/stores/settings';
   import { loadCollections } from '$lib/modes/rest/stores';
   import { activeTabId, draftRequests, openSettingsTab } from '$lib/shared/stores/tabs';
