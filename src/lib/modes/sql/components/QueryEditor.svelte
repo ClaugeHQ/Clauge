@@ -5,6 +5,7 @@
   import { autocompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from '@codemirror/autocomplete';
   import { format as formatSql } from 'sql-formatter';
   import { activeConnection } from '../stores';
+  import { mode } from '$lib/stores/app';
   import type { TableInfo } from '../types';
   import { parserProfileFor } from '../dialects';
   import { splitSqlStatements, splitSqlStatementsWithPositions } from '../utils/splitter';
@@ -321,10 +322,6 @@
     });
   });
 
-  // Reconfigure the execute keymap whenever the live callbacks or the
-  // disabled flag change. The registry-owned EditorView keeps a
-  // dedicated Compartment for this so the binding always closes over
-  // the current onexecute / onexecutemulti props.
   $effect(() => {
     const onExecDep = onexecute;
     const onExecMultiDep = onexecutemulti;
@@ -357,6 +354,17 @@
 
   onMount(() => {
     if (editorHost) {
+      attachSqlEditor(tabId, editorHost);
+    }
+  });
+
+  // Both SqlPanel and Atlas's CanvasTileBody stay mounted across mode
+  // switches (panels toggle via visibility, not unmount). The singleton's
+  // CodeMirror DOM can only live in one slot at a time, so when Atlas
+  // claims it the home host goes empty — and vice versa. Re-claim on
+  // every $mode change so whichever side is visible wins.
+  $effect(() => {
+    if ($mode === 'sql' && editorHost) {
       attachSqlEditor(tabId, editorHost);
     }
   });

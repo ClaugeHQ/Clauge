@@ -6,6 +6,7 @@
   import { agentTerminalMap } from '$lib/modes/agent/stores';
   import { sshTerminalMap } from '$lib/modes/ssh/stores';
   import { shellTerminals } from '$lib/modes/canvas/stores/shellTerminalsStore';
+  import { mode } from '$lib/stores/app';
 
   let { tile }: { tile: Tile } = $props();
 
@@ -51,6 +52,19 @@
         }, 60);
       });
       resizeObserver.observe(slotEl);
+    }
+  });
+
+  // Reparent kinds: re-claim the live DOM each time canvas becomes the
+  // active mode. Home-mode panels (SqlPanel, NoteView, etc.) stay
+  // mounted across mode switches and may have stolen the container back
+  // while canvas was hidden.
+  $effect(() => {
+    if ($mode !== 'canvas') return;
+    if (!slotEl) return;
+    const adapter = canvasAdapterRegistry.get(tile.tabKind);
+    if (adapter?.mountStrategy === 'reparent') {
+      adapter.attach?.(tile.tabId, slotEl);
     }
   });
 
