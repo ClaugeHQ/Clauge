@@ -27,9 +27,15 @@ function listNoSqlTabsForDriver(driver: Driver): { id: string; title: string }[]
   for (const t of allTabs) {
     if (t.mode !== 'nosql') continue;
     const data = state.get(t.id);
-    if (!data) continue;
-    const conn = conns.find((c) => c.id === data.connectionId);
-    if (!conn || conn.driver !== driver) continue;
+    const conn = data ? conns.find((c) => c.id === data.connectionId) : undefined;
+    if (conn) {
+      if (conn.driver !== driver) continue;
+    } else {
+      // Unbound tab (no connection chosen yet, or connection vanished) —
+      // default to the Mongo adapter so the user can pick a connection
+      // from the in-tile picker. Skip from the Redis listing.
+      if (driver !== 'mongodb') continue;
+    }
     out.push({ id: String(t.id), title: t.label });
   }
   return out;

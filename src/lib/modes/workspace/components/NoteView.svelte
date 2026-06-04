@@ -370,7 +370,9 @@ ${body}
     </div>
 
     <div class="nv-editor">
-      <MilkdownEditor noteId={note.id} onChange={onContentChange} />
+      {#key note.id}
+        <MilkdownEditor value={note.content} onChange={onContentChange} />
+      {/key}
     </div>
   </div>
 {/if}
