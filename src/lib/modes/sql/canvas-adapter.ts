@@ -1,24 +1,37 @@
 import type { CanvasTabAdapter } from '$lib/modes/canvas/adapter';
 import { get } from 'svelte/store';
+import { mount, unmount } from 'svelte';
 import { sqlTabState, sqlPendingChanges, connections } from './stores';
-import {
-  attachSqlEditor,
-  detachSqlEditor,
-} from './services/sqlEditorReparent';
 import { tabs, activateTab } from '$lib/shared/stores/tabs';
 import { setMode } from '$lib/stores/app';
+import SqlEditorTileBody from './components/SqlEditorTileBody.svelte';
 
 /**
- * Canvas adapter for SQL editor tabs. Uses the singleton reparent
- * registry so the CodeMirror EditorView (undo history, cursor,
- * selection) survives the move between SqlPanel and a Canvas tile.
+ * Canvas adapter for SQL editor tabs. Uses the `remount` strategy: the
+ * tile body is a freshly mounted `SqlEditorTileBody` that hosts the
+ * singleton CodeMirror EditorView (via the reparent registry), a Run
+ * button strip, and the same ResultsTable the home panel uses. Tab
+ * state is read straight off `sqlTabState[tabId]` so home + tile stay
+ * in sync.
  *
- * Canonical id is `tab.key` (the persisted SQL script id). Drafts
- * without a key are not surfaced as tiles — they have no stable
- * identity to bind a canvas tile to.
+ * Canvas id is `tab.key` when the script is saved, or `draft:<tab.id>`
+ * for unsaved drafts. Drafts won't survive an app restart (their
+ * numeric tab id is session-local), but they do show on canvas while
+ * the session lives so users can edit them side by side with anything
+ * else.
  */
-function findTabByKey(key: string) {
-  return get(tabs).find((t) => t.mode === 'sql' && t.key === key);
+const DRAFT_PREFIX = 'draft:';
+
+function canvasIdFor(t: { id: number; key: string | null }): string {
+  return t.key ?? `${DRAFT_PREFIX}${t.id}`;
+}
+
+function findSqlTabByCanvasId(canvasId: string) {
+  if (canvasId.startsWith(DRAFT_PREFIX)) {
+    const numeric = Number(canvasId.slice(DRAFT_PREFIX.length));
+    return get(tabs).find((t) => t.mode === 'sql' && t.id === numeric);
+  }
+  return get(tabs).find((t) => t.mode === 'sql' && t.key === canvasId);
 }
 
 function bindingTitle(tabId: number, fallback: string): string {
@@ -32,13 +45,13 @@ function bindingTitle(tabId: number, fallback: string): string {
 
 export const sqlEditorAdapter: CanvasTabAdapter = {
   tabKind: 'sql_editor',
-  mountStrategy: 'reparent',
+  mountStrategy: 'remount',
   defaultSpawnSize: { width: 900, height: 650 },
 
   listOpenTabs(_workspaceId) {
     return get(tabs)
-      .filter((t) => t.mode === 'sql' && t.key)
-      .map((t) => ({ id: t.key as string, title: t.label }));
+      .filter((t) => t.mode === 'sql')
+      .map((t) => ({ id: canvasIdFor(t), title: t.label }));
   },
 
   subscribe(_workspaceId, onChange) {
@@ -50,20 +63,33 @@ export const sqlEditorAdapter: CanvasTabAdapter = {
     };
   },
 
-  attach(tabId, slot) {
-    const tab = findTabByKey(tabId);
-    if (!tab) return;
-    attachSqlEditor(tab.id, slot, { showHeader: true });
-  },
-
-  detach(tabId, slot) {
-    const tab = findTabByKey(tabId);
-    if (!tab) return;
-    detachSqlEditor(tab.id, slot);
+  render(tabId, slot) {
+    const tab = findSqlTabByCanvasId(tabId);
+    if (!tab) return { destroy: () => {} };
+    let component: ReturnType<typeof mount> | null = null;
+    try {
+      component = mount(SqlEditorTileBody, {
+        target: slot,
+        props: { tabId: tab.id },
+      });
+    } catch (err) {
+      console.error('[atlas] failed to mount SQL tile body', { tabId, err });
+      return { destroy: () => {} };
+    }
+    return {
+      destroy: () => {
+        if (!component) return;
+        try {
+          void unmount(component);
+        } catch (err) {
+          console.error('[atlas] failed to unmount SQL tile body', { tabId, err });
+        }
+      },
+    };
   },
 
   getMeta(tabId) {
-    const tab = findTabByKey(tabId);
+    const tab = findSqlTabByCanvasId(tabId);
     if (!tab) return { title: tabId };
     const title = bindingTitle(tab.id, tab.label);
     const dirty = get(sqlPendingChanges).has(tab.id);
@@ -71,13 +97,13 @@ export const sqlEditorAdapter: CanvasTabAdapter = {
   },
 
   openInHomeMode(tabId) {
-    const tab = findTabByKey(tabId);
+    const tab = findSqlTabByCanvasId(tabId);
     if (tab) activateTab(tab.id);
     void setMode('sql');
   },
 
   closeTab(tabId) {
-    const tab = findTabByKey(tabId);
+    const tab = findSqlTabByCanvasId(tabId);
     if (!tab) return;
     window.dispatchEvent(
       new CustomEvent('canvas:request-tab-close', { detail: { tabId: tab.id } }),
