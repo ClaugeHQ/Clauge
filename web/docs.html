@@ -130,17 +130,20 @@
                         <a href="#explorer" class="cl-docs-toc-link"
                             ><span class="num">09</span>Explorer</a
                         >
+                        <a href="#atlas" class="cl-docs-toc-link"
+                            ><span class="num">10</span>Atlas</a
+                        >
                         <a href="#history" class="cl-docs-toc-link"
-                            ><span class="num">10</span>History</a
+                            ><span class="num">11</span>History</a
                         >
                         <a href="#mcp" class="cl-docs-toc-link"
-                            ><span class="num">11</span>MCP setup</a
+                            ><span class="num">12</span>MCP setup</a
                         >
                         <a href="#cloud-sync" class="cl-docs-toc-link"
-                            ><span class="num">12</span>Cloud sync</a
+                            ><span class="num">13</span>Cloud sync</a
                         >
                         <a href="#shortcuts" class="cl-docs-toc-link"
-                            ><span class="num">13</span>Shortcuts</a
+                            ><span class="num">14</span>Shortcuts</a
                         >
                         <a href="#faq" class="cl-docs-toc-link"
                             ><span class="num">14</span>FAQ</a
@@ -853,9 +856,106 @@
                     </section>
 
                     <!-- ───────────────────────────────────────────────── -->
-                    <section class="cl-docs-section" id="history">
+                    <section class="cl-docs-section" id="atlas">
                         <div class="cl-docs-section-rail">
                             <span class="cl-docs-section-no">10</span>
+                            <span class="cl-docs-section-name">ATLAS</span>
+                            <span class="cl-docs-section-line"></span>
+                        </div>
+                        <h2 class="cl-docs-h2">
+                            Every open tab on one spatial canvas.
+                        </h2>
+
+                        <h3 class="cl-docs-h3">What it is</h3>
+                        <p>
+                            Atlas is a free-form pan/zoom workspace where every
+                            open tab becomes a draggable, resizable window —
+                            Agent sessions, SSH terminals, REST requests, SQL
+                            and NoSQL editors, Explorer file browsers, and
+                            Atlas-spawned shells. Use it when you want to see
+                            multiple things at once instead of alt-tabbing
+                            between them.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Enable it</h3>
+                        <p>
+                            Atlas ships <b>opt-in</b>. Open it from the left
+                            rail; the first time you do, you'll see an intro
+                            card with a link to
+                            <b>Settings → Atlas → Enable Atlas mode</b>. Flip
+                            the toggle and the canvas activates.
+                        </p>
+
+                        <h3 class="cl-docs-h3">State across modes</h3>
+                        <p>
+                            Tiles are <b>reparented</b>, not recreated, when you
+                            switch into and out of Atlas. CodeMirror undo, the
+                            cursor, the scroll position, terminal scrollback,
+                            and any open connections all survive the round-trip
+                            — keep typing in a SQL editor on Atlas, switch back
+                            to SQL mode, and you're still at the same character.
+                        </p>
+
+                        <h3 class="cl-docs-h3">In-tile control surfaces</h3>
+                        <p>
+                            Tiles aren't read-only previews. Each kind ships
+                            with the editing affordances it needs:
+                        </p>
+                        <ul>
+                            <li>
+                                <b>SQL</b> — Run button, results table (the same
+                                one home SQL uses), connection / database
+                                picker.
+                            </li>
+                            <li>
+                                <b>NoSQL</b> — connection picker; for Mongo,
+                                a database + collection picker.
+                            </li>
+                            <li>
+                                <b>REST</b> — method picker, URL bar, the full
+                                headers / auth / params / body / pre-script
+                                editor, environment picker, and Send.
+                            </li>
+                            <li>
+                                <b>Agent / SSH / shell</b> — the full live
+                                terminal, with WebGL when available.
+                            </li>
+                            <li>
+                                <b>Explorer</b> — the full file browser scoped
+                                to the tab's connection.
+                            </li>
+                        </ul>
+
+                        <h3 class="cl-docs-h3">Snap, zoom, and layouts</h3>
+                        <p>
+                            Tiles snap to the edges of neighbouring tiles while
+                            you drag; pinch / Ctrl+scroll to zoom; right-click
+                            drag or middle-click drag to pan. Tile positions
+                            and the viewport are persisted <b>per workspace</b>,
+                            so each project keeps its own canvas memory.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Spawn shells</h3>
+                        <p>
+                            The toolbar's terminal button drops a fresh shell
+                            onto the canvas, scoped to the workspace. Atlas
+                            shells live in the canvas — they don't appear as
+                            tabs in the home Agent or SSH lists.
+                        </p>
+
+                        <h3 class="cl-docs-h3">Double-click to jump home</h3>
+                        <p>
+                            Double-click a tile's title bar to switch into the
+                            tile's source mode and focus the matching tab — a
+                            shortcut for "see the full panel" without leaving
+                            the keyboard.
+                        </p>
+                    </section>
+
+                    <!-- ───────────────────────────────────────────────── -->
+                    <section class="cl-docs-section" id="history">
+                        <div class="cl-docs-section-rail">
+                            <span class="cl-docs-section-no">11</span>
                             <span class="cl-docs-section-name">HISTORY</span>
                             <span class="cl-docs-section-line"></span>
                         </div>
@@ -877,7 +977,7 @@
                     <!-- ───────────────────────────────────────────────── -->
                     <section class="cl-docs-section" id="mcp">
                         <div class="cl-docs-section-rail">
-                            <span class="cl-docs-section-no">11</span>
+                            <span class="cl-docs-section-no">12</span>
                             <span class="cl-docs-section-name">MCP SETUP</span>
                             <span class="cl-docs-section-line"></span>
                         </div>
@@ -957,7 +1057,7 @@
                     <!-- ───────────────────────────────────────────────── -->
                     <section class="cl-docs-section" id="cloud-sync">
                         <div class="cl-docs-section-rail">
-                            <span class="cl-docs-section-no">12</span>
+                            <span class="cl-docs-section-no">13</span>
                             <span class="cl-docs-section-name">CLOUD SYNC</span>
                             <span class="cl-docs-section-line"></span>
                         </div>
@@ -986,7 +1086,7 @@
                     <!-- ───────────────────────────────────────────────── -->
                     <section class="cl-docs-section" id="shortcuts">
                         <div class="cl-docs-section-rail">
-                            <span class="cl-docs-section-no">13</span>
+                            <span class="cl-docs-section-no">14</span>
                             <span class="cl-docs-section-name">SHORTCUTS</span>
                             <span class="cl-docs-section-line"></span>
                         </div>
