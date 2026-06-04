@@ -60,6 +60,11 @@ export function pannable(node: HTMLElement) {
 
   function onWheel(e: WheelEvent) {
     if (e.ctrlKey || e.metaKey) return; // ctrl/cmd reserved for zoom action.
+    // If the wheel happened inside a tile, let the tile's scrollable
+    // descendants handle it. Pan-the-canvas is only for wheel over the
+    // empty canvas background.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.cv-tile')) return;
     e.preventDefault();
     viewport.update((v) => ({
       ...v,
