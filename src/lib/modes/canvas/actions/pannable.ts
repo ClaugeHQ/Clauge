@@ -1,11 +1,39 @@
+import { get } from 'svelte/store';
 import {
   viewport,
   interactionState,
   flushViewportSoon,
+  regionPreview,
+  regionsById,
 } from '$lib/modes/canvas/stores/canvasStore';
+import { canvasUpsertRegion, type CanvasRegion } from '$lib/modes/canvas/commands';
 
 const RIGHT_BUTTON = 2;
 const MIDDLE_BUTTON = 1;
+
+const REGION_PALETTE = [
+  'hsl(220 70% 60%)', // blue
+  'hsl(280 65% 65%)', // purple
+  'hsl(330 65% 60%)', // pink
+  'hsl(10 75% 60%)',  // orange-red
+  'hsl(40 80% 55%)',  // gold
+  'hsl(140 55% 50%)', // green
+  'hsl(180 60% 50%)', // teal
+];
+
+function pickRegionColor(): string {
+  const existing = new Set(
+    [...get(regionsById).values()].map((r) => r.color),
+  );
+  for (const c of REGION_PALETTE) {
+    if (!existing.has(c)) return c;
+  }
+  return REGION_PALETTE[Math.floor(Math.random() * REGION_PALETTE.length)];
+}
+
+const REGION_CREATE_MIN_WIDTH = 200;
+const REGION_CREATE_MIN_HEIGHT = 150;
+const REGION_WORKSPACE_ID = '__phase2_stub__';
 
 /**
  * Svelte action: makes the host element pan-aware.
@@ -19,7 +47,41 @@ export function pannable(node: HTMLElement) {
   let pointerId: number | null = null;
   let spaceHeld = false;
 
+  // Shift+drag draws a new region. Separate state so we don't pan and draw
+  // at the same time.
+  let drawing = false;
+  let drawStartCanvasX = 0;
+  let drawStartCanvasY = 0;
+  let drawColor = '';
+
+  function toCanvasCoords(clientX: number, clientY: number) {
+    const v = get(viewport);
+    return {
+      x: (clientX - v.offsetX) / v.zoom,
+      y: (clientY - v.offsetY) / v.zoom,
+    };
+  }
+
   function onPointerDown(e: PointerEvent) {
+    if (e.button === 0 && e.shiftKey) {
+      // Shift+left-click on empty canvas → start drawing a region. Skip if
+      // the user pressed inside an existing tile/region.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.cv-tile, .cv-region')) return;
+      e.preventDefault();
+      drawing = true;
+      pointerId = e.pointerId;
+      node.setPointerCapture(e.pointerId);
+      const c = toCanvasCoords(e.clientX, e.clientY);
+      drawStartCanvasX = c.x;
+      drawStartCanvasY = c.y;
+      drawColor = pickRegionColor();
+      regionPreview.set({ x: c.x, y: c.y, width: 0, height: 0, color: drawColor });
+      interactionState.set('dragging');
+      document.body.classList.add('cv-interacting');
+      return;
+    }
+
     const isPanGesture =
       e.button === RIGHT_BUTTON ||
       e.button === MIDDLE_BUTTON ||
@@ -36,6 +98,15 @@ export function pannable(node: HTMLElement) {
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (drawing && e.pointerId === pointerId) {
+      const c = toCanvasCoords(e.clientX, e.clientY);
+      const x = Math.min(drawStartCanvasX, c.x);
+      const y = Math.min(drawStartCanvasY, c.y);
+      const width = Math.abs(c.x - drawStartCanvasX);
+      const height = Math.abs(c.y - drawStartCanvasY);
+      regionPreview.set({ x, y, width, height, color: drawColor });
+      return;
+    }
     if (!dragging || e.pointerId !== pointerId) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
@@ -44,7 +115,52 @@ export function pannable(node: HTMLElement) {
     viewport.update((v) => ({ ...v, offsetX: v.offsetX + dx, offsetY: v.offsetY + dy }));
   }
 
+  async function finishDraw() {
+    const preview = get(regionPreview);
+    regionPreview.set(null);
+    if (!preview) return;
+    if (preview.width < REGION_CREATE_MIN_WIDTH || preview.height < REGION_CREATE_MIN_HEIGHT) {
+      return; // too small — cancel
+    }
+    const region: CanvasRegion = {
+      workspaceId: REGION_WORKSPACE_ID,
+      regionId: crypto.randomUUID(),
+      name: `Region ${get(regionsById).size + 1}`,
+      x: preview.x,
+      y: preview.y,
+      width: preview.width,
+      height: preview.height,
+      color: preview.color,
+      zOrder: 0,
+      createdAt: '',
+      updatedAt: '',
+    };
+    regionsById.update((m) => {
+      const next = new Map(m);
+      next.set(region.regionId, region);
+      return next;
+    });
+    try {
+      await canvasUpsertRegion(region);
+    } catch (err) {
+      console.error('[atlas] failed to persist region', err);
+    }
+  }
+
   function endPan(e: PointerEvent) {
+    if (drawing && e.pointerId === pointerId) {
+      drawing = false;
+      pointerId = null;
+      try {
+        node.releasePointerCapture(e.pointerId);
+      } catch {
+        // Capture may already be released by browser.
+      }
+      interactionState.set('idle');
+      document.body.classList.remove('cv-interacting');
+      void finishDraw();
+      return;
+    }
     if (!dragging || e.pointerId !== pointerId) return;
     dragging = false;
     pointerId = null;

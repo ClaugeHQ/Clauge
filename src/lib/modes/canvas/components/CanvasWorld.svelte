@@ -4,6 +4,7 @@
   import { mode } from '$lib/stores/app';
   import CanvasTile from './CanvasTile.svelte';
   import CanvasRegion from './CanvasRegion.svelte';
+  import CanvasRegionPreview from './CanvasRegionPreview.svelte';
 
   let worldEl: HTMLDivElement | undefined = $state();
 
@@ -27,6 +28,7 @@
     {#each $tilesSortedByZ as tile (tile.tabId)}
       <CanvasTile {tile} />
     {/each}
+    <CanvasRegionPreview />
   {/if}
 </div>
 

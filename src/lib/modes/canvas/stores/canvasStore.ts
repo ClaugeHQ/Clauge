@@ -33,6 +33,16 @@ export const viewport = writable<ViewportState>({ offsetX: 0, offsetY: 0, zoom: 
 export const interactionState = writable<InteractionState>('idle');
 export const focusedTabId = writable<string | null>(null);
 
+export interface RegionDraftPreview {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+}
+/** Live rectangle shown while the user is Shift+dragging to create a region. */
+export const regionPreview = writable<RegionDraftPreview | null>(null);
+
 // Debounced viewport flush — single timer.
 let viewportFlushTimer: ReturnType<typeof setTimeout> | null = null;
 // Singleton: only one canvas workspace is active at a time (Clauge is single-window).
