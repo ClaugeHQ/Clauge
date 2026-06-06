@@ -5,6 +5,7 @@
     loadCanvas,
     flushViewportNow,
     flushDirtyTilesNow,
+    flushDirtyRegionsNow,
     setActiveWorkspace,
     viewport,
   } from '$lib/modes/canvas/stores/canvasStore';
@@ -132,6 +133,7 @@
     initialized = false;
     void flushViewportNow();
     void flushDirtyTilesNow();
+    void flushDirtyRegionsNow();
   }
 
   function startRenderScaleSyncIfNeeded() {

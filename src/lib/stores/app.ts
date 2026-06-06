@@ -103,9 +103,10 @@ export async function setMode(next: AppMode): Promise<void> {
   if (prev === next) return;
   if (prev === 'canvas') {
     try {
-      const { flushViewportNow, flushDirtyTilesNow } = await import('$lib/modes/canvas/stores/canvasStore');
+      const { flushViewportNow, flushDirtyTilesNow, flushDirtyRegionsNow } = await import('$lib/modes/canvas/stores/canvasStore');
       await flushViewportNow();
       await flushDirtyTilesNow();
+      await flushDirtyRegionsNow();
     } catch {
       // Network/IPC errors from the flush should not block mode switch.
     }
