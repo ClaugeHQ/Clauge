@@ -7,6 +7,7 @@
     tilesByRegion,
     tilesByTab,
     markTileDirty,
+    pendingRenameRegionId,
   } from '$lib/modes/canvas/stores/canvasStore';
   import { canvasDeleteRegion } from '$lib/modes/canvas/commands';
   import { regionDraggable } from '$lib/modes/canvas/actions/regionDraggable';
@@ -19,7 +20,6 @@
   let menuOpen = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
-  let confirmOpen = $state(false);
 
   async function startRename() {
     editingName = true;
@@ -27,6 +27,15 @@
     nameInput?.focus();
     nameInput?.select();
   }
+
+  // Newly-created regions ask to be renamed via the pendingRenameRegionId
+  // store so the user can type the project name immediately.
+  $effect(() => {
+    if ($pendingRenameRegionId === region.regionId) {
+      pendingRenameRegionId.set(null);
+      void startRename();
+    }
+  });
 
   function commitName(e: Event) {
     const value = (e.target as HTMLInputElement).value.trim() || 'Region';
@@ -62,40 +71,33 @@
     menuOpen = false;
   }
 
-  async function deleteRegion(deleteChildren: boolean) {
+  async function deleteRegion() {
     menuOpen = false;
-    confirmOpen = false;
-    try {
-      await canvasDeleteRegion(region.workspaceId, region.regionId, deleteChildren);
-    } catch {
-      // Best-effort; if the delete fails the next reload picks up the truth.
-    }
+    const children = $tilesByRegion.get(region.regionId) ?? [];
+    // Optimistic: clear the region locally first so the UI reacts
+    // immediately; the backend call detaches any child tiles
+    // (delete_children = false) on the SQL side.
     regionsById.update((m) => {
       const next = new Map(m);
       next.delete(region.regionId);
       return next;
     });
-    const children = $tilesByRegion.get(region.regionId) ?? [];
-    if (deleteChildren) {
-      tilesByTab.update((m) => {
-        const next = new Map(m);
-        for (const t of children) next.delete(t.tabId);
-        return next;
-      });
-    } else {
-      tilesByTab.update((m) => {
-        const next = new Map(m);
-        for (const t of children) {
-          const cur = next.get(t.tabId);
-          if (cur) next.set(t.tabId, { ...cur, regionId: null });
-        }
-        return next;
-      });
-      for (const t of children) markTileDirty(t.tabId);
+    tilesByTab.update((m) => {
+      const next = new Map(m);
+      for (const t of children) {
+        const cur = next.get(t.tabId);
+        if (cur) next.set(t.tabId, { ...cur, regionId: null });
+      }
+      return next;
+    });
+    for (const t of children) markTileDirty(t.tabId);
+    try {
+      await canvasDeleteRegion(region.workspaceId, region.regionId, false);
+    } catch {
+      // Best-effort; if the delete fails the next reload picks up the truth.
     }
   }
 
-  const childCount = $derived($tilesByRegion.get(region.regionId)?.length ?? 0);
   const fillStyle = $derived(`background: color-mix(in srgb, ${region.color} 12%, transparent);`);
   const borderStyle = $derived(`border: 1px solid ${region.color};`);
 
@@ -127,10 +129,24 @@
       <button
         type="button"
         class="cv-region-name"
+        title="Double-click to rename"
         ondblclick={startRename}
+        onpointerdown={(e) => e.stopPropagation()}
       >{region.name}</button>
     {/if}
-    {#if childCount > 0}<span class="cv-region-count">{childCount}</span>{/if}
+    <button
+      type="button"
+      class="cv-region-close"
+      title="Delete region (tiles stay)"
+      aria-label="Delete region"
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={deleteRegion}
+    >
+      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <line x1="2" y1="2" x2="12" y2="12"/>
+        <line x1="12" y1="2" x2="2" y2="12"/>
+      </svg>
+    </button>
   </div>
 
   {#each handles as h (h.dir)}
@@ -149,7 +165,7 @@
     onpointerdown={(e) => e.stopPropagation()}
   >
     <button type="button" onclick={() => { closeMenu(); void startRename(); }}>Rename</button>
-    <button type="button" onclick={() => { menuOpen = false; confirmOpen = true; }}>Delete…</button>
+    <button type="button" onclick={() => { menuOpen = false; void deleteRegion(); }}>Delete region</button>
   </div>
   <div
     class="cv-region-menu-scrim"
@@ -159,40 +175,14 @@
   ></div>
 {/if}
 
-{#if confirmOpen}
-  <div
-    class="cv-region-confirm-scrim"
-    onpointerdown={() => (confirmOpen = false)}
-    role="presentation"
-  ></div>
-  <div class="cv-region-confirm" onpointerdown={(e) => e.stopPropagation()}>
-    <div class="cv-region-confirm-title">Delete &ldquo;{region.name}&rdquo;?</div>
-    <div class="cv-region-confirm-body">
-      {#if childCount === 0}
-        This region has no tiles inside it.
-      {:else}
-        Delete the {childCount} tile{childCount === 1 ? '' : 's'} inside it as well, or detach them?
-      {/if}
-    </div>
-    <div class="cv-region-confirm-actions">
-      <button type="button" onclick={() => (confirmOpen = false)}>Cancel</button>
-      {#if childCount > 0}
-        <button type="button" onclick={() => deleteRegion(false)}>Detach tiles</button>
-        <button type="button" class="danger" onclick={() => deleteRegion(true)}>Delete with tiles</button>
-      {:else}
-        <button type="button" class="danger" onclick={() => deleteRegion(false)}>Delete</button>
-      {/if}
-    </div>
-  </div>
-{/if}
-
 <style>
   .cv-region {
     position: absolute;
     border-radius: 10px;
     pointer-events: auto;
     cursor: grab;
-    contain: layout paint;
+    /* No `contain: paint` — would clip the outside-top-left label. */
+    contain: layout;
   }
   .cv-region:active {
     cursor: grabbing;
@@ -203,7 +193,7 @@
     left: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     font-family: var(--ui);
     font-size: 12px;
     font-weight: 600;
@@ -213,10 +203,18 @@
   .cv-region-name {
     background: transparent;
     border: none;
-    padding: 0;
+    padding: 1px 4px;
     color: inherit;
     font: inherit;
     cursor: text;
+    border-radius: 3px;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cv-region-name:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
   }
   .cv-region-name-input {
     background: var(--c);
@@ -225,12 +223,31 @@
     padding: 1px 6px;
     font: inherit;
     outline: none;
-    min-width: 80px;
+    min-width: 100px;
   }
-  .cv-region-count {
-    font-weight: 500;
+  .cv-region-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
     color: var(--t3);
-    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 80ms linear;
+  }
+  .cv-region:hover .cv-region-close,
+  .cv-region-close:focus-visible {
+    opacity: 1;
+  }
+  .cv-region-close:hover {
+    color: #e74c3c;
+    background: color-mix(in srgb, #e74c3c 15%, transparent);
   }
   .cv-region-handle {
     position: absolute;
@@ -273,65 +290,5 @@
     position: fixed;
     inset: 0;
     z-index: 999;
-  }
-
-  .cv-region-confirm-scrim {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.35);
-    z-index: 1001;
-  }
-  .cv-region-confirm {
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 1002;
-    background: var(--c);
-    border: 1px solid var(--b1);
-    border-radius: 8px;
-    padding: 18px 20px;
-    width: 360px;
-    max-width: calc(100vw - 32px);
-    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-    font-family: var(--ui);
-  }
-  .cv-region-confirm-title {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 8px;
-    color: var(--t1);
-  }
-  .cv-region-confirm-body {
-    font-size: 13px;
-    color: var(--t2);
-    margin-bottom: 16px;
-    line-height: 1.5;
-  }
-  .cv-region-confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  .cv-region-confirm-actions button {
-    background: var(--surface-hover);
-    color: var(--t1);
-    border: 1px solid var(--b1);
-    border-radius: 4px;
-    padding: 6px 14px;
-    font: 12px var(--ui);
-    cursor: pointer;
-  }
-  .cv-region-confirm-actions button:hover {
-    border-color: var(--b2);
-  }
-  .cv-region-confirm-actions button.danger {
-    background: #b34141;
-    color: white;
-    border-color: #b34141;
-  }
-  .cv-region-confirm-actions button.danger:hover {
-    background: #c04848;
-    border-color: #c04848;
   }
 </style>

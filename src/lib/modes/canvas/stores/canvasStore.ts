@@ -43,6 +43,15 @@ export interface RegionDraftPreview {
 /** Live rectangle shown while the user is Shift+dragging to create a region. */
 export const regionPreview = writable<RegionDraftPreview | null>(null);
 
+/**
+ * Signal to the CanvasRegion for `regionId` to enter rename mode as
+ * soon as it mounts. Cleared by the region once consumed. Set by the
+ * region creation paths (toolbar button, Shift+drag) so the user can
+ * type the project name immediately without hunting for the rename
+ * affordance.
+ */
+export const pendingRenameRegionId = writable<string | null>(null);
+
 // Debounced viewport flush — single timer.
 let viewportFlushTimer: ReturnType<typeof setTimeout> | null = null;
 // Singleton: only one canvas workspace is active at a time (Clauge is single-window).

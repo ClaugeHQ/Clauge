@@ -4,32 +4,11 @@ import {
   interactionState,
   flushViewportSoon,
   regionPreview,
-  regionsById,
 } from '$lib/modes/canvas/stores/canvasStore';
-import { canvasUpsertRegion, type CanvasRegion } from '$lib/modes/canvas/commands';
+import { createRegion, pickRegionColor } from '$lib/modes/canvas/services/regionLifecycle';
 
 const RIGHT_BUTTON = 2;
 const MIDDLE_BUTTON = 1;
-
-const REGION_PALETTE = [
-  'hsl(220 70% 60%)', // blue
-  'hsl(280 65% 65%)', // purple
-  'hsl(330 65% 60%)', // pink
-  'hsl(10 75% 60%)',  // orange-red
-  'hsl(40 80% 55%)',  // gold
-  'hsl(140 55% 50%)', // green
-  'hsl(180 60% 50%)', // teal
-];
-
-function pickRegionColor(): string {
-  const existing = new Set(
-    [...get(regionsById).values()].map((r) => r.color),
-  );
-  for (const c of REGION_PALETTE) {
-    if (!existing.has(c)) return c;
-  }
-  return REGION_PALETTE[Math.floor(Math.random() * REGION_PALETTE.length)];
-}
 
 const REGION_CREATE_MIN_WIDTH = 200;
 const REGION_CREATE_MIN_HEIGHT = 150;
@@ -122,29 +101,14 @@ export function pannable(node: HTMLElement) {
     if (preview.width < REGION_CREATE_MIN_WIDTH || preview.height < REGION_CREATE_MIN_HEIGHT) {
       return; // too small — cancel
     }
-    const region: CanvasRegion = {
+    await createRegion({
       workspaceId: REGION_WORKSPACE_ID,
-      regionId: crypto.randomUUID(),
-      name: `Region ${get(regionsById).size + 1}`,
       x: preview.x,
       y: preview.y,
       width: preview.width,
       height: preview.height,
       color: preview.color,
-      zOrder: 0,
-      createdAt: '',
-      updatedAt: '',
-    };
-    regionsById.update((m) => {
-      const next = new Map(m);
-      next.set(region.regionId, region);
-      return next;
     });
-    try {
-      await canvasUpsertRegion(region);
-    } catch (err) {
-      console.error('[atlas] failed to persist region', err);
-    }
   }
 
   function endPan(e: PointerEvent) {
