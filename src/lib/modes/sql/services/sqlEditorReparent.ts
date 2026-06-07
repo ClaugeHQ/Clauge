@@ -1,5 +1,5 @@
 import { EditorView, keymap, placeholder as cmPlaceholder, lineNumbers } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Prec } from '@codemirror/state';
 import { sql, PostgreSQL } from '@codemirror/lang-sql';
 import { autocompletion } from '@codemirror/autocomplete';
 import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
@@ -9,7 +9,84 @@ import { search, searchKeymap } from '@codemirror/search';
 import { mount, unmount } from 'svelte';
 import { mod } from '$lib/utils/platform';
 import { getSqlTabData, setSqlTabData } from '../stores';
+import { splitSqlStatements, splitSqlStatementsWithPositions } from '../utils/splitter';
+import { showToast } from '$lib/shared/primitives/toast';
 import SqlTileHeader from '../components/SqlTileHeader.svelte';
+
+/**
+ * Per-tab execute hooks published by QueryEditor (via setSqlTabExecutor)
+ * and consumed by the Mod-Enter binding inside the singleton EditorView.
+ *
+ * Why this lives here: when Mod-Enter was registered from QueryEditor's
+ * `$effect`, there was a window between editor creation and the effect
+ * firing where Cmd+Enter fell through to the browser's contenteditable
+ * default (insert newline / replace selection). Binding it inside the
+ * registry with Prec.highest() guarantees the key is captured from the
+ * very first dispatch.
+ */
+export interface SqlTabExecutor {
+  onexecute?: (query: string) => void;
+  onexecutemulti?: (queries: string[]) => void;
+  disabled?: boolean;
+}
+
+const tabExecutors = new Map<number, SqlTabExecutor>();
+
+export function setSqlTabExecutor(tabId: number, exec: SqlTabExecutor): void {
+  tabExecutors.set(tabId, exec);
+}
+
+export function clearSqlTabExecutor(tabId: number): void {
+  tabExecutors.delete(tabId);
+}
+
+/**
+ * Run the same cursor-aware execution logic QueryEditor.executeFromCursor
+ * uses, looking up the per-tab onexecute / onexecutemulti closures via
+ * the executor map. Returns true to consume the key event.
+ */
+function executeAtCursorForTab(tabId: number, view: EditorView): boolean {
+  const exec = tabExecutors.get(tabId);
+  if (!exec) return false;
+  if (exec.disabled) {
+    showToast('Query already running — cancel to start a new one', 'info');
+    return true;
+  }
+  const sel = view.state.selection.main;
+
+  if (!sel.empty) {
+    const selected = view.state.sliceDoc(sel.from, sel.to).trim();
+    if (!selected) return true;
+    const stmts = splitSqlStatements(selected);
+    if (stmts.length > 1 && exec.onexecutemulti) {
+      exec.onexecutemulti(stmts);
+      return true;
+    }
+    if (stmts.length === 1 && stmts[0].trim().length > 0) {
+      exec.onexecute?.(stmts[0]);
+    }
+    return true;
+  }
+
+  const fullText = view.state.doc.toString();
+  const cursorPos = sel.head;
+  const statements = splitSqlStatementsWithPositions(fullText);
+  if (statements.length === 0) return true;
+
+  let stmt = statements.find((s) => cursorPos >= s.from && cursorPos <= s.to + 1);
+  if (!stmt) {
+    for (let i = statements.length - 1; i >= 0; i--) {
+      if (statements[i].to < cursorPos) {
+        stmt = statements[i];
+        break;
+      }
+    }
+  }
+  if (stmt && stmt.text.trim().length > 0) {
+    exec.onexecute?.(stmt.text);
+  }
+  return true;
+}
 
 /**
  * Singleton registry of CodeMirror EditorViews keyed by SQL tab id.
@@ -165,6 +242,21 @@ function createEntry(tabId: number, initialDoc: string): SqlEditorEntry {
   const extensions = [
     lineNumbers(),
     history(),
+    // Mod-Enter is wired at creation time with Prec.highest so the
+    // execute binding always wins over default Enter handlers,
+    // autocomplete keymaps, and the empty initial state of the per-
+    // QueryEditor compartment. Closes over `tabId` and looks the live
+    // executor up at run-time, so prop changes in QueryEditor flow
+    // through without needing a re-dispatch.
+    Prec.highest(
+      keymap.of([
+        {
+          key: 'Mod-Enter',
+          preventDefault: true,
+          run: (view) => executeAtCursorForTab(tabId, view),
+        },
+      ]),
+    ),
     keymap.of([
       ...defaultKeymap,
       ...historyKeymap,
@@ -309,6 +401,7 @@ export function detachSqlEditor(tabId: number, slot: HTMLElement): void {
  * tab is permanently closed (not just unmounted for a reparent).
  */
 export function destroySqlEditor(tabId: number): void {
+  tabExecutors.delete(tabId);
   const entry = editors.get(tabId);
   if (!entry) return;
   if (entry.header) {

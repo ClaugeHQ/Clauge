@@ -14,6 +14,7 @@
     attachSqlEditor,
     detachSqlEditor,
     getSqlEditorEntry,
+    setSqlTabExecutor,
   } from '../services/sqlEditorReparent';
 
   interface Props {
@@ -322,30 +323,21 @@
     });
   });
 
+  // Mod-Enter is owned by the singleton registry (highest precedence)
+  // and dispatches via the per-tab executor map — publish ours whenever
+  // props change so the binding always sees the live callbacks. The
+  // Mod-Shift-f format binding still lives here because formatBuffer
+  // depends on QueryEditor's local activeConnection state.
   $effect(() => {
-    const onExecDep = onexecute;
-    const onExecMultiDep = onexecutemulti;
-    const disabledDep = disabled;
-    void onExecDep;
-    void onExecMultiDep;
-    void disabledDep;
+    setSqlTabExecutor(tabId, { onexecute, onexecutemulti, disabled });
+  });
+
+  $effect(() => {
     const entry = getSqlEditorEntry(tabId);
     if (!entry) return;
     entry.view.dispatch({
       effects: entry.execKeymapCompartment.reconfigure(
         keymap.of([
-          {
-            key: 'Mod-Enter',
-            run: (v) => {
-              if (disabledDep) {
-                showToast('Query already running — cancel to start a new one', 'info');
-                return true;
-              }
-              executeFromCursor(v);
-              return true;
-            },
-            preventDefault: true,
-          },
           { key: 'Mod-Shift-f', run: formatBuffer, preventDefault: true },
         ]),
       ),

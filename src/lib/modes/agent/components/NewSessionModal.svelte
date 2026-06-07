@@ -177,6 +177,23 @@
   }
 
   let showProviderNotInstalled = $state(false);
+  let rechecking = $state(false);
+
+  async function recheck() {
+    if (rechecking) return;
+    rechecking = true;
+    try {
+      await refreshProviderStatus();
+    } finally {
+      rechecking = false;
+    }
+  }
+
+  const missingCount = $derived(
+    $providerStatusReady
+      ? AGENT_PROVIDERS.filter((p) => !$providerStatus[p.id]).length
+      : 0,
+  );
 
   async function handleCreate() {
     if (!projectPath.trim() || !title.trim() || !purpose) return;
@@ -291,19 +308,35 @@
             {/if}
           </button>
         {/each}
-        <button
-          class="ns-prov-refresh"
-          title="Re-check installed CLIs"
-          aria-label="Re-check installed CLIs"
-          onclick={() => { void refreshProviderStatus(); }}
-        >
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          Re-check
-        </button>
+        {#if missingCount > 0}
+          <div class="ns-prov-foot">
+            <span class="ns-prov-foot-text">
+              {missingCount === 1 ? '1 CLI not on PATH' : `${missingCount} CLIs not on PATH`}
+            </span>
+            <button
+              class="ns-prov-foot-link"
+              class:rechecking
+              type="button"
+              disabled={rechecking}
+              title="Re-check installed CLIs"
+              onclick={recheck}
+            >
+              {#if rechecking}
+                <svg class="ns-spin" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                </svg>
+                Checking…
+              {:else}
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <polyline points="1 20 1 14 7 14"/>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                Re-check
+              {/if}
+            </button>
+          </div>
+        {/if}
       </aside>
 
       <!-- RIGHT PANE — tabs + form -->
@@ -646,23 +679,47 @@
     font-family: var(--ui);
     line-height: 1;
   }
-  .ns-prov-refresh {
+  .ns-prov-foot {
+    margin-top: auto;
+    padding: 10px 8px 4px;
+    border-top: 1px solid var(--b1);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ns-prov-foot-text {
+    font: 10.5px var(--ui);
+    color: var(--t3);
+    letter-spacing: 0.01em;
+  }
+  .ns-prov-foot-link {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    margin: 6px 4px 0;
-    padding: 5px 8px;
-    border: 1px dashed var(--b1);
+    padding: 0;
     background: transparent;
-    border-radius: 6px;
-    color: var(--t3);
-    font: 10.5px var(--ui);
+    border: none;
+    color: var(--acc);
+    font: 11px var(--ui);
     cursor: pointer;
-    transition: color 0.1s, border-color 0.1s;
+    align-self: flex-start;
+    transition: opacity 0.1s;
   }
-  .ns-prov-refresh:hover {
-    color: var(--t1);
-    border-color: var(--b2);
+  .ns-prov-foot-link:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+  .ns-prov-foot-link:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .ns-prov-foot-link.rechecking {
+    color: var(--t3);
+  }
+  .ns-spin {
+    animation: ns-spin 0.8s linear infinite;
+  }
+  @keyframes ns-spin {
+    to { transform: rotate(360deg); }
   }
   .ns-prov-icon {
     flex-shrink: 0;
