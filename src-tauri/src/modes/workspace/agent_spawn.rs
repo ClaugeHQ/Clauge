@@ -187,7 +187,7 @@ pub async fn drawer_chat_turn(
         let install_url = match coworker.provider.as_str() {
             "claude" => "https://code.claude.com/docs/en/setup",
             "codex" => "https://developers.openai.com/codex/quickstart",
-            "gemini" => "https://google-gemini.github.io/gemini-cli/docs/get-started/",
+            "gemini" => "https://antigravity.google/docs/cli-getting-started",
             "opencode" => "https://opencode.ai/docs/cli/",
             _ => "https://code.claude.com/docs/en/setup",
         };

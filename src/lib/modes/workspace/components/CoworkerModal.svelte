@@ -53,7 +53,7 @@
   const PROVIDER_OPTIONS = [
     { id: 'claude', label: 'Claude', color: '#d4a96a' },
     { id: 'codex', label: 'Codex', color: '#10a37f' },
-    { id: 'gemini', label: 'Gemini', color: '#3186ff' },
+    { id: 'gemini', label: 'Antigravity', color: '#3186ff' },
     { id: 'opencode', label: 'OpenCode', color: '#f1ecec' },
   ];
 

@@ -30,3 +30,4 @@ vite.config.ts.timestamp-*
 # folders that node-gyp leaves at the repo root).
 .*-node-gyp/
 .*.node-gyp/
+CLAUDE.md

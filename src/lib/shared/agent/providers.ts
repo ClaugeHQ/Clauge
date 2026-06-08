@@ -54,17 +54,20 @@ export const PROVIDER_INSTALL_INFO: Record<AgentProvider, ProviderInstallInfo> =
     ],
   },
   gemini: {
-    name: 'Gemini CLI',
-    docsUrl: 'https://google-gemini.github.io/gemini-cli/docs/get-started/',
+    // Google replaced gemini-cli with the `agy` Antigravity CLI on
+    // 2026-06-18. Internal provider id stays "gemini" so existing
+    // coworkers + sessions keep working.
+    name: 'Antigravity CLI',
+    docsUrl: 'https://antigravity.google/docs/cli-getting-started',
     mac: [
-      { label: 'Homebrew', cmd: 'brew install gemini-cli' },
-      { label: 'npm', cmd: 'npm install -g @google/gemini-cli' },
+      { label: 'Install script', cmd: 'curl -fsSL https://antigravity.google/cli/install.sh | bash' },
+      { label: 'Homebrew', cmd: 'brew install antigravity' },
     ],
     windows: [
-      { label: 'npm', cmd: 'npm install -g @google/gemini-cli' },
+      { label: 'PowerShell', cmd: 'irm https://antigravity.google/cli/install.ps1 | iex' },
     ],
     linux: [
-      { label: 'npm', cmd: 'npm install -g @google/gemini-cli' },
+      { label: 'Install script', cmd: 'curl -fsSL https://antigravity.google/cli/install.sh | bash' },
     ],
   },
   opencode: {

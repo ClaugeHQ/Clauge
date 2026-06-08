@@ -34,7 +34,11 @@ use crate::shared::platform::shell::default_user_shell;
 
 pub struct GeminiRunner;
 
-const BINARY: &str = "gemini";
+// `agy` is the Antigravity CLI binary that replaces gemini-cli for free,
+// Pro, and Ultra tiers as of 2026-06-18. The internal provider id stays
+// "gemini" so existing user data (coworkers + sessions with
+// provider="gemini") keeps working.
+const BINARY: &str = "agy";
 const HOME_SUBDIR: &str = ".gemini";
 const SESSIONS_SUBDIR: &str = "tmp";
 const SESSION_EXT: &str = "jsonl";
