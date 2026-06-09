@@ -669,32 +669,38 @@ fn oneshot_argv(
             argv
         }
         "gemini" => {
-            // Gemini's non-interactive form is `gemini -p <prompt>`.
-            // No system-prompt flag — prepend persona to the prompt the
-            // same way OpenCode does. `--skip-trust` opts out of the
-            // workspace trust prompt that would otherwise hang a
-            // headless turn. `--yolo` auto-approves tool calls (same
-            // safety argument as the Claude / Codex arms above).
-            // Resume: Gemini's `--resume` is index-based; we pass
-            // `--resume latest` whenever discovery has surfaced *any*
-            // existing session id for this card, since the latest one
-            // in the per-project dir is the same row Clauge tracked.
+            // Antigravity CLI (`agy`) replaced gemini-cli on 2026-06-18.
+            // Internal provider id stays "gemini" for backward compat
+            // with existing coworker / session rows.
+            //
+            // Non-interactive form is `agy -p <prompt>`. No
+            // system-prompt flag, so the persona is prepended to the
+            // user prompt the same way OpenCode does.
+            //
+            // Flag rename map vs old gemini-cli:
+            //   --skip-trust → removed (no trust gate)
+            //   --yolo       → --dangerously-skip-permissions
+            //   --resume     → --continue
             let body = if persona.is_empty() {
                 prompt.to_string()
             } else {
                 format!("{persona}\n\n---\n\n{prompt}")
             };
-            // Antigravity CLI (`agy`) replaced gemini-cli on 2026-06-18.
-            // Flag rename map vs old gemini-cli:
-            //   --skip-trust → removed (no trust gate)
-            //   --yolo       → --dangerously-skip-permissions
-            //   --resume     → --continue
             let mut argv = vec![
                 "agy".to_string(),
                 "--dangerously-skip-permissions".to_string(),
             ];
-            if resume_id.is_some() {
-                argv.push("--continue".to_string());
+            if let Some(sid) = resume_id {
+                // Conversation UUIDs are the .db filenames under
+                // ~/.gemini/antigravity-cli/conversations/, so when we
+                // have a UUID-shaped id we target it explicitly. Older
+                // rows (or unknown shape) fall back to --continue.
+                if is_uuid_shaped(sid) {
+                    argv.push("--conversation".to_string());
+                    argv.push(sid.to_string());
+                } else {
+                    argv.push("--continue".to_string());
+                }
             }
             argv.push("-p".to_string());
             argv.push(body);
@@ -816,4 +822,20 @@ fn build_persona_prompt(
          user controls when code leaves the worktree.",
     );
     out
+}
+
+/// Shape check for an 8-4-4-4-12 hex UUID. Used to decide whether to
+/// pass `--conversation <id>` to `agy` (which requires a real UUID) or
+/// fall back to `--continue`.
+fn is_uuid_shaped(s: &str) -> bool {
+    if s.len() != 36 { return false; }
+    for (i, b) in s.as_bytes().iter().enumerate() {
+        let expect_dash = matches!(i, 8 | 13 | 18 | 23);
+        if expect_dash {
+            if *b != b'-' { return false; }
+        } else if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }

@@ -104,13 +104,16 @@ impl CliRunner for GeminiRunner {
         //   --yolo        → --dangerously-skip-permissions
         //   --resume <N>  → --continue (most recent) | --conversation <id>
         let mut cmd = head.clone();
-        // Resume: agy accepts either `--continue` (resume the most
-        // recent conversation in this workspace) or `--conversation
-        // <uuid>` (resume a specific one). We currently only know
-        // "is there a prior session" via the heuristic in the old code,
-        // so fall back to --continue when any well-shaped id is present.
+        // Resume: agy accepts `--conversation <uuid>` to target a
+        // specific conversation, or `--continue` to grab the most
+        // recent. Conversation UUIDs are the .db filenames under
+        // ~/.gemini/antigravity-cli/conversations/, so when discovery
+        // hands us a well-shaped UUID we use it directly. Anything
+        // else (truthy but not a UUID) falls back to `--continue`.
         if let Some(sid) = opts.resume_session_id.as_deref() {
             if looks_like_uuid(sid) {
+                cmd.push_str(&format!(" --conversation {sid}"));
+            } else {
                 cmd.push_str(" --continue");
             }
         }
@@ -209,10 +212,25 @@ impl CliRunner for GeminiRunner {
         SESSION_EXT
     }
 
-    fn extract_resume_id_from_output(&self, _buffer: &str) -> Option<String> {
-        // Gemini's startup banner doesn't include a deterministic
-        // "resume with: <id>" marker. Capture happens via the on-disk
-        // scan in `discover_gemini_sessions` after spawn.
+    fn extract_resume_id_from_output(&self, buffer: &str) -> Option<String> {
+        // On exit, `agy` prints a banner like
+        //   `agy --conversation=<uuid>` or `agy -c`
+        // telling the user how to resume. Capture the UUID form so we
+        // can persist it into the session row and pass it back via
+        // --conversation on the next spawn. The "-c" hint isn't useful
+        // (no specific id) so we ignore it; discovery handles fallback.
+        for marker in ["--conversation=", "--conversation "] {
+            if let Some(idx) = buffer.find(marker) {
+                let rest = &buffer[idx + marker.len()..];
+                let candidate: String = rest
+                    .chars()
+                    .take(36)
+                    .collect();
+                if candidate.len() == 36 && looks_like_uuid(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
         None
     }
 
