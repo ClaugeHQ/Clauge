@@ -813,48 +813,51 @@ async fn query_opencode_sessions(
         .collect())
 }
 
-/// Gemini stores sessions at
-/// `~/.gemini/tmp/<slug>/chats/session-<ts>-<short-id>.jsonl`. The
-/// project→slug map lives in `~/.gemini/projects.json`. Each file's
-/// first line is a JSON header carrying `sessionId` (the resume UUID),
-/// `projectHash`, `startTime`. We resolve the slug via the runner's
-/// `session_dir_for_project`, then scan that directory and extract the
-/// session id from the header line. Preview is the first user message
-/// content (Gemini stores them as `{type:"user", content:[{text:...}]}`).
+/// Antigravity (agy) stores conversations flat at
+/// `~/.gemini/antigravity-cli/conversations/<uuid>.db` (SQLite). The
+/// filename IS the conversation UUID, so resume discovery doesn't have
+/// to open the database — we just enumerate `.db` files and use their
+/// stems as the resumable id (`agy --conversation <uuid>` accepts it
+/// directly). Per-project filtering needs a SQLite read of each db's
+/// `project_path` row, which isn't wired yet.
+///
+/// **Important:** when `project_path` is non-empty (i.e. the caller is
+/// resolving "what id should I resume for THIS project?"), we return
+/// an empty list rather than risk handing back a UUID for a different
+/// project. That would cause `agy --conversation <uuid>` to reopen
+/// someone else's conversation. The session row's `claudeSessionId`
+/// already carries the right id once `agy` has printed it in the exit
+/// banner (frontend regex captures it), so returning empty here just
+/// means "no auto-resume on a fresh row" — not a regression.
 fn discover_gemini_sessions(project_path: &str) -> Result<Vec<DiscoveredSession>, String> {
+    if !project_path.is_empty() {
+        return Ok(Vec::new());
+    }
     let cli: &dyn CliRunner = runner_for("gemini");
-    let chats_dir = match cli.session_dir_for_project(project_path) {
+    let conversations_dir = match cli.session_dir_for_project(project_path) {
         Some(p) => p,
         None => return Ok(Vec::new()),
     };
-    if !chats_dir.exists() {
+    if !conversations_dir.exists() {
         return Ok(Vec::new());
     }
 
     let mut sessions = Vec::new();
-    let entries = fs::read_dir(&chats_dir).map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(&conversations_dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
         let path = entry.path();
         if !cli.is_session_file(&path) {
             continue;
         }
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let mut lines = content.lines();
-        let first = match lines.next() {
-            Some(l) => l,
-            None => continue,
-        };
-        let header: serde_json::Value = match serde_json::from_str(first) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let session_id = match header.get("sessionId").and_then(|v| v.as_str()) {
+        let session_id = match path.file_stem().and_then(|s| s.to_str()) {
             Some(s) => s.to_string(),
             None => continue,
         };
+        // Skip anything whose filename isn't a UUID — agy's
+        // --conversation flag would reject it anyway.
+        if !is_uuid_filename(&session_id) {
+            continue;
+        }
         let modified_at = path
             .metadata()
             .ok()
@@ -865,41 +868,30 @@ fn discover_gemini_sessions(project_path: &str) -> Result<Vec<DiscoveredSession>
             })
             .unwrap_or_default();
 
-        // Best-effort preview: first `{type:"user", content:[{text:…}]}`
-        // entry in the JSONL stream. Falls back to None if the file only
-        // contains the header / system events.
-        let mut preview: Option<String> = None;
-        for line in lines.take(40) {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
-                if val.get("type").and_then(|t| t.as_str()) != Some("user") {
-                    continue;
-                }
-                if let Some(arr) = val.get("content").and_then(|c| c.as_array()) {
-                    for item in arr {
-                        if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
-                            preview = Some(t.chars().take(80).collect());
-                            break;
-                        }
-                    }
-                    if preview.is_some() {
-                        break;
-                    }
-                }
-                if let Some(t) = val.get("content").and_then(|c| c.as_str()) {
-                    preview = Some(t.chars().take(80).collect());
-                    break;
-                }
-            }
-        }
-
+        // Preview would require opening the SQLite database. Surface
+        // the bare conversation id for now; a follow-up can wire
+        // sqlx/rusqlite to pull the first user message.
         sessions.push(DiscoveredSession {
             session_id,
             modified_at,
-            preview,
+            preview: None,
         });
     }
     sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
     Ok(sessions)
+}
+
+fn is_uuid_filename(s: &str) -> bool {
+    if s.len() != 36 { return false; }
+    for (i, b) in s.as_bytes().iter().enumerate() {
+        let expect_dash = matches!(i, 8 | 13 | 18 | 23);
+        if expect_dash {
+            if *b != b'-' { return false; }
+        } else if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }
 
 #[tauri::command]
@@ -2043,6 +2035,16 @@ fn gemini_project_path_for_slug(slug: &str) -> Option<String> {
 }
 
 fn gemini_usage_analytics(days: Option<u32>) -> Result<UsageAnalytics, String> {
+    // TODO(antigravity): the old `~/.gemini/tmp/<slug>/chats/*.jsonl`
+    // layout is gone — Antigravity stores conversations in SQLite at
+    // `~/.gemini/antigravity-cli/conversations/<uuid>.db`. Token /
+    // model / project breakdowns need a SQLite read of each db's
+    // message log. Until that's wired, return empty so the UI shows
+    // a clean "no data" state rather than partial / stale numbers
+    // mixed with whatever's still in the legacy tmp dir.
+    let _ = days;
+    return Ok(empty_analytics());
+    #[allow(unreachable_code)]
     let tmp_root = match dirs::home_dir().map(|h| h.join(".gemini").join("tmp")) {
         Some(p) if p.exists() => p,
         _ => return Ok(empty_analytics()),
@@ -2254,6 +2256,15 @@ fn gemini_usage_analytics(days: Option<u32>) -> Result<UsageAnalytics, String> {
 /// total field is already the running input-window size Google's
 /// backend reports back, so no summation needed.
 fn gemini_context_usage(session_id: &str) -> Result<ContextUsage, String> {
+    // TODO(antigravity): context-fill lived in the JSONL header's
+    // `tokens.total` field. Antigravity uses SQLite at
+    // `~/.gemini/antigravity-cli/conversations/<uuid>.db` and the
+    // schema isn't reverse-engineered yet. Return Err so the context
+    // bar hides cleanly instead of showing a stale value pulled from
+    // a pre-migration file.
+    let _ = session_id;
+    return Err("Antigravity context usage not yet implemented".into());
+    #[allow(unreachable_code)]
     let tmp_root = dirs::home_dir()
         .map(|h| h.join(".gemini").join("tmp"))
         .ok_or("Cannot determine home directory")?;

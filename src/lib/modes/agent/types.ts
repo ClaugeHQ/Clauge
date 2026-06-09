@@ -31,7 +31,9 @@ export type AgentProvider = 'claude' | 'codex' | 'gemini' | 'opencode';
 export const AGENT_PROVIDERS: { id: AgentProvider; label: string }[] = [
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'Codex' },
-  { id: 'gemini', label: 'Gemini' },
+  // Gemini CLI was replaced by Antigravity CLI (`agy`) on 2026-06-18.
+  // Internal id stays so existing sessions and coworkers keep working.
+  { id: 'gemini', label: 'Antigravity' },
   { id: 'opencode', label: 'OpenCode' },
 ];
 

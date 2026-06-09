@@ -1063,9 +1063,16 @@
           agentTerminalIds.update(m => { m.delete(sessionId); return new Map(m); });
           const tMapNow = get(agentTerminalMap);
           const exitedEntry = tMapNow.get(sessionId);
-          // Capture session ID from buffered "claude --resume <id>" if available
+          // Capture the resume id printed in the exit banner so the
+          // next spawn can target this exact session.
+          //   Claude:      `claude --resume <uuid>`
+          //   Antigravity: `agy --conversation=<uuid>` or `agy --conversation <uuid>`
+          // Both flow into `claudeSessionId` (column-name legacy — it
+          // holds whatever resume id the provider needs).
           if (entry && entry._exitBuffer && !session.claudeSessionId) {
-            const resumeMatch = entry._exitBuffer.match(/claude --resume ([a-f0-9-]+)/);
+            const resumeMatch =
+              entry._exitBuffer.match(/claude --resume ([a-f0-9-]{36})/) ||
+              entry._exitBuffer.match(/agy --conversation[ =]([a-f0-9-]{36})/);
             if (resumeMatch) {
               session.claudeSessionId = resumeMatch[1];
               agentUpdateSessionId(session.id, resumeMatch[1]).catch(() => {});
@@ -1691,7 +1698,7 @@
                      : _prov === 'opencode' ? '/opencode-dark.svg'
                      : '/code-in-action.svg'}
         {@const _name = _prov === 'codex' ? 'Codex'
-                      : _prov === 'gemini' ? 'Gemini'
+                      : _prov === 'gemini' ? 'Antigravity'
                       : _prov === 'opencode' ? 'OpenCode'
                       : 'Claude Code'}
         <div class="agent-loading">

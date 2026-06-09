@@ -259,7 +259,7 @@
               {#if session.provider === 'codex'}
                 <img src="/codex.svg" alt="Codex" width="22" height="22" class="session-icon-img codex" />
               {:else if session.provider === 'gemini'}
-                <img src="/gemini.svg" alt="Gemini" width="22" height="22" class="session-icon-img gemini" />
+                <img src="/gemini.svg" alt="Antigravity" width="22" height="22" class="session-icon-img gemini" />
               {:else if session.provider === 'opencode'}
                 <img src="/opencode-dark.svg" alt="OpenCode" width="22" height="22" class="session-icon-img opencode" />
               {:else if activity === 'running'}

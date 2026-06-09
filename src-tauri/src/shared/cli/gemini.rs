@@ -34,28 +34,47 @@ use crate::shared::platform::shell::default_user_shell;
 
 pub struct GeminiRunner;
 
-const BINARY: &str = "gemini";
+// `agy` is the Antigravity CLI binary that replaces gemini-cli for free,
+// Pro, and Ultra tiers as of 2026-06-18. The internal provider id stays
+// "gemini" so existing user data (coworkers + sessions with
+// provider="gemini") keeps working.
+//
+// On-disk layout shift vs the old gemini-cli (verified on a real install):
+//   gemini-cli:   ~/.gemini/projects.json   {"projects": {path: slug}}
+//                 ~/.gemini/tmp/<slug>/chats/session-*.jsonl
+//   antigravity:  ~/.gemini/antigravity-cli/cache/projects.json
+//                                                    {path: uuid}   (no wrapper)
+//                 ~/.gemini/antigravity-cli/conversations/<uuid>.db (SQLite)
+//
+// GEMINI.md (context file used by `agent_inject_purpose`) still lives at
+// ~/.gemini/GEMINI.md — Antigravity reads it from the user-home location,
+// not from antigravity-cli/.
+const BINARY: &str = "agy";
 const HOME_SUBDIR: &str = ".gemini";
-const SESSIONS_SUBDIR: &str = "tmp";
-const SESSION_EXT: &str = "jsonl";
+const CLI_SUBDIR: &str = "antigravity-cli";
+const SESSIONS_SUBDIR: &str = "conversations";
+const SESSION_EXT: &str = "db";
 
 impl GeminiRunner {
     fn dot_gemini(&self) -> Option<PathBuf> {
         dirs::home_dir().map(|h| h.join(HOME_SUBDIR))
     }
 
-    /// Read `~/.gemini/projects.json` and return the slug Gemini uses
-    /// for `project_path`. Returns None when the map file is missing or
-    /// the path hasn't been registered yet (no sessions ever started).
+    fn agy_home(&self) -> Option<PathBuf> {
+        self.dot_gemini().map(|p| p.join(CLI_SUBDIR))
+    }
+
+    /// Read the per-project UUID Antigravity assigns to `project_path`
+    /// from `~/.gemini/antigravity-cli/cache/projects.json`. Returns
+    /// None when the file is missing or the path hasn't been registered
+    /// (no sessions ever started). The new format is a flat map of
+    /// `{ "<abs path>": "<uuid>" }` — the old `{"projects": {...}}`
+    /// wrapper is gone.
     pub(crate) fn slug_for_project(&self, project_path: &str) -> Option<String> {
-        let path = self.dot_gemini()?.join("projects.json");
+        let path = self.agy_home()?.join("cache").join("projects.json");
         let text = std::fs::read_to_string(&path).ok()?;
         let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
-        parsed
-            .get("projects")?
-            .get(project_path)?
-            .as_str()
-            .map(|s| s.to_string())
+        parsed.get(project_path)?.as_str().map(|s| s.to_string())
     }
 }
 
@@ -80,25 +99,26 @@ impl CliRunner for GeminiRunner {
             .filter(|p| !p.is_empty())
             .map(crate::shared::cli::runner::shell_quote_path)
             .unwrap_or_else(|| BINARY.to_string());
-        // Always pass `--skip-trust` so the spawn doesn't hang on an
-        // unanswered trust prompt inside the PTY. Users can still review
-        // workspaces via the standalone `gemini` flow if they want a
-        // formal trust answer persisted.
-        let mut cmd = format!("{head} --skip-trust");
-        // Resume: Gemini's --resume takes an integer index or the
-        // literal "latest". UUIDs aren't accepted. Treat any well-shaped
-        // session id we got back from `agent_resolve_resume_id` as a
-        // "yes, resume the most recent session in this project" signal
-        // — that's exactly what discovery returns.
+        // Antigravity (agy) replaced the old gemini-cli flags:
+        //   --skip-trust  → removed (no trust gate concept)
+        //   --yolo        → --dangerously-skip-permissions
+        //   --resume <N>  → --continue (most recent) | --conversation <id>
+        let mut cmd = head.clone();
+        // Resume: agy accepts `--conversation <uuid>` to target a
+        // specific conversation, or `--continue` to grab the most
+        // recent. Conversation UUIDs are the .db filenames under
+        // ~/.gemini/antigravity-cli/conversations/, so when discovery
+        // hands us a well-shaped UUID we use it directly. Anything
+        // else (truthy but not a UUID) falls back to `--continue`.
         if let Some(sid) = opts.resume_session_id.as_deref() {
             if looks_like_uuid(sid) {
-                cmd.push_str(" --resume latest");
+                cmd.push_str(&format!(" --conversation {sid}"));
+            } else {
+                cmd.push_str(" --continue");
             }
         }
         if opts.skip_permissions {
-            // YOLO mode auto-approves all tool calls — the same effect
-            // as Claude's `--dangerously-skip-permissions` flag.
-            cmd.push_str(" --yolo");
+            cmd.push_str(" --dangerously-skip-permissions");
         }
         // No first-class system-prompt flag exists, and the previous
         // workaround (`--prompt-interactive '<text>'`) had a serious
@@ -128,7 +148,8 @@ impl CliRunner for GeminiRunner {
     }
 
     fn settings_file(&self) -> Option<PathBuf> {
-        self.dot_gemini().map(|p| p.join("settings.json"))
+        // Antigravity CLI keeps its own settings.json under antigravity-cli/.
+        self.agy_home().map(|p| p.join("settings.json"))
     }
 
     fn installed_plugins_file(&self) -> Option<PathBuf> {
@@ -170,22 +191,46 @@ impl CliRunner for GeminiRunner {
     }
 
     fn sessions_root(&self) -> Option<PathBuf> {
-        self.dot_gemini().map(|p| p.join(SESSIONS_SUBDIR))
+        // ~/.gemini/antigravity-cli/conversations — flat `.db` files
+        // keyed by their own UUIDs (not per-project subdirs anymore).
+        self.agy_home().map(|p| p.join(SESSIONS_SUBDIR))
     }
 
-    fn session_dir_for_project(&self, project_path: &str) -> Option<PathBuf> {
-        let slug = self.slug_for_project(project_path)?;
-        self.sessions_root().map(|r| r.join(slug).join("chats"))
+    fn session_dir_for_project(&self, _project_path: &str) -> Option<PathBuf> {
+        // Antigravity flattened conversation storage: all `.db` files
+        // sit directly under `conversations/`. The project UUID held in
+        // `cache/projects.json` doesn't match a conversation filename,
+        // and the project<->conversation mapping lives inside the
+        // SQLite databases themselves. Returning the flat dir means
+        // resume-discovery lists every conversation rather than only
+        // ones for `_project_path`. Acceptable until we add a SQLite
+        // read step to filter on disk.
+        self.sessions_root()
     }
 
     fn session_file_extension(&self) -> &'static str {
         SESSION_EXT
     }
 
-    fn extract_resume_id_from_output(&self, _buffer: &str) -> Option<String> {
-        // Gemini's startup banner doesn't include a deterministic
-        // "resume with: <id>" marker. Capture happens via the on-disk
-        // scan in `discover_gemini_sessions` after spawn.
+    fn extract_resume_id_from_output(&self, buffer: &str) -> Option<String> {
+        // On exit, `agy` prints a banner like
+        //   `agy --conversation=<uuid>` or `agy -c`
+        // telling the user how to resume. Capture the UUID form so we
+        // can persist it into the session row and pass it back via
+        // --conversation on the next spawn. The "-c" hint isn't useful
+        // (no specific id) so we ignore it; discovery handles fallback.
+        for marker in ["--conversation=", "--conversation "] {
+            if let Some(idx) = buffer.find(marker) {
+                let rest = &buffer[idx + marker.len()..];
+                let candidate: String = rest
+                    .chars()
+                    .take(36)
+                    .collect();
+                if candidate.len() == 36 && looks_like_uuid(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
         None
     }
 
