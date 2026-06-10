@@ -316,6 +316,61 @@ pub async fn cloud_resolve_use_remote(
     Ok(())
 }
 
+/// Per-kind conflict resolution: strategy is "keepLocal" | "useRemote" | "merge".
+#[tauri::command]
+pub async fn cloud_resolve_kind(
+    pool: State<'_, SqlitePool>,
+    state: State<'_, AuthState>,
+    kind: String,
+    strategy: String,
+) -> Result<(), String> {
+    match strategy.as_str() {
+        "keepLocal" => sync::force_push_kind(pool.inner(), &state, &kind).await,
+        "useRemote" => sync::resolve_use_remote(pool.inner(), &state, &kind).await,
+        "merge" => sync::resolve_merge(pool.inner(), &state, &kind).await,
+        _ => Err(format!("unknown strategy: {}", strategy)),
+    }
+}
+
+/// Merge EVERY kind the server has (FK-safe order), then push local-only
+/// kinds and mark synced. Device-setup "Merge" choice.
+#[tauri::command]
+pub async fn cloud_merge_all(
+    pool: State<'_, SqlitePool>,
+    state: State<'_, AuthState>,
+) -> Result<Vec<String>, String> {
+    let rows = client::sync_state(pool.inner(), &state).await.map_err(String::from)?;
+    let mut kinds: Vec<String> = rows.into_iter().map(|r| r.kind).collect();
+    kinds.sort_by_key(|k| sync::pull_order_rank(k));
+    for k in &kinds {
+        sync::resolve_merge(pool.inner(), &state, k).await?;
+    }
+    let all: Vec<&str> = ALL_KINDS.iter().copied().collect();
+    let _ = sync::push_all(pool.inner(), &state, &all).await?;
+    settings::upsert(pool.inner(), SETTINGS_KEY_HAS_SYNCED, "true")
+        .await
+        .map_err(|e| format!("mark synced: {}", e))?;
+    Ok(kinds)
+}
+
+/// Overwrite the cloud with this device's data for ALL kinds (device-setup
+/// "Keep this device's data"). Server-side history keeps the old blobs.
+#[tauri::command]
+pub async fn cloud_force_push_all(
+    pool: State<'_, SqlitePool>,
+    state: State<'_, AuthState>,
+) -> Result<(), String> {
+    for k in ALL_KINDS {
+        // An empty local export overwrites whatever the server holds — that is
+        // the explicit "Keep this device's data" choice; server history archives it.
+        sync::force_push_kind(pool.inner(), &state, k).await?;
+    }
+    settings::upsert(pool.inner(), SETTINGS_KEY_HAS_SYNCED, "true")
+        .await
+        .map_err(|e| format!("mark synced: {}", e))?;
+    Ok(())
+}
+
 /// Lightweight remote-state check used by pull-on-focus: returns the
 /// kinds where the server has moved past our last-known synced hash AND
 /// local has no unpushed changes (safe to silently pull). Caller pulls

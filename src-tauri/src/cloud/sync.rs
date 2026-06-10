@@ -156,6 +156,21 @@ pub async fn resolve_use_remote(
     Ok(())
 }
 
+/// Merge-resolve one kind: snapshot → pull remote blob → UPSERT-union into
+/// local → force-push the union → clear conflict flag.
+pub async fn resolve_merge(
+    pool: &SqlitePool,
+    state: &AuthState,
+    kind: &str,
+) -> Result<(), String> {
+    crate::cloud::snapshots::snapshot_kind(pool, kind, "pre-merge").await?;
+    let resp = client::sync_pull(pool, state, kind).await.map_err(String::from)?;
+    crate::cloud::domains::merge_kind(pool, kind, &resp.payload).await?;
+    force_push_kind(pool, state, kind).await?;
+    let _ = clear_conflict_flag(pool, kind).await;
+    Ok(())
+}
+
 /// Safe auto-pull triggered on app focus.
 ///
 /// For each kind the server has, compare the remote hash to our last-known
@@ -252,7 +267,7 @@ pub async fn pull_all(
 /// Lower rank = applied earlier. Parents (referenced by FKs in other
 /// kinds) get a smaller number. Anything not listed sorts to the end —
 /// add new kinds here only when they're FK targets.
-fn pull_order_rank(kind: &str) -> u8 {
+pub fn pull_order_rank(kind: &str) -> u8 {
     match kind {
         // ssh_profiles is referenced by sql_connections, nosql_connections,
         // and explorer_connections, so it must restore first.

@@ -96,6 +96,15 @@ export const cloudResolveKeepLocal = () =>
 export const cloudResolveUseRemote = () =>
   invoke<void>('cloud_resolve_use_remote');
 
+export const cloudResolveKind = (kind: string, strategy: 'keepLocal' | 'useRemote' | 'merge') =>
+  invoke<void>('cloud_resolve_kind', { kind, strategy });
+
+export const cloudMergeAll = () =>
+  invoke<string[]>('cloud_merge_all');
+
+export const cloudForcePushAll = () =>
+  invoke<void>('cloud_force_push_all');
+
 export const cloudPullIfRemoteNewer = () =>
   invoke<string[]>('cloud_pull_if_remote_newer');
 
