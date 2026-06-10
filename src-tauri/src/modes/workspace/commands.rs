@@ -242,6 +242,9 @@ pub async fn workspace_create(
         }
     }
 
+    // The workspaces table is exported by both workspace sync kinds.
+    crate::cloud::scheduler::bump("workspace_notes");
+    crate::cloud::scheduler::bump("workspace_boards");
     repo::get_workspace_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -269,7 +272,10 @@ pub async fn workspace_update(
         &now,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_notes");
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 /// Pre-delete summary surfaced in the confirmation dialog. Cards
@@ -329,7 +335,10 @@ pub async fn workspace_delete(
     }
     repo::delete_workspace(pool, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_notes");
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +391,7 @@ pub async fn workspace_note_create(
     )
     .await
     .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_notes");
     repo::get_note_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -428,6 +438,7 @@ pub async fn workspace_note_update(
             _ => return Err("Note update failed".into()),
         }
     }
+    crate::cloud::scheduler::bump("workspace_notes");
     Ok(())
 }
 
@@ -438,7 +449,9 @@ pub async fn workspace_note_delete(
 ) -> Result<(), String> {
     repo::delete_note(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_notes");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +491,7 @@ pub async fn workspace_board_create(
     let position = existing.len() as i32;
     let board_id =
         create_default_board(pool.inner(), &workspace_id, &name, None, position, &now).await?;
+    crate::cloud::scheduler::bump("workspace_boards");
     repo::get_board_by_id(pool.inner(), &board_id)
         .await
         .map_err(|e| e.to_string())
@@ -511,7 +525,9 @@ pub async fn workspace_board_set_project(
     };
     repo::update_board_source_config(pool.inner(), &id, cfg.as_deref(), &now)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]
@@ -523,7 +539,9 @@ pub async fn workspace_board_rename(
     let now = now_rfc3339();
     repo::update_board_name(pool.inner(), &id, &name, &now)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]
@@ -533,7 +551,9 @@ pub async fn workspace_board_delete(
 ) -> Result<(), String> {
     repo::delete_board(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]
@@ -599,6 +619,7 @@ pub async fn workspace_card_create(
     )
     .await
     .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
 
     sqlx::query_as::<_, WorkspaceBoardCard>("SELECT * FROM workspace_board_cards WHERE id = ?")
         .bind(&id)
@@ -653,6 +674,7 @@ pub async fn workspace_card_update(
             _ => return Err("Card update failed".into()),
         }
     }
+    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -704,8 +726,9 @@ pub async fn workspace_card_move(
         repo::MutationGuard::default(),
     )
     .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]
@@ -717,8 +740,9 @@ pub async fn workspace_card_clear_review(
     let now = now_rfc3339();
     repo::clear_review_pending(pool.inner(), &id, &actor, &now, repo::MutationGuard::default())
         .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]
@@ -728,7 +752,9 @@ pub async fn workspace_card_delete(
 ) -> Result<(), String> {
     repo::delete_card(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 /// External IDs the user has tombstoned for this board — sync skips
@@ -848,7 +874,11 @@ pub async fn workspace_card_drawer_chat(
     if trimmed.is_empty() {
         return Err("Message is empty".into());
     }
-    super::agent_spawn::drawer_chat_turn(pool.inner(), Some(&app), &id, &coworker_id, trimmed, &actor).await
+    let result =
+        super::agent_spawn::drawer_chat_turn(pool.inner(), Some(&app), &id, &coworker_id, trimmed, &actor)
+            .await?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(result)
 }
 
 /// Release a card's claim. When `delete_worktree` is true and the
@@ -868,7 +898,9 @@ pub async fn workspace_card_release(
         &actor,
         delete_worktree.unwrap_or(false),
     )
-    .await
+    .await?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -888,7 +920,9 @@ pub async fn workspace_card_start_work(
     id: String,
     actor: String,
 ) -> Result<StartWorkResult, String> {
-    super::agent_spawn::start_work(pool.inner(), &id, &actor).await
+    let result = super::agent_spawn::start_work(pool.inner(), &id, &actor).await?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(result)
 }
 
 /// Push a local card to its workspace's bound GitHub/GitLab repo as a
@@ -901,7 +935,9 @@ pub async fn workspace_card_push_to_repo(
     id: String,
     actor: String,
 ) -> Result<serde_json::Value, String> {
-    super::push::push_card_to_repo(pool.inner(), &id, &actor).await
+    let result = super::push::push_card_to_repo(pool.inner(), &id, &actor).await?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(result)
 }
 
 /// Push the card's branch and (if no PR exists yet) open a PR / MR.
@@ -920,7 +956,7 @@ pub async fn workspace_card_raise_pr(
     body: Option<String>,
     actor: String,
 ) -> Result<super::pr::RaisePrResult, String> {
-    super::pr::raise_or_update_pr(
+    let result = super::pr::raise_or_update_pr(
         pool.inner(),
         Some(&app),
         &card_id,
@@ -929,7 +965,9 @@ pub async fn workspace_card_raise_pr(
         &actor,
     )
     .await
-    .map_err(|e| e.message())
+    .map_err(|e| e.message())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(result)
 }
 
 /// Read the host's current state for a card's PR / MR. Returns one of
@@ -976,6 +1014,7 @@ pub async fn workspace_card_add_comment(
     )
     .await
     .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
     Ok(crate::modes::workspace::models::WorkspaceCardComment {
         id: comment_id,
         card_id: id,
@@ -1006,7 +1045,9 @@ pub async fn workspace_card_comment_delete(
 ) -> Result<(), String> {
     repo::delete_card_comment(pool.inner(), &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::cloud::scheduler::bump("workspace_boards");
+    Ok(())
 }
 
 #[tauri::command]

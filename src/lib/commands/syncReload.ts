@@ -26,4 +26,16 @@ export async function reloadSyncedStores(): Promise<void> {
     workspace.loadWorkspaces(),
     workspace.loadCoworkers(),
   ]);
+
+  // Notes + boards are cached per-workspace and loaded lazily, so a bulk
+  // import would otherwise leave stale entries behind. Refresh every
+  // workspace whose cache is already populated; never-opened workspaces
+  // load fresh on first open anyway.
+  const { get } = await import('svelte/store');
+  const noteWs = [...get(workspace.notesByWorkspace).keys()];
+  const boardWs = [...get(workspace.boardsByWorkspace).keys()];
+  await Promise.all([
+    ...noteWs.map(id => workspace.loadNotes(id)),
+    ...boardWs.map(id => workspace.loadBoards(id)),
+  ]);
 }

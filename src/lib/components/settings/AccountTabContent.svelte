@@ -51,7 +51,8 @@
     import Dropdown from "$lib/shared/primitives/Dropdown.svelte";
     import ConfirmDialog from "$lib/shared/primitives/ConfirmDialog.svelte";
     import { APP_EVENT } from "$lib/shared/constants/events";
-    import { settings, setSetting } from "$lib/stores/settings";
+    import { settings, setSetting, loadSettings } from "$lib/stores/settings";
+    import { kindLabel } from "$lib/shared/utils/kind-label";
 
     let displayNameInput = $state("");
     let firstNameInput = $state("");
@@ -347,27 +348,6 @@
         }
     }
 
-    function snapshotKindLabel(kind: string): string {
-        switch (kind) {
-            case "rest":
-                return "REST collections";
-            case "sql":
-                return "SQL connections";
-            case "nosql":
-                return "NoSQL connections";
-            case "agent":
-                return "Agent contexts";
-            case "ssh":
-                return "SSH profiles";
-            case "explorer":
-                return "Explorer connections";
-            case "coworkers":
-                return "Workspace coworkers";
-            default:
-                return kind;
-        }
-    }
-
     // createdAt is a compact stamp like "20260610T142233.123Z-ab12cd" —
     // parse the YYYYMMDDTHHMMSS prefix (UTC) into epoch ms, or 0 if odd.
     function parseSnapshotStamp(stamp: string): number {
@@ -543,10 +523,29 @@
         } catch {
             /* silent — device labels are optional decoration */
         }
+        // The push path writes `cloud:too_large:<kind>` flags from Rust,
+        // bypassing the settings store — re-pull so the chips are fresh.
+        loadSettings().catch(() => {});
     }
 
     // Kinds the server currently holds — drives the history kind selector.
     let historyKinds = $derived(remoteState.map((r) => r.kind));
+
+    // Kinds whose last export exceeded the worker's payload limit — the
+    // push path parks a `cloud:too_large:<kind>` setting (value = gzipped
+    // byte estimate) instead of pushing. Map kind → KB for the chips.
+    let tooLargeKinds = $derived.by(() => {
+        const out: Record<string, number> = {};
+        const prefix = "cloud:too_large:";
+        for (const [k, v] of Object.entries($settings)) {
+            if (k.startsWith(prefix)) {
+                out[k.slice(prefix.length)] = Math.round(
+                    (parseInt(v, 10) || 0) / 1024,
+                );
+            }
+        }
+        return out;
+    });
 
     let lastSyncDevice = $derived.by(() => {
         let best: SyncStateRow | null = null;
@@ -563,13 +562,22 @@
 
     let syncBreakdownTitle = $derived.by(() => {
         void now;
-        return remoteState
-            .map((r) => {
-                const t = parseServerTime(r.updatedAt);
-                const from = r.deviceName ? ` from ${r.deviceName}` : "";
-                return `${snapshotKindLabel(r.kind)} — ${t ? fmtAgo(t) : r.updatedAt}${from}`;
-            })
-            .join("\n");
+        const lines = remoteState.map((r) => {
+            const t = parseServerTime(r.updatedAt);
+            const from = r.deviceName ? ` from ${r.deviceName}` : "";
+            const big =
+                tooLargeKinds[r.kind] !== undefined
+                    ? ` — too large to sync (~${tooLargeKinds[r.kind]} KB)`
+                    : "";
+            return `${kindLabel(r.kind)} — ${t ? fmtAgo(t) : r.updatedAt}${from}${big}`;
+        });
+        // Oversize kinds the server has never seen still deserve a line.
+        for (const [k, kb] of Object.entries(tooLargeKinds)) {
+            if (!remoteState.some((r) => r.kind === k)) {
+                lines.push(`${kindLabel(k)} — too large to sync (~${kb} KB)`);
+            }
+        }
+        return lines.join("\n");
     });
 
     // Device name shown on other devices next to data this one pushed.
@@ -1400,7 +1408,7 @@
                         <div class="acc-snap-row">
                             <div class="acc-snap-text">
                                 <span class="acc-snap-name"
-                                    >{snapshotKindLabel(s.kind)}</span
+                                    >{kindLabel(s.kind)}</span
                                 >
                                 <span class="acc-snap-sub"
                                     >{s.reason}
@@ -1449,7 +1457,14 @@
                                 class:acc-hist-kind-active={historyKind === k}
                                 onclick={() => selectHistoryKind(k)}
                             >
-                                {snapshotKindLabel(k)}
+                                {kindLabel(k)}
+                                {#if tooLargeKinds[k] !== undefined}
+                                    <span
+                                        class="acc-too-large"
+                                        title={`Last export was ~${tooLargeKinds[k]} KB gzipped — over the sync limit. New changes for this kind stay local.`}
+                                        >Too large to sync</span
+                                    >
+                                {/if}
                             </button>
                         {/each}
                     </div>
@@ -1727,7 +1742,7 @@
 <ConfirmDialog
     bind:show={confirmRestoreSnapshot}
     title="Restore snapshot?"
-    message={`Restore this snapshot? Current data for ${snapshotToRestore ? snapshotKindLabel(snapshotToRestore.kind) : "this kind"} is snapshotted first.`}
+    message={`Restore this snapshot? Current data for ${snapshotToRestore ? kindLabel(snapshotToRestore.kind) : "this kind"} is snapshotted first.`}
     confirmText="Restore"
     confirmColor="var(--acc)"
     onconfirm={() => {
@@ -1743,7 +1758,7 @@
 <ConfirmDialog
     bind:show={confirmRestoreHistory}
     title="Restore version?"
-    message={`Restore this version of ${historyKind ? snapshotKindLabel(historyKind) : "this kind"}? Current data is snapshotted locally and the current cloud copy is archived to history first.`}
+    message={`Restore this version of ${historyKind ? kindLabel(historyKind) : "this kind"}? Current data is snapshotted locally and the current cloud copy is archived to history first.`}
     confirmText="Restore"
     confirmColor="var(--acc)"
     onconfirm={() => {
@@ -2580,6 +2595,16 @@
         border-color: var(--acc);
         color: var(--t1);
         background: var(--surface-hover);
+    }
+    .acc-too-large {
+        margin-left: 5px;
+        padding: 1px 6px;
+        font-size: 10px;
+        border-radius: 5px;
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.12);
+        color: #d97706;
+        white-space: nowrap;
     }
 
     /* Danger zone */

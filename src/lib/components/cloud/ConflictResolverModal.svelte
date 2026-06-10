@@ -20,6 +20,7 @@
   import { cloudResolveKeepLocal, cloudResolveUseRemote, cloudResolveKind, cloudGetConflicts } from '$lib/commands/cloud';
   import { reloadSyncedStores } from '$lib/commands/syncReload';
   import { showToast } from '$lib/shared/primitives/toast';
+  import { kindLabel } from '$lib/shared/utils/kind-label';
 
   /** Teleport the modal subtree to <body>. The Settings pane is mounted
    *  inside .app-workspace which may sit beneath a transformed ancestor
@@ -45,21 +46,6 @@
   let busy = $state<'keep' | 'use' | 'merge' | null>(null);
   let kindBusy = $state<string | null>(null);
 
-  /** Friendly display name for a kind id — keeps the modal copy in the
-   *  user's language, not the protocol's. */
-  function label(kind: string): string {
-    switch (kind) {
-      case 'rest':     return 'REST collections';
-      case 'sql':      return 'SQL connections';
-      case 'nosql':    return 'NoSQL connections';
-      case 'agent':    return 'Agent contexts';
-      case 'ssh':      return 'SSH profiles';
-      case 'explorer': return 'Explorer connections';
-      case 'coworkers': return 'Workspace coworkers';
-      default:         return kind;
-    }
-  }
-
   /** Refresh the store after a resolve. The Rust resolve commands clear
    *  per-kind conflict flags but don't emit `cloud:conflicts-changed`
    *  themselves (that event fires only from the scheduler loop, which
@@ -82,10 +68,10 @@
       await cloudResolveKind(kind, strategy);
       await refreshConflictsStore();
       if (strategy !== 'keepLocal') await reloadSyncedStores();
-      showToast(`${label(kind)} resolved`, 'success');
+      showToast(`${kindLabel(kind)} resolved`, 'success');
       if ($cloudConflicts.length === 0) show = false;
     } catch (e: any) {
-      showToast(`Couldn’t resolve ${label(kind)}: ${e?.message ?? e}`, 'error');
+      showToast(`Couldn’t resolve ${kindLabel(kind)}: ${e?.message ?? e}`, 'error');
     } finally {
       kindBusy = null;
     }
@@ -178,7 +164,7 @@
           <div class="cr-rows">
             {#each $cloudConflicts as kind (kind)}
               <div class="cr-row">
-                <span class="cr-row-label">{label(kind)}</span>
+                <span class="cr-row-label">{kindLabel(kind)}</span>
                 <div class="cr-row-actions">
                   <button
                     class="cr-row-btn cr-row-btn-primary"

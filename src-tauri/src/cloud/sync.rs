@@ -44,6 +44,21 @@ pub async fn push_kind(
 ) -> Result<PushOutcome, String> {
     let (hash, payload_b64) = export_kind(pool, kind).await?;
 
+    // Worker rejects payloads > 900 KB gzipped (413). Catch oversize
+    // client-side with margin and surface a per-kind warning instead of
+    // failing every push silently.
+    let gz_bytes = payload_b64.len() * 3 / 4;
+    if gz_bytes > 850_000 {
+        settings::upsert(pool, &format!("cloud:too_large:{}", kind), &gz_bytes.to_string())
+            .await
+            .map_err(|e| format!("store too_large: {}", e))?;
+        return Ok(PushOutcome::NoChange);
+    }
+    let _ = sqlx::query("DELETE FROM settings WHERE key = ?")
+        .bind(format!("cloud:too_large:{}", kind))
+        .execute(pool)
+        .await;
+
     let last = settings::get_by_key(pool, &settings_key_hash(kind))
         .await
         .map_err(|e| format!("read last hash: {}", e))?

@@ -355,6 +355,47 @@ fn parse_pagination(args: &Value) -> repo::Pagination {
     repo::Pagination { limit: Some(limit), offset: Some(offset) }
 }
 
+// Sync: MCP mutations must dirty the same kinds as UI mutations.
+//
+// Called once after a tool call has completed successfully. Read-only
+// tools are skipped by suffix (`_list` / `_read` / `_search` /
+// `_summary`) plus an explicit list for the reads that don't follow
+// the naming convention. Tools that can upsert a workspace on the fly
+// (workspaces_*, *_for_project, cards_create_from_branch,
+// workspace_link_to_repo) dirty BOTH workspace kinds — the workspaces
+// table is exported by both.
+fn bump_sync_kinds_for_tool(tool_name: &str) {
+    use crate::cloud::scheduler::bump;
+    const READ_ONLY: &[&str] = &[
+        "activity_feed",
+        "coworkers_list",
+        "cards_list_pending_review",
+        "cards_check_pr_state",
+    ];
+    if READ_ONLY.contains(&tool_name)
+        || tool_name.ends_with("_list")
+        || tool_name.ends_with("_read")
+        || tool_name.ends_with("_search")
+        || tool_name.ends_with("_summary")
+    {
+        return;
+    }
+    let touches_workspaces_table = tool_name.starts_with("workspaces_")
+        || tool_name == "workspace_link_to_repo"
+        || tool_name.ends_with("_for_project")
+        || tool_name == "cards_create_from_branch";
+    if touches_workspaces_table {
+        bump("workspace_notes");
+        bump("workspace_boards");
+    } else if tool_name.starts_with("notes_") {
+        bump("workspace_notes");
+    } else if tool_name.starts_with("cards_") || tool_name.starts_with("boards_") {
+        bump("workspace_boards");
+    } else if tool_name.starts_with("rest_") {
+        bump("rest");
+    }
+}
+
 pub(super) async fn dispatch_tool(
     pool: &SqlitePool,
     app: Option<&tauri::AppHandle>,
@@ -383,7 +424,7 @@ pub(super) async fn dispatch_tool(
 
     let map_db = |e: sqlx::Error| -> (i32, String) { (-32603, format!("DB error: {}", e)) };
 
-    match name {
+    let result = match name {
         "workspaces_list" => {
             let page = parse_pagination(&args);
             let v = repo::list_workspaces(pool, page).await.map_err(map_db)?;
@@ -1234,7 +1275,6 @@ pub(super) async fn dispatch_tool(
                     .await
                     .map_err(map_db)?;
             }
-            crate::cloud::scheduler::bump("rest");
             emit_rest_changed(app, "collections", None);
             let row = crate::shared::repos::collections::get_by_id(pool, &id)
                 .await
@@ -1319,7 +1359,6 @@ pub(super) async fn dispatch_tool(
             // the agent doesn't have to spell it out for every row.
             apply_kv_list(pool, &id, args.get("headers"), KvKind::Header).await?;
             apply_kv_list(pool, &id, args.get("queryParams"), KvKind::Param).await?;
-            crate::cloud::scheduler::bump("rest");
             emit_rest_changed(app, "requests", Some(&collection_id));
             let row = crate::shared::repos::requests::get_by_id(pool, &id)
                 .await
@@ -1375,7 +1414,6 @@ pub(super) async fn dispatch_tool(
             if args.get("queryParams").is_some() {
                 apply_kv_list(pool, &id, args.get("queryParams"), KvKind::Param).await?;
             }
-            crate::cloud::scheduler::bump("rest");
             emit_rest_changed(app, "requests", Some(&existing.collection_id));
             let row = crate::shared::repos::requests::get_by_id(pool, &id)
                 .await
@@ -1384,7 +1422,11 @@ pub(super) async fn dispatch_tool(
         }
 
         _ => Err((-32601, format!("Tool not found: {}", name))),
+    };
+    if result.is_ok() {
+        bump_sync_kinds_for_tool(name);
     }
+    result
 }
 
 /// Emit a Tauri event so the REST mode's frontend stores re-fetch.
