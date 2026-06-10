@@ -136,14 +136,14 @@ export default {
       }
 
       // /api/sync/pull/:kind
-      const pullMatch = path.match(/^\/api\/sync\/pull\/([a-z]+)$/);
+      const pullMatch = path.match(/^\/api\/sync\/pull\/([a-z_]+)$/);
       if (pullMatch && method === 'GET') {
         if (!syncCtx) return err(env, 401, 'Not authenticated');
         return await handleSyncPull(request, env, syncCtx, pullMatch[1]);
       }
 
       // /api/sync/push/:kind
-      const pushMatch = path.match(/^\/api\/sync\/push\/([a-z]+)$/);
+      const pushMatch = path.match(/^\/api\/sync\/push\/([a-z_]+)$/);
       if (pushMatch && method === 'PUT') {
         if (!syncCtx) return err(env, 401, 'Not authenticated');
         return await handleSyncPush(request, env, syncCtx, pushMatch[1]);
