@@ -75,7 +75,20 @@ pub async fn push_kind(
             let _ = clear_conflict_flag(pool, kind).await;
             Ok(PushOutcome::Pushed)
         }
-        Err(CloudError::Conflict { current_hash, .. }) => {
+        Err(CloudError::Conflict { current_hash, current_updated_at }) => {
+            // Lost-ack case: the server already has EXACTLY the content we
+            // just sent (a previous push committed but its response was
+            // lost). Not a conflict — record success and move on.
+            if current_hash.as_deref() == Some(hash.as_str()) {
+                settings::upsert(pool, &settings_key_hash(kind), &hash)
+                    .await
+                    .map_err(|e| format!("store hash: {}", e))?;
+                if let Some(ts) = &current_updated_at {
+                    let _ = settings::upsert(pool, &settings_key_synced_at(kind), ts).await;
+                }
+                let _ = clear_conflict_flag(pool, kind).await;
+                return Ok(PushOutcome::Pushed);
+            }
             // Park this kind in conflict-locked state. The flag's value is the
             // remote hash, so the resolver can fetch & summarise the right blob.
             let marker = current_hash.clone().unwrap_or_else(|| "unknown".to_string());
