@@ -9,4 +9,5 @@ pub mod domains;
 pub mod models;
 pub mod pro_state;
 pub mod scheduler;
+pub mod snapshots;
 pub mod sync;

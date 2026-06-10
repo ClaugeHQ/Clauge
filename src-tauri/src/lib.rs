@@ -98,6 +98,8 @@ pub fn run() {
                 db::pool::init(&app_data_dir).await
             }).expect("failed to open Clauge database");
 
+            cloud::snapshots::init(&app_data_dir);
+
             tauri::async_runtime::block_on(async {
                 db::migrator::run(&pool).await
             }).expect("failed to apply schema migrations");
