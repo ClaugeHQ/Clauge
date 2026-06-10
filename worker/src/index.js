@@ -150,14 +150,14 @@ export default {
       }
 
       // /api/sync/history/:kind/:hash  (more specific — must match first)
-      const histBlobMatch = path.match(/^\/api\/sync\/history\/([a-z]+)\/([A-Za-z0-9_-]+)$/);
+      const histBlobMatch = path.match(/^\/api\/sync\/history\/([a-z_]+)\/([A-Za-z0-9_-]+)$/);
       if (histBlobMatch && method === 'GET') {
         if (!syncCtx) return err(env, 401, 'Not authenticated');
         return await handleSyncHistoryBlob(request, env, syncCtx, histBlobMatch[1], histBlobMatch[2]);
       }
 
       // /api/sync/history/:kind
-      const histMatch = path.match(/^\/api\/sync\/history\/([a-z]+)$/);
+      const histMatch = path.match(/^\/api\/sync\/history\/([a-z_]+)$/);
       if (histMatch && method === 'GET') {
         if (!syncCtx) return err(env, 401, 'Not authenticated');
         return await handleSyncHistory(request, env, syncCtx, histMatch[1]);
