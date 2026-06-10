@@ -226,7 +226,7 @@ export async function deleteUser(env, userId) {
 
 // ─── sync_blobs ────────────────────────────────────────────────────
 
-export const SYNC_KINDS = ['rest', 'sql', 'nosql', 'agent', 'ssh', 'explorer', 'coworkers'];
+export const SYNC_KINDS = ['rest', 'sql', 'nosql', 'agent', 'ssh', 'explorer', 'coworkers', 'workspace_notes', 'workspace_boards'];
 
 export function isValidKind(kind) {
   return SYNC_KINDS.includes(kind);
@@ -234,7 +234,7 @@ export function isValidKind(kind) {
 
 export async function getSyncState(env, userId) {
   const res = await env.CLAUGE_DB
-    .prepare('SELECT kind, content_hash, updated_at FROM sync_blobs WHERE user_id = ? ORDER BY kind')
+    .prepare('SELECT kind, content_hash, updated_at, device_id, device_name FROM sync_blobs WHERE user_id = ? ORDER BY kind')
     .bind(userId)
     .all();
   return res.results || [];
@@ -261,7 +261,7 @@ export async function getSyncBlob(env, userId, kind) {
  * Returns `{ updated, row }`. When `updated` is false, `row` carries the
  * remote's current state so the caller can surface it in the 412 body.
  */
-export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, contentHash, payloadBytes) {
+export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, contentHash, payloadBytes, deviceId, deviceName) {
   const existing = await env.CLAUGE_DB
     .prepare('SELECT content_hash, updated_at FROM sync_blobs WHERE user_id = ? AND kind = ?')
     .bind(userId, kind)
@@ -282,13 +282,15 @@ export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, con
   }
 
   await env.CLAUGE_DB
-    .prepare(`INSERT INTO sync_blobs (user_id, kind, payload, content_hash, updated_at)
-              VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    .prepare(`INSERT INTO sync_blobs (user_id, kind, payload, content_hash, updated_at, device_id, device_name)
+              VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
               ON CONFLICT(user_id, kind) DO UPDATE SET
                 payload      = excluded.payload,
                 content_hash = excluded.content_hash,
-                updated_at   = excluded.updated_at`)
-    .bind(userId, kind, payloadBytes, contentHash)
+                updated_at   = excluded.updated_at,
+                device_id    = excluded.device_id,
+                device_name  = excluded.device_name`)
+    .bind(userId, kind, payloadBytes, contentHash, deviceId ?? null, deviceName ?? null)
     .run();
 
   const fresh = await env.CLAUGE_DB

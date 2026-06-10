@@ -14,6 +14,8 @@ export async function handleSyncState(request, env, ctx) {
     kind:        r.kind,
     contentHash: r.content_hash,
     updatedAt:   r.updated_at,
+    deviceId:    r.device_id ?? null,
+    deviceName:  r.device_name ?? null,
   })));
 }
 
@@ -69,6 +71,9 @@ export async function handleSyncPush(request, env, ctx, kind) {
     return err(env, 400, 'Bad prevHash');
   }
 
+  const deviceId   = typeof body.deviceId   === 'string' ? body.deviceId.slice(0, 64)   : null;
+  const deviceName = typeof body.deviceName === 'string' ? body.deviceName.slice(0, 64) : null;
+
   let bytes;
   try {
     bytes = base64ToBytes(body.payload);
@@ -80,7 +85,7 @@ export async function handleSyncPush(request, env, ctx, kind) {
   }
 
   const result = await conditionalUpsertSyncBlob(
-    env, ctx.userId, kind, prevHash, body.contentHash, bytes,
+    env, ctx.userId, kind, prevHash, body.contentHash, bytes, deviceId, deviceName,
   );
 
   if (!result.updated) {
