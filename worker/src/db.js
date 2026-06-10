@@ -281,7 +281,7 @@ export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, con
     return { updated: true, row: existing };
   }
 
-  await env.CLAUGE_DB
+  const upsert = env.CLAUGE_DB
     .prepare(`INSERT INTO sync_blobs (user_id, kind, payload, content_hash, updated_at, device_id, device_name)
               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
               ON CONFLICT(user_id, kind) DO UPDATE SET
@@ -290,14 +290,56 @@ export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, con
                 updated_at   = excluded.updated_at,
                 device_id    = excluded.device_id,
                 device_name  = excluded.device_name`)
-    .bind(userId, kind, payloadBytes, contentHash, deviceId ?? null, deviceName ?? null)
-    .run();
+    .bind(userId, kind, payloadBytes, contentHash, deviceId ?? null, deviceName ?? null);
+
+  if (existing) {
+    // Replacing a live blob → archive the old row first, then prune the
+    // history to the newest 5 versions. One atomic D1 batch.
+    await env.CLAUGE_DB.batch([
+      env.CLAUGE_DB
+        .prepare(`INSERT INTO sync_blob_history (user_id, kind, payload, content_hash, device_name)
+                  SELECT user_id, kind, payload, content_hash, device_name
+                  FROM sync_blobs WHERE user_id = ?1 AND kind = ?2`)
+        .bind(userId, kind),
+      upsert,
+      env.CLAUGE_DB
+        .prepare(`DELETE FROM sync_blob_history
+                  WHERE user_id = ?1 AND kind = ?2 AND id NOT IN (
+                    SELECT id FROM sync_blob_history
+                    WHERE user_id = ?1 AND kind = ?2
+                    ORDER BY id DESC LIMIT 5)`)
+        .bind(userId, kind),
+    ]);
+  } else {
+    await upsert.run();
+  }
 
   const fresh = await env.CLAUGE_DB
     .prepare('SELECT content_hash, updated_at FROM sync_blobs WHERE user_id = ? AND kind = ?')
     .bind(userId, kind)
     .first();
   return { updated: true, row: fresh };
+}
+
+export async function getSyncHistory(env, userId, kind) {
+  const res = await env.CLAUGE_DB
+    .prepare(`SELECT content_hash, device_name, replaced_at
+              FROM sync_blob_history
+              WHERE user_id = ? AND kind = ?
+              ORDER BY id DESC LIMIT 5`)
+    .bind(userId, kind)
+    .all();
+  return res.results || [];
+}
+
+export async function getSyncHistoryBlob(env, userId, kind, hash) {
+  return env.CLAUGE_DB
+    .prepare(`SELECT payload, content_hash
+              FROM sync_blob_history
+              WHERE user_id = ? AND kind = ? AND content_hash = ?
+              ORDER BY id DESC LIMIT 1`)
+    .bind(userId, kind, hash)
+    .first();
 }
 
 export async function wipeSyncBlobs(env, userId) {

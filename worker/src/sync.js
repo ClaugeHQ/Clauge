@@ -3,6 +3,7 @@
 import { json, err } from './cors.js';
 import {
   isValidKind, getSyncState, getSyncBlob, conditionalUpsertSyncBlob, wipeSyncBlobs,
+  getSyncHistory, getSyncHistoryBlob,
 } from './db.js';
 
 const MAX_PAYLOAD_BYTES = 900_000; // ~900 KB after gzip; D1 row limit is 1 MB.
@@ -101,6 +102,38 @@ export async function handleSyncPush(request, env, ctx, kind) {
     kind,
     contentHash: result.row.content_hash,
     updatedAt:   result.row.updated_at,
+  });
+}
+
+/** GET /api/sync/history/:kind  → [{ contentHash, deviceName, replacedAt }] (newest first, max 5) */
+export async function handleSyncHistory(request, env, ctx, kind) {
+  if (!isValidKind(kind)) return err(env, 400, 'Invalid kind');
+
+  const rows = await getSyncHistory(env, ctx.userId, kind);
+  return json(env, rows.map((r) => ({
+    contentHash: r.content_hash,
+    deviceName:  r.device_name ?? null,
+    replacedAt:  r.replaced_at,
+  })));
+}
+
+/** GET /api/sync/history/:kind/:hash  → { payload, contentHash }  (payload = base64 of gzip) */
+export async function handleSyncHistoryBlob(request, env, ctx, kind, hash) {
+  if (!isValidKind(kind)) return err(env, 400, 'Invalid kind');
+  if (typeof hash !== 'string' || !hash || hash.length > 128) {
+    return err(env, 400, 'Bad hash');
+  }
+
+  const row = await getSyncHistoryBlob(env, ctx.userId, kind, hash);
+  if (!row) return err(env, 404, 'No history entry for this hash');
+
+  const payloadBytes = row.payload instanceof Uint8Array
+    ? row.payload
+    : new Uint8Array(row.payload);
+
+  return json(env, {
+    payload:     bytesToBase64(payloadBytes),
+    contentHash: row.content_hash,
   });
 }
 

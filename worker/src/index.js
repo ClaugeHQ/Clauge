@@ -8,6 +8,7 @@ import {
 } from './auth.js';
 import {
   handleSyncState, handleSyncPull, handleSyncPush, handleSyncWipe,
+  handleSyncHistory, handleSyncHistoryBlob,
 } from './sync.js';
 import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal, handleGetPricing } from './billing.js';
 import { sweepPastDue } from './cron.js';
@@ -146,6 +147,20 @@ export default {
       if (pushMatch && method === 'PUT') {
         if (!syncCtx) return err(env, 401, 'Not authenticated');
         return await handleSyncPush(request, env, syncCtx, pushMatch[1]);
+      }
+
+      // /api/sync/history/:kind/:hash  (more specific — must match first)
+      const histBlobMatch = path.match(/^\/api\/sync\/history\/([a-z]+)\/([A-Za-z0-9_-]+)$/);
+      if (histBlobMatch && method === 'GET') {
+        if (!syncCtx) return err(env, 401, 'Not authenticated');
+        return await handleSyncHistoryBlob(request, env, syncCtx, histBlobMatch[1], histBlobMatch[2]);
+      }
+
+      // /api/sync/history/:kind
+      const histMatch = path.match(/^\/api\/sync\/history\/([a-z]+)$/);
+      if (histMatch && method === 'GET') {
+        if (!syncCtx) return err(env, 401, 'Not authenticated');
+        return await handleSyncHistory(request, env, syncCtx, histMatch[1]);
       }
 
       if (path === '/api/sync/wipe' && method === 'DELETE') {
