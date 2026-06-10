@@ -524,3 +524,18 @@ pub fn cloud_get_active_token(
     state.active_token_and_provider()
 }
 
+// ─── Local snapshots ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cloud_list_snapshots() -> Result<Vec<crate::cloud::snapshots::SnapshotInfo>, String> {
+    crate::cloud::snapshots::list_snapshots()
+}
+
+#[tauri::command]
+pub async fn cloud_restore_snapshot(
+    pool: State<'_, SqlitePool>,
+    file_name: String,
+) -> Result<(), String> {
+    crate::cloud::snapshots::restore_snapshot(pool.inner(), &file_name).await
+}
+

@@ -41,7 +41,6 @@ fn dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "snapshot dir not initialised".to_string())
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotInfo {
@@ -132,7 +131,6 @@ fn prune(d: &std::path::Path) {
     }
 }
 
-#[allow(dead_code)]
 pub fn list_snapshots() -> Result<Vec<SnapshotInfo>, String> {
     let d = dir()?;
     let Ok(entries) = fs::read_dir(&d) else { return Ok(Vec::new()) };
@@ -161,7 +159,6 @@ pub fn list_snapshots() -> Result<Vec<SnapshotInfo>, String> {
 
 /// Restore a snapshot file. Snapshots the CURRENT state of that kind first.
 /// `file_name` must be a bare name — path components rejected.
-#[allow(dead_code)]
 pub async fn restore_snapshot(pool: &SqlitePool, file_name: &str) -> Result<(), String> {
     if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
         return Err("invalid snapshot name".to_string());

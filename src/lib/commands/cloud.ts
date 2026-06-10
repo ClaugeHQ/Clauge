@@ -100,6 +100,20 @@ export const cloudWipeRemote = () =>
 export const cloudDeleteAccount = (confirmationSlug: string) =>
   invoke<void>('cloud_delete_account', { confirmationSlug });
 
+export interface SnapshotInfo {
+  fileName: string;
+  kind: string;
+  reason: string;
+  createdAt: string;
+  sizeBytes: number;
+}
+
+export const cloudListSnapshots = () =>
+  invoke<SnapshotInfo[]>('cloud_list_snapshots');
+
+export const cloudRestoreSnapshot = (fileName: string) =>
+  invoke<void>('cloud_restore_snapshot', { fileName });
+
 import type { ProState } from '$lib/stores/cloud';
 
 /** Read the current in-memory ProState from Rust. Called once at boot before

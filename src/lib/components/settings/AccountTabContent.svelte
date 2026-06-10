@@ -38,6 +38,9 @@
         cloudSyncPushNow,
         cloudSyncRestore,
         cloudUpdateProfile,
+        cloudListSnapshots,
+        cloudRestoreSnapshot,
+        type SnapshotInfo,
     } from "$lib/commands/cloud";
     import { showToast } from "$lib/shared/primitives/toast";
     import { friendlyError } from "$lib/utils/errors";
@@ -102,6 +105,11 @@
     let menuOpen = $state(false);
     let menuAnchor: HTMLElement | null = $state(null);
     let confirmPull = $state(false);
+
+    let snapshots = $state<SnapshotInfo[]>([]);
+    let restoringSnapshot = $state<string | null>(null);
+    let confirmRestoreSnapshot = $state(false);
+    let snapshotToRestore = $state<SnapshotInfo | null>(null);
 
     let now = $state(Date.now());
     let tickerId: ReturnType<typeof setInterval> | null = null;
@@ -190,6 +198,7 @@
 
     onMount(() => {
         if (get(cloudConnected)) refreshStatus().catch(() => {});
+        loadSnapshots();
         tickerId = setInterval(() => {
             now = Date.now();
         }, 30_000);
@@ -353,6 +362,86 @@
             showToast(friendlyError(e), "error");
         } finally {
             setSyncing(false);
+        }
+    }
+
+    async function loadSnapshots() {
+        try {
+            snapshots = await cloudListSnapshots();
+        } catch {
+            snapshots = [];
+        }
+    }
+
+    function snapshotKindLabel(kind: string): string {
+        switch (kind) {
+            case "rest":
+                return "REST collections";
+            case "sql":
+                return "SQL connections";
+            case "nosql":
+                return "NoSQL connections";
+            case "agent":
+                return "Agent contexts";
+            case "ssh":
+                return "SSH profiles";
+            case "explorer":
+                return "Explorer connections";
+            case "coworkers":
+                return "Workspace coworkers";
+            default:
+                return kind;
+        }
+    }
+
+    // createdAt is a compact stamp like "20260610T142233.123Z-ab12cd" —
+    // parse the YYYYMMDDTHHMMSS prefix (UTC) into epoch ms, or 0 if odd.
+    function parseSnapshotStamp(stamp: string): number {
+        const m = stamp.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+        if (!m) return 0;
+        return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    }
+
+    function fmtSnapshotTime(stamp: string): string {
+        void now;
+        const t = parseSnapshotStamp(stamp);
+        if (!t) return stamp;
+        const diff = Math.max(0, Date.now() - t);
+        if (diff < 60_000) return "just now";
+        if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+        if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+        return new Date(t).toLocaleDateString();
+    }
+
+    function fmtSnapshotSize(bytes: number): string {
+        return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+
+    async function restoreSnapshot() {
+        const s = snapshotToRestore;
+        snapshotToRestore = null;
+        if (!s || restoringSnapshot) return;
+        restoringSnapshot = s.fileName;
+        try {
+            await cloudRestoreSnapshot(s.fileName);
+            const [r, q, n] = await Promise.all([
+                import("$lib/modes/rest/stores"),
+                import("$lib/modes/sql/stores"),
+                import("$lib/modes/nosql/stores"),
+            ]);
+            await Promise.all([
+                r.loadCollections(),
+                r.loadEnvironments(),
+                q.loadConnections(),
+                q.loadSqlScripts(),
+                n.loadNoSqlConnections(),
+            ]);
+            showToast("Snapshot restored", "success");
+        } catch (e) {
+            showToast(friendlyError(e), "error");
+        } finally {
+            restoringSnapshot = null;
+            loadSnapshots();
         }
     }
 
@@ -1194,6 +1283,53 @@
                 {/each}
             </section>
 
+            <!-- Local snapshots -->
+            <section class="acc-card">
+                <h3 class="acc-card-title acc-card-title-solo">
+                    Local snapshots
+                </h3>
+                {#if snapshots.length === 0}
+                    <p class="acc-snap-empty">
+                        No snapshots yet — they're created automatically
+                        before any sync restore.
+                    </p>
+                {:else}
+                    {#each snapshots as s (s.fileName)}
+                        <div class="acc-snap-row">
+                            <div class="acc-snap-text">
+                                <span class="acc-snap-name"
+                                    >{snapshotKindLabel(s.kind)}</span
+                                >
+                                <span class="acc-snap-sub"
+                                    >{s.reason}
+                                    <span class="acc-sub-dot">·</span>
+                                    {fmtSnapshotTime(s.createdAt)}
+                                    <span class="acc-sub-dot">·</span>
+                                    {fmtSnapshotSize(s.sizeBytes)}</span
+                                >
+                            </div>
+                            <button
+                                class="acc-mini-btn"
+                                disabled={restoringSnapshot !== null}
+                                onclick={() => {
+                                    snapshotToRestore = s;
+                                    confirmRestoreSnapshot = true;
+                                }}
+                            >
+                                {#if restoringSnapshot === s.fileName}<span
+                                        class="acc-spinner acc-spinner-light acc-spinner-tiny"
+                                    ></span>{/if}
+                                <span
+                                    >{restoringSnapshot === s.fileName
+                                        ? "Restoring…"
+                                        : "Restore"}</span
+                                >
+                            </button>
+                        </div>
+                    {/each}
+                {/if}
+            </section>
+
             <!-- Danger zone -->
             <section class="acc-card acc-card-danger">
                 <h3 class="acc-card-title acc-card-title-solo acc-danger-title">
@@ -1411,6 +1547,22 @@
     }}
     oncancel={() => {
         confirmPull = false;
+    }}
+/>
+
+<ConfirmDialog
+    bind:show={confirmRestoreSnapshot}
+    title="Restore snapshot?"
+    message={`Restore this snapshot? Current data for ${snapshotToRestore ? snapshotKindLabel(snapshotToRestore.kind) : "this kind"} is snapshotted first.`}
+    confirmText="Restore"
+    confirmColor="var(--acc)"
+    onconfirm={() => {
+        confirmRestoreSnapshot = false;
+        restoreSnapshot();
+    }}
+    oncancel={() => {
+        confirmRestoreSnapshot = false;
+        snapshotToRestore = null;
     }}
 />
 
@@ -2157,6 +2309,50 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* Local snapshots */
+    .acc-snap-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--b1);
+        margin-bottom: 8px;
+        font-size: 12.5px;
+        background: var(--surface-hover);
+    }
+    .acc-snap-row:last-child {
+        margin-bottom: 0;
+    }
+    .acc-snap-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+    }
+    .acc-snap-name {
+        font-weight: 600;
+        color: var(--t1);
+        font-size: 13px;
+        line-height: 1.2;
+    }
+    .acc-snap-sub {
+        font-size: 11.5px;
+        color: var(--t3);
+        font-family: var(--mono, ui-monospace);
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .acc-snap-empty {
+        font-size: 11.5px;
+        color: var(--t3);
+        line-height: 1.55;
+        margin: 0;
     }
 
     /* Danger zone */
