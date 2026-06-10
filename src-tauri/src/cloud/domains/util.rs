@@ -178,3 +178,181 @@ pub fn hash_of_payload(payload: &SyncPayload) -> String {
     let json = serde_json::to_vec(payload).unwrap_or_default();
     hex::encode(Sha256::digest(&json))
 }
+
+/// Declarative description of one syncable table for merge imports.
+/// `columns` MUST match the domain's export SELECT list exactly.
+#[allow(dead_code)] // wired up by per-domain merge specs (Task 3.2)
+pub struct TableSpec {
+    pub table: &'static str,
+    pub pk: &'static str,
+    /// Column used for last-write-wins on same-pk rows. None = local always
+    /// wins for existing rows (insert-if-missing only).
+    pub updated_at: Option<&'static str>,
+    pub columns: &'static [&'static str],
+}
+
+/// UPSERT-union merge: inserts rows missing locally; for same-pk rows the
+/// newer `updated_at` wins (ties keep local). NEVER deletes local rows.
+/// Specs must be ordered FK-parents-first. Single transaction.
+#[allow(dead_code)] // wired up by merge_kind dispatch (Task 3.2)
+pub async fn merge_import(
+    pool: &SqlitePool,
+    payload: &SyncPayload,
+    specs: &[TableSpec],
+) -> Result<(), String> {
+    let mut tx = pool.begin().await.map_err(|e| format!("begin: {}", e))?;
+    for spec in specs {
+        let rows = payload
+            .tables
+            .get(spec.table)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let placeholders = spec.columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = match spec.updated_at {
+            Some(ucol) => {
+                let updates = spec
+                    .columns
+                    .iter()
+                    .filter(|c| **c != spec.pk)
+                    .map(|c| format!("{} = excluded.{}", c, c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "INSERT INTO {t} ({cols}) VALUES ({ph}) \
+                     ON CONFLICT({pk}) DO UPDATE SET {updates} \
+                     WHERE excluded.{u} > {t}.{u}",
+                    t = spec.table,
+                    cols = spec.columns.join(", "),
+                    ph = placeholders,
+                    pk = spec.pk,
+                    updates = updates,
+                    u = ucol,
+                )
+            }
+            None => format!(
+                "INSERT OR IGNORE INTO {} ({}) VALUES ({})",
+                spec.table,
+                spec.columns.join(", "),
+                placeholders,
+            ),
+        };
+        for row in rows {
+            let mut q = sqlx::query(&sql);
+            for col in spec.columns {
+                let v = row.get(*col).unwrap_or(&Value::Null);
+                q = bind_value(q, v);
+            }
+            q.execute(&mut *tx)
+                .await
+                .map_err(|e| format!("merge into {}: {}", spec.table, e))?;
+        }
+    }
+    tx.commit().await.map_err(|e| format!("commit: {}", e))
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+
+    async fn pool_with(table_sql: &str, rows: &[&str]) -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(table_sql).execute(&pool).await.unwrap();
+        for r in rows {
+            sqlx::query(r).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    fn payload_with(table: &str, rows: Vec<serde_json::Value>) -> SyncPayload {
+        let mut p = empty_payload("test");
+        p.tables.insert(
+            table.into(),
+            rows.into_iter()
+                .map(|v| v.as_object().unwrap().clone())
+                .collect(),
+        );
+        p
+    }
+
+    const T: &str = "CREATE TABLE items (id TEXT PRIMARY KEY, name TEXT, updated_at TEXT)";
+    const SPEC: &[TableSpec] = &[TableSpec {
+        table: "items",
+        pk: "id",
+        updated_at: Some("updated_at"),
+        columns: &["id", "name", "updated_at"],
+    }];
+
+    #[tokio::test]
+    async fn merge_inserts_missing_rows() {
+        let pool = pool_with(T, &[]).await;
+        let p = payload_with("items", vec![serde_json::json!({"id":"a","name":"x","updated_at":"2026-01-02"})]);
+        merge_import(&pool, &p, SPEC).await.unwrap();
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn merge_newer_incoming_wins_older_loses() {
+        let pool = pool_with(T, &["INSERT INTO items VALUES ('a','local','2026-01-05')"]).await;
+        let p = payload_with("items", vec![serde_json::json!({"id":"a","name":"remote-old","updated_at":"2026-01-01"})]);
+        merge_import(&pool, &p, SPEC).await.unwrap();
+        let (name,): (String,) = sqlx::query_as("SELECT name FROM items WHERE id='a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(name, "local");
+        let p = payload_with("items", vec![serde_json::json!({"id":"a","name":"remote-new","updated_at":"2026-02-01"})]);
+        merge_import(&pool, &p, SPEC).await.unwrap();
+        let (name,): (String,) = sqlx::query_as("SELECT name FROM items WHERE id='a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(name, "remote-new");
+    }
+
+    #[tokio::test]
+    async fn merge_never_deletes_local_only_rows() {
+        let pool = pool_with(T, &["INSERT INTO items VALUES ('local-only','keep','2026-01-01')"]).await;
+        let p = payload_with("items", vec![serde_json::json!({"id":"b","name":"new","updated_at":"2026-01-02"})]);
+        merge_import(&pool, &p, SPEC).await.unwrap();
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 2);
+    }
+
+    #[tokio::test]
+    async fn merge_without_updated_at_keeps_local() {
+        let pool = pool_with(
+            "CREATE TABLE plain (id TEXT PRIMARY KEY, name TEXT)",
+            &["INSERT INTO plain VALUES ('a','local')"],
+        )
+        .await;
+        let spec = &[TableSpec { table: "plain", pk: "id", updated_at: None, columns: &["id", "name"] }];
+        let p = payload_with("plain", vec![
+            serde_json::json!({"id":"a","name":"remote"}),
+            serde_json::json!({"id":"b","name":"new"}),
+        ]);
+        merge_import(&pool, &p, spec).await.unwrap();
+        let (name,): (String,) = sqlx::query_as("SELECT name FROM plain WHERE id='a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(name, "local");
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM plain").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 2);
+    }
+
+    #[tokio::test]
+    async fn merge_tie_on_updated_at_keeps_local() {
+        let pool = pool_with(T, &["INSERT INTO items VALUES ('a','local','2026-01-05')"]).await;
+        let p = payload_with("items", vec![serde_json::json!({"id":"a","name":"remote","updated_at":"2026-01-05"})]);
+        merge_import(&pool, &p, SPEC).await.unwrap();
+        let (name,): (String,) = sqlx::query_as("SELECT name FROM items WHERE id='a'").fetch_one(&pool).await.unwrap();
+        assert_eq!(name, "local");
+    }
+
+    #[tokio::test]
+    async fn merge_is_transactional_per_call() {
+        // Second table in the spec doesn't exist -> whole merge must roll back.
+        let pool = pool_with(T, &[]).await;
+        let specs = &[
+            TableSpec { table: "items", pk: "id", updated_at: Some("updated_at"), columns: &["id", "name", "updated_at"] },
+            TableSpec { table: "missing_table", pk: "id", updated_at: None, columns: &["id"] },
+        ];
+        let mut p = payload_with("items", vec![serde_json::json!({"id":"a","name":"x","updated_at":"2026-01-02"})]);
+        p.tables.insert("missing_table".into(), vec![serde_json::json!({"id":"z"}).as_object().unwrap().clone()]);
+        assert!(merge_import(&pool, &p, specs).await.is_err());
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0, "failed merge must not leave partial rows");
+    }
+}
