@@ -134,6 +134,18 @@ export const cloudListSnapshots = () =>
 export const cloudRestoreSnapshot = (fileName: string) =>
   invoke<void>('cloud_restore_snapshot', { fileName });
 
+export interface SyncHistoryEntry {
+  contentHash: string;
+  deviceName: string | null;
+  replacedAt: string;
+}
+
+export const cloudHistoryList = (kind: string) =>
+  invoke<SyncHistoryEntry[]>('cloud_history_list', { kind });
+
+export const cloudHistoryRestore = (kind: string, hash: string) =>
+  invoke<void>('cloud_history_restore', { kind, hash });
+
 import type { ProState } from '$lib/stores/cloud';
 
 /** Read the current in-memory ProState from Rust. Called once at boot before

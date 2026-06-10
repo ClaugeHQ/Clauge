@@ -606,3 +606,34 @@ pub async fn cloud_restore_snapshot(
     crate::cloud::snapshots::restore_snapshot(pool.inner(), &file_name).await
 }
 
+// ─── Cloud version history ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cloud_history_list(
+    pool: State<'_, SqlitePool>,
+    state: State<'_, AuthState>,
+    kind: String,
+) -> Result<Vec<crate::cloud::models::SyncHistoryEntry>, String> {
+    client::sync_history_list(pool.inner(), &state, &kind)
+        .await
+        .map_err(String::from)
+}
+
+/// Restore an old cloud version onto this device: snapshot local first →
+/// REPLACE local with the historical blob → force-push it (the push itself
+/// archives the current cloud blob, so restores are undoable too).
+#[tauri::command]
+pub async fn cloud_history_restore(
+    pool: State<'_, SqlitePool>,
+    state: State<'_, AuthState>,
+    kind: String,
+    hash: String,
+) -> Result<(), String> {
+    crate::cloud::snapshots::snapshot_kind(pool.inner(), &kind, "pre-history-restore").await?;
+    let blob = client::sync_history_blob(pool.inner(), &state, &kind, &hash)
+        .await
+        .map_err(String::from)?;
+    crate::cloud::domains::import_kind(pool.inner(), &kind, &blob.payload).await?;
+    sync::force_push_kind(pool.inner(), &state, &kind).await
+}
+

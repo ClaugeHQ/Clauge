@@ -7,7 +7,8 @@ use sqlx::SqlitePool;
 use crate::cloud::auth::AuthState;
 use crate::cloud::config::API_BASE_URL;
 use crate::cloud::models::{
-    AuthResponse, MeResponse, SyncPullResponse, SyncPushResponse, SyncStateRow,
+    AuthResponse, MeResponse, SyncHistoryBlob, SyncHistoryEntry, SyncPullResponse,
+    SyncPushResponse, SyncStateRow,
 };
 use crate::shared::http::build_app_http_client;
 
@@ -267,6 +268,39 @@ pub async fn sync_pull(
             .active_token_and_provider()
             .ok_or(CloudError::NotAuthenticated)?;
         let path = format!("/api/sync/pull/{}", kind);
+        get_json_auth(pool, &path, &token, &provider).await
+    })
+    .await
+}
+
+/// Archived versions of a kind, newest first (≤5).
+pub async fn sync_history_list(
+    pool: &SqlitePool,
+    state: &AuthState,
+    kind: &str,
+) -> Result<Vec<SyncHistoryEntry>, CloudError> {
+    with_google_refresh_retry(pool, state, || async {
+        let (token, provider) = state
+            .active_token_and_provider()
+            .ok_or(CloudError::NotAuthenticated)?;
+        let path = format!("/api/sync/history/{}", kind);
+        get_json_auth(pool, &path, &token, &provider).await
+    })
+    .await
+}
+
+/// Fetch one archived blob by content hash. 404 surfaces as `CloudError::Server`.
+pub async fn sync_history_blob(
+    pool: &SqlitePool,
+    state: &AuthState,
+    kind: &str,
+    hash: &str,
+) -> Result<SyncHistoryBlob, CloudError> {
+    with_google_refresh_retry(pool, state, || async {
+        let (token, provider) = state
+            .active_token_and_provider()
+            .ok_or(CloudError::NotAuthenticated)?;
+        let path = format!("/api/sync/history/{}/{}", kind, hash);
         get_json_auth(pool, &path, &token, &provider).await
     })
     .await

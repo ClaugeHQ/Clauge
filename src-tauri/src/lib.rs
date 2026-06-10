@@ -405,6 +405,8 @@ pub fn run() {
             cloud::commands::cloud_get_active_token,
             cloud::commands::cloud_list_snapshots,
             cloud::commands::cloud_restore_snapshot,
+            cloud::commands::cloud_history_list,
+            cloud::commands::cloud_history_restore,
             cloud::pro_state::pro_state_current,
             cloud::credentials_probe::cloud_probe_missing_credentials,
             modes::rest::import_export::export_collection,

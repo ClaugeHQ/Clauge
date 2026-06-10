@@ -128,6 +128,24 @@ pub struct SyncPushResponse {
     pub updated_at: String,
 }
 
+/// One archived version of a kind, from /api/sync/history/:kind.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncHistoryEntry {
+    pub content_hash: String,
+    #[serde(default)]
+    pub device_name: Option<String>,
+    pub replaced_at: String,
+}
+
+/// Archived blob payload, from /api/sync/history/:kind/:hash.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncHistoryBlob {
+    pub payload: String, // base64
+    pub content_hash: String,
+}
+
 /// Snapshot returned to the frontend by `cloud_get_status`.
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]

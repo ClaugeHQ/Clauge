@@ -38,8 +38,11 @@
         cloudListSnapshots,
         cloudRestoreSnapshot,
         cloudRemoteState,
+        cloudHistoryList,
+        cloudHistoryRestore,
         type SnapshotInfo,
         type SyncStateRow,
+        type SyncHistoryEntry,
     } from "$lib/commands/cloud";
     import { reloadSyncedStores } from "$lib/commands/syncReload";
     import { decideFirstSync } from "$lib/services/firstSync";
@@ -111,6 +114,14 @@
     let restoringSnapshot = $state<string | null>(null);
     let confirmRestoreSnapshot = $state(false);
     let snapshotToRestore = $state<SnapshotInfo | null>(null);
+
+    // Cloud version history — lazy-loaded per kind on selection.
+    let historyKind = $state<string | null>(null);
+    let historyEntries = $state<SyncHistoryEntry[]>([]);
+    let loadingHistory = $state(false);
+    let restoringHistory = $state<string | null>(null);
+    let confirmRestoreHistory = $state(false);
+    let historyToRestore = $state<SyncHistoryEntry | null>(null);
 
     let now = $state(Date.now());
     let tickerId: ReturnType<typeof setInterval> | null = null;
@@ -397,6 +408,49 @@
         }
     }
 
+    // replacedAt is D1 CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) —
+    // parseServerTime appends the missing Z before diffing.
+    function fmtHistoryTime(s: string): string {
+        void now;
+        const t = parseServerTime(s);
+        return t ? fmtAgo(t) : s;
+    }
+
+    async function selectHistoryKind(kind: string) {
+        historyKind = kind;
+        historyEntries = [];
+        loadingHistory = true;
+        try {
+            historyEntries = await cloudHistoryList(kind);
+        } catch (e) {
+            showToast(friendlyError(e), "error");
+        } finally {
+            loadingHistory = false;
+        }
+    }
+
+    async function restoreHistoryVersion() {
+        const entry = historyToRestore;
+        const kind = historyKind;
+        historyToRestore = null;
+        if (!entry || !kind || restoringHistory) return;
+        restoringHistory = entry.contentHash;
+        try {
+            await cloudHistoryRestore(kind, entry.contentHash);
+            showToast("Version restored", "success");
+            await reloadSyncedStores();
+        } catch (e) {
+            showToast(friendlyError(e), "error");
+        } finally {
+            restoringHistory = null;
+            // The restore force-pushed a new cloud blob (archiving the old
+            // one) AND wrote a pre-history-restore local snapshot — refresh
+            // both lists so the UI reflects that.
+            if (historyKind === kind) selectHistoryKind(kind);
+            loadSnapshots();
+        }
+    }
+
     async function wipeRemote() {
         if (wiping) return; // guard against double-click
         wiping = true;
@@ -490,6 +544,9 @@
             /* silent — device labels are optional decoration */
         }
     }
+
+    // Kinds the server currently holds — drives the history kind selector.
+    let historyKinds = $derived(remoteState.map((r) => r.kind));
 
     let lastSyncDevice = $derived.by(() => {
         let best: SyncStateRow | null = null;
@@ -1375,6 +1432,78 @@
                 {/if}
             </section>
 
+            <!-- Cloud version history -->
+            <section class="acc-card">
+                <h3 class="acc-card-title acc-card-title-solo">
+                    Cloud version history
+                </h3>
+                {#if historyKinds.length === 0}
+                    <p class="acc-snap-empty">
+                        Nothing synced to the cloud yet.
+                    </p>
+                {:else}
+                    <div class="acc-hist-kinds">
+                        {#each historyKinds as k (k)}
+                            <button
+                                class="acc-hist-kind-btn"
+                                class:acc-hist-kind-active={historyKind === k}
+                                onclick={() => selectHistoryKind(k)}
+                            >
+                                {snapshotKindLabel(k)}
+                            </button>
+                        {/each}
+                    </div>
+                    {#if historyKind !== null}
+                        {#if loadingHistory}
+                            <p class="acc-snap-empty">Loading…</p>
+                        {:else if historyEntries.length === 0}
+                            <p class="acc-snap-empty">
+                                No older versions yet — history is written
+                                when a device overwrites a synced kind.
+                            </p>
+                        {:else}
+                            {#each historyEntries as h (h.contentHash)}
+                                <div class="acc-snap-row">
+                                    <div class="acc-snap-text">
+                                        <span class="acc-snap-name"
+                                            >{h.deviceName ??
+                                                "unknown device"}</span
+                                        >
+                                        <span class="acc-snap-sub"
+                                            >{fmtHistoryTime(h.replacedAt)}
+                                            <span class="acc-sub-dot">·</span>
+                                            {h.contentHash.slice(0, 8)}</span
+                                        >
+                                    </div>
+                                    <button
+                                        class="acc-mini-btn"
+                                        disabled={restoringHistory !== null}
+                                        onclick={() => {
+                                            historyToRestore = h;
+                                            confirmRestoreHistory = true;
+                                        }}
+                                    >
+                                        {#if restoringHistory === h.contentHash}<span
+                                                class="acc-spinner acc-spinner-light acc-spinner-tiny"
+                                            ></span>{/if}
+                                        <span
+                                            >{restoringHistory ===
+                                            h.contentHash
+                                                ? "Restoring…"
+                                                : "Restore"}</span
+                                        >
+                                    </button>
+                                </div>
+                            {/each}
+                        {/if}
+                    {:else}
+                        <p class="acc-snap-empty">
+                            Pick a kind to see its archived cloud versions.
+                        </p>
+                    {/if}
+                {/if}
+            </section>
+
             <!-- Danger zone -->
             <section class="acc-card acc-card-danger">
                 <h3 class="acc-card-title acc-card-title-solo acc-danger-title">
@@ -1608,6 +1737,22 @@
     oncancel={() => {
         confirmRestoreSnapshot = false;
         snapshotToRestore = null;
+    }}
+/>
+
+<ConfirmDialog
+    bind:show={confirmRestoreHistory}
+    title="Restore version?"
+    message={`Restore this version of ${historyKind ? snapshotKindLabel(historyKind) : "this kind"}? Current data is snapshotted locally and the current cloud copy is archived to history first.`}
+    confirmText="Restore"
+    confirmColor="var(--acc)"
+    onconfirm={() => {
+        confirmRestoreHistory = false;
+        restoreHistoryVersion();
+    }}
+    oncancel={() => {
+        confirmRestoreHistory = false;
+        historyToRestore = null;
     }}
 />
 
@@ -2406,6 +2551,35 @@
         color: var(--t3);
         line-height: 1.55;
         margin: 0;
+    }
+
+    /* Cloud version history */
+    .acc-hist-kinds {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .acc-hist-kind-btn {
+        padding: 5px 10px;
+        font-size: 11.5px;
+        border-radius: 6px;
+        border: 1px solid var(--b1);
+        background: transparent;
+        color: var(--t2);
+        cursor: default;
+        white-space: nowrap;
+        font-family: var(--ui);
+    }
+    .acc-hist-kind-btn:hover {
+        background: var(--surface-hover);
+        color: var(--t1);
+    }
+    .acc-hist-kind-active,
+    .acc-hist-kind-active:hover {
+        border-color: var(--acc);
+        color: var(--t1);
+        background: var(--surface-hover);
     }
 
     /* Danger zone */
