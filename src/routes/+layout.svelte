@@ -173,6 +173,7 @@
     let _syncIntervalRemovedInPart2: null = null;
     let usageLimitsInterval: ReturnType<typeof setInterval> | null = null;
     let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
+    let backgroundPullInterval: ReturnType<typeof setInterval> | null = null;
     let deepLinkUnlisten: (() => void) | null = null;
     // Tracks the last dispatched OAuth token to prevent double-firing
     // (getCurrent() and onOpenUrl can both return the same startup URL).
@@ -633,6 +634,7 @@
         // Periodic sync removed in Part 2 — Rust scheduler handles auto-push now.
         if (usageLimitsInterval) clearInterval(usageLimitsInterval);
         if (updateCheckInterval) clearInterval(updateCheckInterval);
+        if (backgroundPullInterval) clearInterval(backgroundPullInterval);
     });
 
     function applyAppearanceOnStartup() {
@@ -1086,12 +1088,17 @@
                         console.warn("[Cloud] remote check failed:", e);
                     }
                 } else if (!get(hasSyncedOnce)) {
-                    // Local has data but we've never synced — fire a one-shot push so
-                    // the server starts in lockstep with this device.
-                    markSynced();
-                    cloudSyncPushNow().catch((e) =>
-                        console.warn("[Cloud] initial push failed:", e),
-                    );
+                    // Local has data but we've never synced — push first, and
+                    // only mark synced once the server confirmed it.
+                    cloudSyncPushNow()
+                        .then(() => markSynced())
+                        .catch((e) => {
+                            console.warn("[Cloud] initial push failed:", e);
+                            showToast(
+                                "Cloud backup failed — use the sync button in the sidebar to retry",
+                                "error",
+                            );
+                        });
                 }
             } else {
                 // Server says we're not authenticated. The snapshots we
@@ -1143,19 +1150,21 @@
             }
         }).catch((e) => console.warn("[REST] change listener failed:", e));
 
-        // ── Pull-on-focus ────────────────────────────────────────────────
-        // When the user Cmd-Tabs back to Clauge, run a lightweight remote-
-        // state check and silently pull any kinds where the server has
-        // moved on AND we don't have unpushed local changes. Debounced to
-        // ≥5 minutes so rapid back-and-forth doesn't spam the Worker.
+        // ── Pull on focus + 15-min interval ──────────────────────────────
+        // Focus catches the user coming back; the interval catches an idle
+        // app the user never leaves. Shared ≥5-min guard so the two
+        // triggers can't double-fire against the Worker. Rust-side
+        // pull_if_remote_newer skips kinds with unpushed local changes.
         let lastFocusPull = 0;
-        window.addEventListener("focus", () => {
+        const pullIfDue = () => {
             if (Date.now() - lastFocusPull < 5 * 60_000) return;
             lastFocusPull = Date.now();
             cloudPullIfRemoteNewer().catch((e) =>
-                console.warn("[Cloud] pull-on-focus:", e),
+                console.warn("[Cloud] background pull:", e),
             );
-        });
+        };
+        window.addEventListener("focus", pullIfDue);
+        backgroundPullInterval = setInterval(pullIfDue, 15 * 60_000);
 
         // ── Auto-move workspace cards when their PR merges ──────────────
         // Same focus-debounce pattern. Walks loaded boards, checks each
