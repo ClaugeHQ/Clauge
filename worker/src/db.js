@@ -267,18 +267,21 @@ export async function conditionalUpsertSyncBlob(env, userId, kind, prevHash, con
     .bind(userId, kind)
     .first();
 
-  // Mismatch detection — split by which "branch" of the precondition fails.
-  if (existing && prevHash !== '*' && prevHash != null && prevHash !== existing.content_hash) {
-    return { updated: false, row: existing };
-  }
-  if (!existing && prevHash != null && prevHash !== '*') {
-    return { updated: false, row: null };
-  }
-
   // Same-hash short-circuit — D1 write skipped, but we still report success
   // so the client's bookkeeping updates (no-op from the server's POV).
   if (existing && existing.content_hash === contentHash) {
     return { updated: true, row: existing };
+  }
+
+  // Mismatch detection — split by which "branch" of the precondition fails.
+  // A null prevHash means "I have never seen this kind on the server"; if a
+  // row exists with different content, that is a conflict too — silently
+  // overwriting here was the never-synced-device data-loss path.
+  if (existing && prevHash !== '*' && prevHash !== existing.content_hash) {
+    return { updated: false, row: existing };
+  }
+  if (!existing && prevHash != null && prevHash !== '*') {
+    return { updated: false, row: null };
   }
 
   const upsert = env.CLAUGE_DB
