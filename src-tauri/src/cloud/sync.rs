@@ -159,16 +159,14 @@ pub async fn force_push_kind(
     }
 }
 
-/// Resolve a conflict by adopting the remote — pulls the remote blob,
-/// imports it locally, and clears the conflict flag.
+/// Resolve a conflict by adopting the remote — pulls the remote blob and
+/// imports it locally. pull_kind clears the conflict flag itself.
 pub async fn resolve_use_remote(
     pool: &SqlitePool,
     state: &AuthState,
     kind: &str,
 ) -> Result<(), String> {
-    pull_kind(pool, state, kind).await?;
-    let _ = clear_conflict_flag(pool, kind).await;
-    Ok(())
+    pull_kind(pool, state, kind).await
 }
 
 /// Merge-resolve one kind: snapshot → pull remote blob → UPSERT-union into
@@ -256,6 +254,8 @@ pub async fn pull_kind(
     settings::upsert(pool, &settings_key_synced_at(kind), &resp.updated_at)
         .await
         .map_err(|e| format!("store synced_at: {}", e))?;
+    // Local now equals remote — any prior divergence is resolved.
+    let _ = clear_conflict_flag(pool, kind).await;
     Ok(())
 }
 

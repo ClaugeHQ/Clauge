@@ -16,7 +16,7 @@
   //     state immediately.
   //   - Mid-resolution races: if `cloud:conflicts-changed` fires while
   //     the modal is open, the body re-renders with the new list.
-  import { cloudConflicts } from '$lib/stores/cloud';
+  import { cloudConflicts, showDeviceSetup } from '$lib/stores/cloud';
   import { cloudResolveKeepLocal, cloudResolveUseRemote, cloudResolveKind, cloudGetConflicts } from '$lib/commands/cloud';
   import { reloadSyncedStores } from '$lib/commands/syncReload';
   import { showToast } from '$lib/shared/primitives/toast';
@@ -45,6 +45,17 @@
 
   let busy = $state<'keep' | 'use' | 'merge' | null>(null);
   let kindBusy = $state<string | null>(null);
+
+  /** Never stack over the device-setup modal. While setup is open the
+   *  resolver stays suppressed (`show` may already be true — rendering is
+   *  gated below). When setup closes, conflicts created in the interim
+   *  are usually self-resolved by the chosen action (merge / force-push /
+   *  pull all clear the flags), so only reopen if any actually remain. */
+  $effect(() => {
+    if (!$showDeviceSetup && show && $cloudConflicts.length === 0) {
+      show = false;
+    }
+  });
 
   /** Refresh the store after a resolve. The Rust resolve commands clear
    *  per-kind conflict flags but don't emit `cloud:conflicts-changed`
@@ -130,7 +141,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && show) {
+    if (e.key === 'Escape' && show && !$showDeviceSetup) {
       e.preventDefault();
       close();
     }
@@ -139,7 +150,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if show}
+{#if show && !$showDeviceSetup}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="cr-overlay" use:teleportToBody onclick={close}>
