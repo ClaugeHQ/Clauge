@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 use crate::cloud::domains::{export_kind, import_kind, ALL_KINDS};
 
+#[allow(dead_code)]
 pub const MAX_SNAPSHOTS: usize = 30;
 
 static SNAPSHOT_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
@@ -38,6 +39,7 @@ fn dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "snapshot dir not initialised".to_string())
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotInfo {
@@ -48,8 +50,12 @@ pub struct SnapshotInfo {
     pub size_bytes: u64,
 }
 
-/// Export `kind` and write it to disk. Filename: `<utc-ts>__<kind>__<reason>.json.gz`.
+/// Export `kind` and write it to disk. Filename: `<utc-ts>-<uuid6>__<kind>__<reason>.json.gz`.
+#[allow(dead_code)]
 pub async fn snapshot_kind(pool: &SqlitePool, kind: &str, reason: &str) -> Result<PathBuf, String> {
+    if !reason.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        return Err(format!("invalid snapshot reason: {}", reason));
+    }
     let (_hash, payload_b64) = export_kind(pool, kind).await?;
     let gz = B64
         .decode(&payload_b64)
@@ -57,15 +63,23 @@ pub async fn snapshot_kind(pool: &SqlitePool, kind: &str, reason: &str) -> Resul
     let d = dir()?;
     fs::create_dir_all(&d).map_err(|e| format!("snapshot dir: {}", e))?;
     let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
-    let path = d.join(format!("{}__{}__{}.json.gz", ts, kind, reason));
+    let uid = &uuid::Uuid::new_v4().to_string()[..6];
+    let path = d.join(format!("{}-{}__{}__{}.json.gz", ts, uid, kind, reason));
     fs::write(&path, &gz).map_err(|e| format!("snapshot write: {}", e))?;
     prune(&d);
     Ok(path)
 }
 
 /// Keep only the newest MAX_SNAPSHOTS files (filenames sort chronologically).
-fn prune(d: &PathBuf) {
-    let Ok(entries) = fs::read_dir(d) else { return };
+#[allow(dead_code)]
+fn prune(d: &std::path::Path) {
+    let entries = match fs::read_dir(d) {
+        Ok(e) => e,
+        Err(err) => {
+            log::warn!("[cloud:snapshots] read_dir failed: {}", err);
+            return;
+        }
+    };
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter_map(|e| e.file_name().into_string().ok())
@@ -74,7 +88,9 @@ fn prune(d: &PathBuf) {
     names.sort();
     while names.len() > MAX_SNAPSHOTS {
         let victim = names.remove(0);
-        let _ = fs::remove_file(d.join(victim));
+        if let Err(err) = fs::remove_file(d.join(&victim)) {
+            log::warn!("[cloud:snapshots] remove {} failed: {}", victim, err);
+        }
     }
 }
 
@@ -107,6 +123,7 @@ pub fn list_snapshots() -> Result<Vec<SnapshotInfo>, String> {
 
 /// Restore a snapshot file. Snapshots the CURRENT state of that kind first.
 /// `file_name` must be a bare name — path components rejected.
+#[allow(dead_code)]
 pub async fn restore_snapshot(pool: &SqlitePool, file_name: &str) -> Result<(), String> {
     if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
         return Err("invalid snapshot name".to_string());
@@ -171,7 +188,7 @@ mod tests {
             snapshot_kind(&pool, "ssh", "pre-pull").await.unwrap();
         }
         let count = std::fs::read_dir(&dir).unwrap().count();
-        assert!(count <= MAX_SNAPSHOTS);
+        assert_eq!(count, MAX_SNAPSHOTS);
         std::fs::remove_dir_all(&dir).ok();
     }
 
