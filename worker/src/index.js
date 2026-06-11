@@ -14,6 +14,7 @@ import { handleBillingWebhook, handleCreateCheckout, handleCreatePortal, handleG
 import { sweepPastDue } from './cron.js';
 import { handleAiChat, handleAiBalance, handleAiUsage } from './ai.js';
 import { handleTelemetryHeartbeat } from './telemetry.js';
+import { handlePushSend } from './push.js';
 import { checkKeyRpm } from './ratelimit.js';
 
 export default {
@@ -116,6 +117,16 @@ export default {
           return new Response("rate limited", { status: 429 });
         }
         return handleCreatePortal(env, portalUserId);
+      }
+
+      // ─── /api/push/send — bearer required ──────────────────
+      if (path === '/api/push/send' && method === 'POST') {
+        const pushCtx = await authenticate(request, env);
+        if (!pushCtx?.userId) return err(env, 401, 'Not authenticated');
+        if (!(await checkKeyRpm(`push:${pushCtx.userId}`, 60, env))) {
+          return new Response("rate limited", { status: 429 });
+        }
+        return await handlePushSend(request, env, pushCtx.userId);
       }
 
       // ─── /api/telemetry/heartbeat — auth OPTIONAL ──────────
