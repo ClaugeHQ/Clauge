@@ -51,8 +51,13 @@ pub(crate) async fn spawn_ssh_terminal_impl(
     log::info!("[ssh] connect profile={}", profile_id);
 
     // Register with the companion fan-out before the session task runs
-    // so the first server bytes land in the mirror scrollback.
-    fanout::register(&terminal_id, fanout::TermKind::Ssh);
+    // so the first server bytes land in the mirror scrollback. The
+    // profile name becomes the push notification body.
+    let fanout_title = crate::shared::repos::ssh_profiles::get_by_id(pool, &profile_id)
+        .await
+        .map(|p| p.name)
+        .unwrap_or_else(|_| "SSH session".to_string());
+    fanout::register(&terminal_id, fanout::TermKind::Ssh, &fanout_title);
 
     // Drive the whole russh session inside this task. Any failure → emit
     // exit:true so the frontend can swap to the reconnect banner.

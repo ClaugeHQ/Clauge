@@ -81,6 +81,27 @@ pub async fn bump_last_seen(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Err
     Ok(())
 }
 
+/// (device_id, fcm_token) for every non-revoked device that has
+/// registered a push token. Push dispatch (D4) targets exactly these.
+pub async fn fcm_tokens(pool: &SqlitePool) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT id, fcm_token FROM companion_devices
+         WHERE revoked = 0 AND fcm_token IS NOT NULL AND fcm_token <> ''",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Drop a device's FCM token after the Worker reports it stale (app
+/// uninstalled / registration rotated) so we stop pushing to it.
+pub async fn clear_fcm_token(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE companion_devices SET fcm_token = NULL WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Device commands
 // ---------------------------------------------------------------------------

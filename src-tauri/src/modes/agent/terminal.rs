@@ -165,8 +165,14 @@ pub(crate) async fn spawn_agent_terminal_impl(
     let reader = pty_pair.master.try_clone_reader().map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
     // Register with the companion fan-out before the reader starts so
-    // the very first bytes land in the mirror scrollback.
-    fanout::register(&terminal_id, fanout::TermKind::Agent);
+    // the very first bytes land in the mirror scrollback. The title is
+    // the project basename — it becomes the push notification body.
+    let fanout_title = std::path::Path::new(&project_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(provider.as_str())
+        .to_string();
+    fanout::register(&terminal_id, fanout::TermKind::Agent, &fanout_title);
 
     let tid_clone = terminal_id.clone();
     std::thread::spawn(move || {
@@ -226,7 +232,7 @@ fn spawn_shell_pty(
     // agent_resize_terminal — registering keeps the size-indirection
     // path (set_client_size → effective_size) uniform for every entry
     // in TerminalState.
-    fanout::register(&terminal_id, fanout::TermKind::Agent);
+    fanout::register(&terminal_id, fanout::TermKind::Agent, "Shell");
 
     let tid_clone = terminal_id.clone();
     std::thread::spawn(move || {

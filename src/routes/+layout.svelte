@@ -187,6 +187,46 @@
     let editSessionTarget = $state<AgentSession | null>(null);
     let showSessionPicker = $state(false);
 
+    // Companion pair-request approval. The desktop server parks the
+    // phone's /pair call on a oneshot and fires `companion:pair-request`;
+    // approve/deny here resolves it.
+    let showPairRequest = $state(false);
+    let pairRequest = $state<{
+        requestId: string;
+        deviceName: string;
+        platform: string;
+    } | null>(null);
+
+    async function approvePairRequest() {
+        const req = pairRequest;
+        if (!req) return;
+        try {
+            const { companionApprovePair } = await import(
+                "$lib/commands/companion"
+            );
+            await companionApprovePair(req.requestId);
+        } catch (e) {
+            console.warn("[companion] approve pair failed:", e);
+        } finally {
+            pairRequest = null;
+        }
+    }
+
+    async function denyPairRequest() {
+        const req = pairRequest;
+        if (!req) return;
+        try {
+            const { companionDenyPair } = await import(
+                "$lib/commands/companion"
+            );
+            await companionDenyPair(req.requestId);
+        } catch (e) {
+            console.warn("[companion] deny pair failed:", e);
+        } finally {
+            pairRequest = null;
+        }
+    }
+
     function handleAgentNewSession() {
         showNewSessionModal = true;
     }
@@ -1106,6 +1146,19 @@
             cloudConflicts.set(event.payload ?? []);
         }).catch((e) => console.warn("[Cloud] conflict listener failed:", e));
 
+        // ── Companion: phone pairing approval ─────────────────────────
+        // A phone POSTed /pair with a valid code; the desktop server is
+        // waiting on our approve/deny answer. Show the dialog.
+        listen<{ requestId: string; deviceName: string; platform: string }>(
+            "companion:pair-request",
+            (event) => {
+                pairRequest = event.payload;
+                showPairRequest = true;
+            },
+        ).catch((e) =>
+            console.warn("[companion] pair-request listener failed:", e),
+        );
+
         // ── REST: refresh on MCP-driven mutations ─────────────────────
         // Existing Tauri commands don't emit events because the frontend
         // re-fetches itself after its own calls. MCP writes (agent →
@@ -1310,6 +1363,15 @@
     message={`Are you sure you want to disconnect from "${$sqlDisconnectTarget?.name ?? ""}"?`}
     confirmText="Disconnect"
     onconfirm={handleSqlDisconnectConfirm}
+/>
+<ConfirmDialog
+    bind:show={showPairRequest}
+    title="Pair device?"
+    message={`"${pairRequest?.deviceName ?? "A device"}" (${pairRequest?.platform ?? "unknown"}) wants to pair with this computer. Approve only if you started this on your phone.`}
+    confirmText="Approve"
+    confirmColor="var(--accent)"
+    onconfirm={approvePairRequest}
+    oncancel={denyPairRequest}
 />
 <SqlConnectionDialog
     bind:show={$showSqlConnectionDialog}

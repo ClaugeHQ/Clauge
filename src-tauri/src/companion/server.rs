@@ -119,8 +119,11 @@ pub async fn companion_start(
     if let Some(h) = &*g {
         return Ok(CompanionStatus { running: true, port: Some(h.port) });
     }
-    let handle = start(pool.inner().clone(), app, state.pairing.clone()).await?;
+    let handle = start(pool.inner().clone(), app.clone(), state.pairing.clone()).await?;
     let port = handle.port;
+    // Start push dispatch alongside the listener — the drain + attention
+    // sweep tasks watch the same shutdown channel and die on stop.
+    super::push::start(app, handle.shutdown.subscribe());
     *g = Some(handle);
     Ok(CompanionStatus { running: true, port: Some(port) })
 }
@@ -131,6 +134,7 @@ pub async fn companion_stop(
 ) -> Result<CompanionStatus, String> {
     let mut g = state.server.lock().await;
     if let Some(h) = g.take() {
+        super::push::stop();
         let _ = h.shutdown.send(true);
         log::info!("[companion] server stopped");
     }

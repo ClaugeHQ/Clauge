@@ -16,8 +16,8 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
-use std::time::Duration;
-use tokio::sync::broadcast;
+use std::time::{Duration, Instant};
+use tokio::sync::{broadcast, mpsc};
 
 /// Client id the desktop registers its viewport under.
 pub const DESKTOP_CLIENT: &str = "desktop";
@@ -36,6 +36,15 @@ const BROADCAST_CAP: usize = 256;
 /// replayed scrollback + Exit instead of "unknown terminal".
 const EXIT_UNREGISTER_GRACE: Duration = Duration::from_secs(30);
 
+/// Attention heuristic: a hub whose tail matched a prompt pattern and
+/// which has produced no output for at least this long, with no phone
+/// attached, is "waiting for the user". Tunable.
+pub const ATTENTION_IDLE: Duration = Duration::from_secs(10);
+
+/// How much of the recent output tail the prompt detector inspects. A
+/// shell prompt or a y/N question lands well within this window.
+const PROMPT_TAIL_BYTES: usize = 256;
+
 /// Which write/resize internals a subscriber must use for input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TermKind {
@@ -49,12 +58,34 @@ pub enum FanoutEvent {
     Exit,
 }
 
+/// Push-dispatch signals fanout hands to `push.rs`. Kept minimal so
+/// fanout stays decoupled from the Worker/cloud plumbing: it reports
+/// *what happened*, push.rs decides whether to notify.
+#[derive(Debug, Clone)]
+pub enum PushTrigger {
+    /// A terminal's PTY exited. `title` is the session/profile label for
+    /// the notification body.
+    Exit { terminal_id: String, title: String },
+    /// A terminal has been idle at a prompt and wants the user's input.
+    Attention { terminal_id: String, title: String },
+}
+
 struct TermHub {
     tx: broadcast::Sender<FanoutEvent>,
     scrollback: VecDeque<u8>,
     /// client id → (cols, rows)
     sizes: HashMap<String, (u16, u16)>,
     kind: TermKind,
+    /// Session/profile label, surfaced as the push notification body.
+    title: String,
+    /// When the last output byte arrived — the idle clock for attention.
+    last_output: Instant,
+    /// The recent output tail matched a prompt pattern at last output.
+    prompt_flag: bool,
+    /// An attention push has already fired for the current idle stretch.
+    /// Reset whenever new output arrives so each fresh prompt notifies
+    /// at most once.
+    notified: bool,
 }
 
 /// Everything a WS connection needs at attach time, captured under one
@@ -72,6 +103,66 @@ fn hubs() -> &'static Mutex<HashMap<String, TermHub>> {
     HUBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// The live push sink, installed by `push::start` when the companion
+/// server starts and cleared on stop. `None` = nobody is listening, so
+/// triggers are dropped (server off, or no cloud session — see push.rs).
+static PUSH_SINK: OnceLock<Mutex<Option<mpsc::UnboundedSender<PushTrigger>>>> = OnceLock::new();
+
+fn push_sink() -> &'static Mutex<Option<mpsc::UnboundedSender<PushTrigger>>> {
+    PUSH_SINK.get_or_init(|| Mutex::new(None))
+}
+
+/// Install (or replace) the push sink. Called by `push::start`.
+pub fn set_push_sink(tx: mpsc::UnboundedSender<PushTrigger>) {
+    *push_sink().lock() = Some(tx);
+}
+
+/// Drop the push sink so later triggers are ignored. Called on server stop.
+pub fn clear_push_sink() {
+    *push_sink().lock() = None;
+}
+
+fn emit_push(trigger: PushTrigger) {
+    if let Some(tx) = push_sink().lock().as_ref() {
+        let _ = tx.send(trigger);
+    }
+}
+
+/// True if any non-desktop (i.e. phone) client is currently attached.
+/// Used to suppress push when the user is already looking at the term.
+fn phone_attached(hub: &TermHub) -> bool {
+    hub.sizes.keys().any(|k| k != DESKTOP_CLIENT)
+}
+
+/// Pure prompt detector: does the output tail look like the terminal is
+/// waiting for input? Matches trailing `? `, `[y/N]`/`[Y/n]`, a trailing
+/// shell prompt glyph (`❯`/`$ `/`# `), or a BEL (0x07) anywhere in the
+/// tail. Kept free of any I/O so the attention unit test can drive it
+/// directly with byte sequences.
+pub fn looks_like_prompt(tail: &[u8]) -> bool {
+    if tail.contains(&0x07) {
+        return true;
+    }
+    // Work on the trimmed-right text so a trailing newline doesn't hide
+    // an otherwise-matching prompt.
+    let text = String::from_utf8_lossy(tail);
+    let trimmed = text.trim_end_matches([' ', '\t', '\r', '\n']);
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.ends_with("[y/n]") || lower.ends_with("[y/n]?") {
+        return true;
+    }
+    if trimmed.ends_with('?') {
+        return true;
+    }
+    // A bare prompt sigil with the question mark already consumed: the
+    // last visual char (pre-trim) was a space following one of these.
+    let last = trimmed.chars().last().unwrap();
+    matches!(last, '❯' | '$' | '#' | '>' | ':')
+}
+
 fn min_size(sizes: &HashMap<String, (u16, u16)>) -> Option<(u16, u16)> {
     sizes.values().fold(None, |acc, &(c, r)| match acc {
         None => Some((c, r)),
@@ -81,7 +172,7 @@ fn min_size(sizes: &HashMap<String, (u16, u16)>) -> Option<(u16, u16)> {
 
 /// Create the hub for a freshly spawned terminal. Must run before the
 /// reader loop starts so the first bytes land in scrollback.
-pub fn register(terminal_id: &str, kind: TermKind) {
+pub fn register(terminal_id: &str, kind: TermKind, title: &str) {
     let (tx, _) = broadcast::channel(BROADCAST_CAP);
     hubs().lock().insert(
         terminal_id.to_string(),
@@ -90,6 +181,10 @@ pub fn register(terminal_id: &str, kind: TermKind) {
             scrollback: VecDeque::new(),
             sizes: HashMap::new(),
             kind,
+            title: title.to_string(),
+            last_output: Instant::now(),
+            prompt_flag: false,
+            notified: false,
         },
     );
 }
@@ -113,6 +208,14 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
     if len > SCROLLBACK_CAP {
         hub.scrollback.drain(..len - SCROLLBACK_CAP);
     }
+    // Attention bookkeeping: fresh output resets the idle clock and the
+    // notified latch, and re-evaluates the prompt flag against the tail.
+    hub.last_output = Instant::now();
+    hub.notified = false;
+    let (a, b) = hub.scrollback.as_slices();
+    let combined = [a, b].concat();
+    let tail = &combined[combined.len().saturating_sub(PROMPT_TAIL_BYTES)..];
+    hub.prompt_flag = looks_like_prompt(tail);
     let _ = hub.tx.send(FanoutEvent::Out(bytes.to_vec()));
 }
 
@@ -126,6 +229,14 @@ pub fn publish_exit(terminal_id: &str) {
             return;
         };
         let _ = hub.tx.send(FanoutEvent::Exit);
+        // Notify only when no phone is watching this terminal — if the
+        // user is attached they already saw it exit.
+        if !phone_attached(hub) {
+            emit_push(PushTrigger::Exit {
+                terminal_id: terminal_id.to_string(),
+                title: hub.title.clone(),
+            });
+        }
     }
     let id = terminal_id.to_string();
     std::thread::spawn(move || {
@@ -205,6 +316,39 @@ pub fn remove_client(terminal_id: &str, client: &str) -> Option<(u16, u16)> {
     }
 }
 
+/// Sweep every hub for the attention condition and emit one push per
+/// newly-flagged terminal. A hub qualifies when its tail looked like a
+/// prompt, it has been idle ≥ ATTENTION_IDLE, no phone is attached, and
+/// no attention push has fired for this idle stretch. Latches `notified`
+/// so the next sweep won't re-fire until fresh output clears it.
+/// Driven by push.rs's tokio interval.
+pub fn sweep_attention() {
+    let mut map = hubs().lock();
+    for (id, hub) in map.iter_mut() {
+        if hub.prompt_flag
+            && !hub.notified
+            && !phone_attached(hub)
+            && hub.last_output.elapsed() >= ATTENTION_IDLE
+        {
+            hub.notified = true;
+            emit_push(PushTrigger::Attention {
+                terminal_id: id.clone(),
+                title: hub.title.clone(),
+            });
+        }
+    }
+}
+
+/// Test hook: rewind a hub's idle clock so the attention sweep can be
+/// exercised without sleeping out the real ATTENTION_IDLE window.
+#[cfg(test)]
+fn backdate_last_output_for_test(terminal_id: &str, by: Duration) {
+    let mut map = hubs().lock();
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.last_output = hub.last_output.checked_sub(by).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,7 +356,7 @@ mod tests {
     #[test]
     fn publish_subscribe_ordering_and_replay() {
         let id = "fanout-test-order";
-        register(id, TermKind::Agent);
+        register(id, TermKind::Agent, "test");
 
         publish(id, b"hello ");
         // Attach mid-stream: replay carries everything so far…
@@ -241,7 +385,7 @@ mod tests {
     #[test]
     fn scrollback_ring_truncates_to_cap_keeping_suffix() {
         let id = "fanout-test-ring";
-        register(id, TermKind::Agent);
+        register(id, TermKind::Agent, "test");
 
         // 300KB in 1KB chunks, each chunk filled with its index byte so
         // the suffix is verifiable after truncation.
@@ -264,7 +408,7 @@ mod tests {
     #[test]
     fn effective_size_min_math_across_add_remove() {
         let id = "fanout-test-size";
-        register(id, TermKind::Ssh);
+        register(id, TermKind::Ssh, "test");
         assert_eq!(effective_size(id), None);
 
         // First client defines the size (None → Some = change).
@@ -300,7 +444,7 @@ mod tests {
     #[test]
     fn exit_event_reaches_subscriber() {
         let id = "fanout-test-exit";
-        register(id, TermKind::Agent);
+        register(id, TermKind::Agent, "test");
         let mut attached = attach(id).unwrap();
 
         publish(id, b"bye");
@@ -319,6 +463,85 @@ mod tests {
         // still replay scrollback and observe Exit.
         let late = attach(id).expect("hub alive during grace");
         assert_eq!(late.scrollback, b"bye");
+        unregister(id);
+    }
+
+    #[test]
+    fn prompt_detector_flags_input_waiting_tails() {
+        // Positive: trailing question, y/N forms, prompt sigils, BEL.
+        assert!(looks_like_prompt(b"Continue? "));
+        assert!(looks_like_prompt(b"Overwrite file [y/N] "));
+        assert!(looks_like_prompt(b"Proceed [Y/n]"));
+        assert!(looks_like_prompt(b"user@host:~$ "));
+        assert!(looks_like_prompt(b"root@box:/# "));
+        assert!(looks_like_prompt("~/proj ❯ ".as_bytes()));
+        assert!(looks_like_prompt(b" pick one: "));
+        assert!(looks_like_prompt(b"beep\x07"));
+
+        // Negative: mid-stream output, blank tails, plain text.
+        assert!(!looks_like_prompt(b"Building project...\n"));
+        assert!(!looks_like_prompt(b"   \n\n"));
+        assert!(!looks_like_prompt(b""));
+        assert!(!looks_like_prompt(b"compiled 12 files"));
+    }
+
+    // The hub map and push sink are process-global, so other tests'
+    // hubs may also emit into our sink during a sweep. Count only the
+    // Attention triggers addressed to OUR terminal id.
+    fn attention_count_for(rx: &mut mpsc::UnboundedReceiver<PushTrigger>, id: &str) -> usize {
+        let mut n = 0;
+        while let Ok(t) = rx.try_recv() {
+            if let PushTrigger::Attention { terminal_id, .. } = t {
+                if terminal_id == id {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    // Serializes the global-sink tests so they don't drain each other's
+    // triggers. (The attention sweep walks every hub under one lock.)
+    static SINK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn attention_sweep_latches_and_resets() {
+        let _guard = SINK_TEST_LOCK.lock();
+        let id = "fanout-test-attention";
+        register(id, TermKind::Agent, "deploy");
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        set_push_sink(tx);
+
+        // Prompt-looking output, but not idle yet → no trigger for us.
+        publish(id, b"Continue? ");
+        sweep_attention();
+        assert_eq!(attention_count_for(&mut rx, id), 0, "should not fire before idle");
+
+        // Backdate last_output past the idle threshold → fires once.
+        backdate_last_output_for_test(id, ATTENTION_IDLE + Duration::from_secs(1));
+        sweep_attention();
+        assert_eq!(attention_count_for(&mut rx, id), 1, "expected one attention push");
+
+        // Latched: a second idle sweep must not re-fire (last_output is
+        // still backdated, but `notified` is set).
+        sweep_attention();
+        assert_eq!(attention_count_for(&mut rx, id), 0, "notified latch should hold");
+
+        // Fresh non-prompt output clears the latch AND the prompt flag.
+        publish(id, b"running...\n");
+        backdate_last_output_for_test(id, ATTENTION_IDLE + Duration::from_secs(1));
+        sweep_attention();
+        assert_eq!(attention_count_for(&mut rx, id), 0, "non-prompt tail must not notify");
+
+        // A phone attached suppresses the notification entirely.
+        publish(id, b"Retry? ");
+        set_client_size(id, "phone-1", 80, 24);
+        backdate_last_output_for_test(id, ATTENTION_IDLE + Duration::from_secs(1));
+        sweep_attention();
+        assert_eq!(attention_count_for(&mut rx, id), 0, "phone attached suppresses push");
+
+        clear_push_sink();
         unregister(id);
     }
 }

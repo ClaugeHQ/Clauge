@@ -4,6 +4,7 @@
     import { invoke } from "@tauri-apps/api/core";
     import { cloudPlan, cloudSub, upgradeModalOpen } from "$lib/stores/cloud";
     import AccountTabContent from "$lib/components/settings/AccountTabContent.svelte";
+    import MobileTabContent from "$lib/components/settings/MobileTabContent.svelte";
     import { getVersion } from "@tauri-apps/api/app";
     import {
         tabs as sharedTabs,
@@ -107,6 +108,7 @@
         | "appearance"
         | "shortcuts"
         | "ai"
+        | "mobile"
         | "rest"
         | "agent"
         | "canvas"
@@ -145,6 +147,7 @@
         else if (key === "general") activeTab = "general";
         else if (key === "appearance") activeTab = "appearance";
         else if (key === "shortcuts") activeTab = "shortcuts";
+        else if (key === "mobile") activeTab = "mobile";
         else if (key === "ai") activeTab = "ai";
         else if (key === "ai:byok") {
             activeTab = "ai";
@@ -733,6 +736,12 @@
             key: "ai",
             label: "AI Assistance",
             icon: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+        },
+        {
+            kind: "tab",
+            key: "mobile",
+            label: "Mobile",
+            icon: '<rect x="7" y="2" width="10" height="20" rx="2.5"/><line x1="11" y1="18" x2="13" y2="18"/>',
         },
         { kind: "header", label: "Modes" },
         // Order + glyphs MUST match the main Sidebar (Agent, REST, ...).
@@ -3378,6 +3387,8 @@
                             {/if}
                         {/if}
                     {/if}
+                {:else if activeTab === "mobile"}
+                    <MobileTabContent />
                 {:else if activeTab === "agent"}
                     <div class="agent-settings-pane">
                         <!-- Agent sub-tabs -->
