@@ -87,6 +87,10 @@ axum = { version = "0.8.4", default-features = false, features = ["tokio", "http
 rand = "0.10"
 local-ip-address = "0.6"
 toml_edit = "0.25.5"
+# Meeting-notes audio kernel (shared/audio/).
+cpal = "0.18"
+rubato = "3.0"
+audioadapter-buffers = "3.0"
 # Credential store — per-OS dispatch in shared/platform/credential_store.rs:
 #   macOS   → shell-out to /usr/bin/security (implicitly trusted by Keychain,
 #             avoids re-signing prompts).
