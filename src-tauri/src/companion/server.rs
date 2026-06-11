@@ -11,7 +11,7 @@ use tauri::State as TauriState;
 use tokio::sync::watch;
 
 use super::pairing::PairingState;
-use super::{api, auth, pairing, BASE_PORT, PORT_FALLBACK_RANGE};
+use super::{api, auth, pairing, ws, BASE_PORT, PORT_FALLBACK_RANGE};
 
 pub struct ServerHandle {
     pub port: u16,
@@ -24,6 +24,10 @@ pub struct CompanionAppState {
     /// For emitting `companion:pair-request` to the desktop UI.
     pub app: tauri::AppHandle,
     pub pairing: Arc<PairingState>,
+    /// Server-stop signal. Upgraded WebSocket connections outlive the
+    /// listener's graceful shutdown, so each mirror task watches this
+    /// and dies when the server is toggled off.
+    pub shutdown: watch::Receiver<bool>,
 }
 
 /// Bind 0.0.0.0 on the first free port in BASE_PORT..=BASE_PORT+RANGE,
@@ -34,7 +38,13 @@ pub async fn start(
     app: tauri::AppHandle,
     pairing: Arc<PairingState>,
 ) -> Result<ServerHandle, String> {
-    let state = Arc::new(CompanionAppState { pool, app, pairing });
+    let (tx, rx) = watch::channel(false);
+    let state = Arc::new(CompanionAppState {
+        pool,
+        app,
+        pairing,
+        shutdown: rx.clone(),
+    });
     let mut last_err: Option<String> = None;
     for offset in 0..=PORT_FALLBACK_RANGE {
         let port = BASE_PORT + offset;
@@ -43,18 +53,17 @@ pub async fn start(
             Ok(listener) => {
                 // Everything under /v1 requires a paired device token;
                 // /healthz and /pair are the only open endpoints. The
-                // /v1 routes themselves live in api.rs.
-                let v1 = api::routes().route_layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    auth::require_bearer,
-                ));
+                // /v1 routes themselves live in api.rs + ws.rs.
+                let v1 = api::routes().merge(ws::routes()).route_layer(
+                    middleware::from_fn_with_state(state.clone(), auth::require_bearer),
+                );
                 let router = Router::new()
                     .route("/healthz", get(|| async { "ok" }))
                     .route("/pair", axum::routing::post(pairing::handle_pair))
                     .nest("/v1", v1)
                     .with_state(state.clone());
 
-                let (tx, mut rx) = watch::channel(false);
+                let mut rx = rx.clone();
                 tokio::spawn(async move {
                     let _ = axum::serve(listener, router)
                         .with_graceful_shutdown(async move {

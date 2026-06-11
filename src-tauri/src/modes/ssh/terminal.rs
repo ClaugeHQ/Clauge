@@ -1,3 +1,4 @@
+use crate::companion::fanout;
 use crate::modes::agent::models::TerminalOutputPayload;
 use crate::modes::ssh::models::{SshCommand, SshTerminalEntry, SshTerminalState};
 use crate::modes::ssh::ssh_session::{open_authenticated_ssh_session, ClientHandler};
@@ -49,6 +50,10 @@ pub(crate) async fn spawn_ssh_terminal_impl(
 
     log::info!("[ssh] connect profile={}", profile_id);
 
+    // Register with the companion fan-out before the session task runs
+    // so the first server bytes land in the mirror scrollback.
+    fanout::register(&terminal_id, fanout::TermKind::Ssh);
+
     // Drive the whole russh session inside this task. Any failure → emit
     // exit:true so the frontend can swap to the reconnect banner.
     tauri::async_runtime::spawn(async move {
@@ -63,7 +68,9 @@ pub(crate) async fn spawn_ssh_terminal_impl(
         {
             log::warn!("[ssh] session ended: {}", err);
         }
-        // Always signal exit on the way out so the frontend cleans up.
+        // Always signal exit on the way out so mirrors and the frontend
+        // both clean up.
+        fanout::publish_exit(&tid_for_task);
         if let Some(ch) = &on_output_for_task {
             let _ = ch.send(TerminalOutputPayload {
                 terminal_id: tid_for_task,
@@ -111,10 +118,16 @@ pub fn ssh_resize_terminal(
 ) -> Result<(), String> {
     let map = state.terminals.lock();
     let entry = map.get(&terminal_id).ok_or("Terminal not found")?;
-    entry
-        .handle_tx
-        .send(SshCommand::Resize { cols, rows })
-        .map_err(|e| format!("send resize: {}", e))?;
+    // Mirror-aware sizing: record the desktop viewport and forward the
+    // effective (min over clients) size, which equals the desktop size
+    // whenever no phone is attached. None = no change → nothing sent.
+    if let Some((c, r)) = fanout::set_client_size(&terminal_id, fanout::DESKTOP_CLIENT, cols, rows)
+    {
+        entry
+            .handle_tx
+            .send(SshCommand::Resize { cols: c, rows: r })
+            .map_err(|e| format!("send resize: {}", e))?;
+    }
     Ok(())
 }
 
@@ -166,6 +179,7 @@ async fn run_ssh_session(
             msg = chan.wait() => {
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
+                        fanout::publish(&terminal_id, data.as_ref());
                         if let Some(ch) = &on_output {
                             let bytes: &[u8] = data.as_ref();
                             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
@@ -183,6 +197,7 @@ async fn run_ssh_session(
                     }
                     Some(ChannelMsg::ExtendedData { data, .. }) => {
                         // Stream stderr into the same xterm.
+                        fanout::publish(&terminal_id, data.as_ref());
                         if let Some(ch) = &on_output {
                             let bytes: &[u8] = data.as_ref();
                             let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);

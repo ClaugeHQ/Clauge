@@ -1,3 +1,4 @@
+use crate::companion::fanout;
 use crate::modes::agent::models::{TerminalEntry, TerminalOutputPayload, TerminalState};
 use crate::shared::repos::settings as settings_repo;
 use crate::shared::cli::{registry::runner_for, runner::{CliRunner, SpawnOpts}};
@@ -163,6 +164,10 @@ pub(crate) async fn spawn_agent_terminal_impl(
     let writer = pty_pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
     let reader = pty_pair.master.try_clone_reader().map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
+    // Register with the companion fan-out before the reader starts so
+    // the very first bytes land in the mirror scrollback.
+    fanout::register(&terminal_id, fanout::TermKind::Agent);
+
     let tid_clone = terminal_id.clone();
     std::thread::spawn(move || {
         let mut reader = reader;
@@ -171,6 +176,7 @@ pub(crate) async fn spawn_agent_terminal_impl(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    fanout::publish(&tid_clone, &buf[..n]);
                     if let Some(ch) = &on_output {
                         let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                         if ch.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data, exit: None }).is_err() { break; }
@@ -179,7 +185,9 @@ pub(crate) async fn spawn_agent_terminal_impl(
                 Err(_) => break,
             }
         }
-        // PTY closed — signal the frontend so it can clean up without waiting for a stray write.
+        // PTY closed — signal mirrors and the frontend so both clean up
+        // without waiting for a stray write.
+        fanout::publish_exit(&tid_clone);
         if let Some(ch) = &on_output {
             let _ = ch.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
         }
@@ -214,6 +222,12 @@ fn spawn_shell_pty(
     let writer = pty_pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
     let reader = pty_pair.master.try_clone_reader().map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
+    // Shell PTYs aren't listed by the companion API, but they share
+    // agent_resize_terminal — registering keeps the size-indirection
+    // path (set_client_size → effective_size) uniform for every entry
+    // in TerminalState.
+    fanout::register(&terminal_id, fanout::TermKind::Agent);
+
     let tid_clone = terminal_id.clone();
     std::thread::spawn(move || {
         let mut reader = reader;
@@ -222,12 +236,14 @@ fn spawn_shell_pty(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    fanout::publish(&tid_clone, &buf[..n]);
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     if on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data, exit: None }).is_err() { break; }
                 }
                 Err(_) => break,
             }
         }
+        fanout::publish_exit(&tid_clone);
         let _ = on_output.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
     });
 
@@ -268,8 +284,16 @@ pub fn agent_write_to_terminal(state: State<'_, TerminalState>, terminal_id: Str
 pub fn agent_resize_terminal(state: State<'_, TerminalState>, terminal_id: String, cols: u32, rows: u32) -> Result<(), String> {
     let terminals = state.terminals.lock();
     let entry = terminals.get(&terminal_id).ok_or("Terminal not found")?;
-    entry.master.resize(PtySize { rows: rows as u16, cols: cols as u16, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| format!("Resize error: {}", e))?;
+    // The desktop is one mirror client among potentially many: record
+    // its viewport and drive the PTY at the effective (min) size, which
+    // is exactly the desktop size while no phone is attached. None =
+    // effective size unchanged → nothing to apply.
+    if let Some((c, r)) =
+        fanout::set_client_size(&terminal_id, fanout::DESKTOP_CLIENT, cols as u16, rows as u16)
+    {
+        entry.master.resize(PtySize { rows: r, cols: c, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("Resize error: {}", e))?;
+    }
     Ok(())
 }
 

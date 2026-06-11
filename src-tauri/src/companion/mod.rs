@@ -6,8 +6,10 @@
 pub mod api;
 pub mod auth;
 pub mod devices;
+pub mod fanout;
 pub mod pairing;
 pub mod server;
+pub mod ws;
 
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
