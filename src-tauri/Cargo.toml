@@ -82,6 +82,10 @@ azure_core = "0.21"
 # `into_secure` flow has typing friction we'll resolve in v2.
 suppaftp = { version = "8", features = ["tokio"] }
 axum = { version = "0.8.4", default-features = false, features = ["tokio", "http1", "json"] }
+# Companion server (src/companion/): device-token entropy + pair codes,
+# and LAN/tailnet interface enumeration for the pairing QR's hosts list.
+rand = "0.10"
+local-ip-address = "0.6"
 toml_edit = "0.25.5"
 # Credential store — per-OS dispatch in shared/platform/credential_store.rs:
 #   macOS   → shell-out to /usr/bin/security (implicitly trusted by Keychain,

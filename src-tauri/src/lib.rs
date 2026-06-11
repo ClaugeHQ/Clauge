@@ -1,6 +1,7 @@
 mod appearance;
 mod cloud;
 mod commands;
+mod companion;
 mod db;
 mod modes;
 mod shared;
@@ -149,6 +150,9 @@ pub fn run() {
             app.manage(modes::explorer::transfers::Transfers::default());
             app.manage(shared::ai::types::PendingFrontendTools::default());
             app.manage(shared::updater::state::PendingUpdate::default());
+            // Companion (mobile) server state. The server itself stays
+            // OFF until companion_start — no autostart by design.
+            app.manage(companion::CompanionState::default());
 
             // ── Cloud auth + sync scheduler ──────────────────────────
             // Holds provider tokens (loaded from OS keyring) and the per-kind
@@ -592,6 +596,16 @@ pub fn run() {
             modes::workspace::commands::workspace_mcp_new_token,
             modes::workspace::commands::workspace_scan_project_issues,
             modes::workspace::commands::workspace_scan_project_issues_by_url,
+
+            // Companion (mobile) server
+            companion::server::companion_status,
+            companion::server::companion_start,
+            companion::server::companion_stop,
+            companion::pairing::companion_new_pair_code,
+            companion::pairing::companion_approve_pair,
+            companion::pairing::companion_deny_pair,
+            companion::devices::companion_list_devices,
+            companion::devices::companion_revoke_device,
 
             // Canvas mode
             modes::canvas::commands::canvas_resolve_tiles,
