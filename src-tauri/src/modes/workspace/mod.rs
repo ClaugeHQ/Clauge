@@ -12,6 +12,7 @@ pub mod agent_spawn;
 pub mod cli_errors;
 pub mod commands;
 pub mod mcp;
+pub mod meetings;
 pub mod models;
 pub mod pr;
 pub mod push;

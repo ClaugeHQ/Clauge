@@ -216,3 +216,46 @@ pub struct WorkspaceBoardCard {
     #[sqlx(default)]
     pub comment_count: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceMeeting {
+    pub id: String,
+    /// Optional — meetings can be captured before being assigned to a
+    /// workspace, and survive workspace deletion (ON DELETE SET NULL).
+    pub workspace_id: Option<String>,
+    pub title: String,
+    /// App the audio was captured from ('zoom', 'meet', …), when the
+    /// call detector identified one.
+    pub source_app: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    /// Whisper language hint; 'auto' = detect.
+    pub language: String,
+    /// JSON-encoded `TranscriptSegment[]`. Kept as a string at the SQL
+    /// boundary so FromRow stays trivial; frontends parse on receive.
+    pub transcript: String,
+    pub notes_md: Option<String>,
+    /// Provider/model that generated `notes_md`. All three notes_*
+    /// columns stay NULL (or keep their last values) on manual edits —
+    /// only AI generation stamps them.
+    pub notes_provider: Option<String>,
+    pub notes_model: Option<String>,
+    pub notes_generated_at: Option<String>,
+    /// 'recording' | 'transcribed'.
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// One transcribed chunk of meeting audio. Stored as elements of the
+/// JSON array in `WorkspaceMeeting.transcript`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptSegment {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    /// Audio origin: 'mic' | 'system'.
+    pub source: String,
+    pub text: String,
+}
