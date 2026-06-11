@@ -311,7 +311,10 @@ export const workspaceMeetingDelete = (id: string) =>
 export const MEETING_MODEL_MISSING = 'model_missing';
 
 /** Resolves to the new meeting id. Omitted `model` / `language` fall
- *  back to the recorder defaults server-side. */
+ *  back server-side to the `workspace_meeting_model` /
+ *  `workspace_meeting_language` settings rows (written by Settings),
+ *  then to the recorder defaults — so call sites should pass nothing
+ *  unless they want a one-off override. */
 export const workspaceMeetingStart = (params: {
   sourceApp?: string | null;
   model?: string | null;

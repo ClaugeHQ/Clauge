@@ -157,6 +157,7 @@
         APP_EVENT,
         EXPLORER_EVENT,
         WORKSPACE_EVENT,
+        MEETING_EVENT,
     } from "$lib/shared/constants/events";
     import {
         USAGE_LIMITS_POLL_INTERVAL_MS,
@@ -779,6 +780,13 @@
             if (settingsTab) {
                 closeTab(settingsTab.id);
             }
+        });
+
+        // Floating meeting widget's "Open Settings" — the widget window
+        // can't reach the main window's tab stores, so it emits and we
+        // deep-link to the AI Meeting Notes card here.
+        listen(MEETING_EVENT.OPEN_SETTINGS, () => {
+            openSettingsTab("workspace:meetings");
         });
 
         // Apply to existing and future inputs/textareas

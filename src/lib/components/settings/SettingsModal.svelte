@@ -35,8 +35,18 @@
         workspaceMcpUnregister,
         workspaceMcpNewToken,
         type McpStatus,
+        workspaceMeetingModelsList,
+        workspaceMeetingModelDelete,
+        workspaceMeetingDetectSetEnabled,
+        workspaceMeetingDetectGetEnabled,
     } from "$lib/modes/workspace/commands";
-    import { mcpStatus as mcpStatusStore } from "$lib/modes/workspace/stores";
+    import {
+        mcpStatus as mcpStatusStore,
+        modelDownloadProgress,
+        downloadModel,
+        initMeetingListeners,
+    } from "$lib/modes/workspace/stores";
+    import type { WhisperModelInfo } from "$lib/modes/workspace/types";
     import {
         settings,
         setSetting,
@@ -169,6 +179,16 @@
             agentSubTab = "plugins";
         } else if (key === "canvas") activeTab = "canvas";
         else if (key === "workspace") activeTab = "workspace";
+        else if (key === "workspace:meetings") {
+            activeTab = "workspace";
+            // Card mounts on the next tick once activeTab flips.
+            setTimeout(() => {
+                meetingCardEl?.scrollIntoView({
+                    block: "start",
+                    behavior: "smooth",
+                });
+            }, 50);
+        }
         else if (key === "sql") activeTab = "sql";
         else if (key === "nosql") activeTab = "nosql";
         else if (key === "explorer") activeTab = "explorer";
@@ -450,6 +470,91 @@
         } catch {
             /* ignore */
         }
+    }
+
+    // ── AI Meeting Notes ───────────────────────────────────────────────
+    // Detection enabled lives in the backend settings table (it drives the
+    // Rust detector loop), so it round-trips through the detect commands.
+    // Model/language defaults are plain settings rows — the recorder reads
+    // them when `workspace_meeting_start` is called without args, so the
+    // widget and the record button inherit them for free.
+    let meetingDetectEnabled = $state(true);
+    let whisperModels = $state<WhisperModelInfo[]>([]);
+    let deletingModel = $state<string | null>(null);
+    let meetingCardEl = $state<HTMLElement | null>(null);
+    let meetingModel = $derived(
+        ($settings["workspace_meeting_model"] ?? "base") as string,
+    );
+    let meetingLanguage = $derived(
+        ($settings["workspace_meeting_language"] ?? "auto") as string,
+    );
+    let downloadedModels = $derived(whisperModels.filter((m) => m.downloaded));
+
+    const MEETING_LANGUAGES = [
+        { code: "auto", label: "Auto-detect" },
+        { code: "en", label: "English" },
+        { code: "es", label: "Spanish" },
+        { code: "fr", label: "French" },
+        { code: "de", label: "German" },
+        { code: "pt", label: "Portuguese" },
+        { code: "hi", label: "Hindi" },
+        { code: "ja", label: "Japanese" },
+        { code: "zh", label: "Chinese" },
+    ];
+
+    $effect(() => {
+        if (activeTab === "workspace" && show) {
+            initMeetingListeners();
+            refreshMeetingModels();
+            workspaceMeetingDetectGetEnabled()
+                .then((v) => (meetingDetectEnabled = v))
+                .catch(() => {});
+        }
+    });
+
+    async function refreshMeetingModels() {
+        try {
+            whisperModels = await workspaceMeetingModelsList();
+        } catch (e) {
+            errorToast("Failed to load transcription models", e);
+        }
+    }
+
+    async function handleMeetingDetectToggle(input: HTMLInputElement) {
+        const next = input.checked;
+        try {
+            await workspaceMeetingDetectSetEnabled(next);
+            meetingDetectEnabled = next;
+        } catch (e) {
+            input.checked = meetingDetectEnabled;
+            errorToast("Failed to update call detection", e);
+        }
+    }
+
+    async function handleMeetingModelDownload(name: string) {
+        try {
+            await downloadModel(name, refreshMeetingModels);
+        } catch (e) {
+            errorToast("Model download failed", e);
+        }
+    }
+
+    async function handleMeetingModelDelete(name: string) {
+        deletingModel = name;
+        try {
+            await workspaceMeetingModelDelete(name);
+        } catch (e) {
+            errorToast("Failed to delete model", e);
+        } finally {
+            deletingModel = null;
+        }
+        await refreshMeetingModels();
+    }
+
+    function fmtModelSize(sizeMb: number): string {
+        return sizeMb >= 1024
+            ? `${(sizeMb / 1024).toFixed(1)} GB`
+            : `${sizeMb} MB`;
     }
 
     // AI Assistance state
@@ -2010,6 +2115,187 @@
                                         />
                                         <span class="stg-toggle-slider"></span>
                                     </label>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="stg-card" bind:this={meetingCardEl}>
+                            <header class="stg-card-hd">
+                                <span class="stg-card-icon" aria-hidden="true">
+                                    <svg
+                                        viewBox="0 0 24 24"
+                                        width="14"
+                                        height="14"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        ><path
+                                            d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"
+                                        /><path
+                                            d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4"
+                                        /></svg
+                                    >
+                                </span>
+                                <div class="stg-card-titles">
+                                    <h3 class="stg-card-title">
+                                        AI Meeting Notes
+                                    </h3>
+                                    <p class="stg-card-sub">
+                                        Record and transcribe calls locally
+                                        with Whisper. Audio and transcripts
+                                        never leave your machine.
+                                    </p>
+                                </div>
+                            </header>
+                            <div class="stg-card-body">
+                                <div
+                                    class="stg-card-row stg-card-row-action"
+                                >
+                                    <div class="stg-card-row-action-text">
+                                        <span class="stg-card-row-label"
+                                            >Detect calls and offer meeting
+                                            notes</span
+                                        >
+                                        <span class="stg-card-row-help"
+                                            >Shows a floating widget when a
+                                            Zoom, Teams, or browser call
+                                            starts.</span
+                                        >
+                                    </div>
+                                    <label class="stg-toggle">
+                                        <input
+                                            type="checkbox"
+                                            checked={meetingDetectEnabled}
+                                            onchange={(e) =>
+                                                handleMeetingDetectToggle(
+                                                    e.currentTarget,
+                                                )}
+                                        />
+                                        <span class="stg-toggle-slider"></span>
+                                    </label>
+                                </div>
+
+                                {#each whisperModels as m (m.name)}
+                                    {@const prog = $modelDownloadProgress.get(
+                                        m.name,
+                                    )}
+                                    <div class="stg-card-row">
+                                        <div class="stg-meeting-model">
+                                            <span class="stg-card-row-label"
+                                                >{m.name}</span
+                                            >
+                                            {#if !m.multilingual}
+                                                <span
+                                                    class="stg-meeting-model-tag"
+                                                    >English-only</span
+                                                >
+                                            {/if}
+                                            <span
+                                                class="stg-meeting-model-size"
+                                                >{fmtModelSize(m.sizeMb)}</span
+                                            >
+                                        </div>
+                                        {#if prog}
+                                            <div
+                                                class="stg-meeting-progress"
+                                                class:indeterminate={prog.total ===
+                                                    0}
+                                                role="progressbar"
+                                                aria-label="Downloading {m.name}"
+                                            >
+                                                <div
+                                                    class="stg-meeting-progress-fill"
+                                                    style:width={prog.total > 0
+                                                        ? `${Math.round((prog.downloaded / prog.total) * 100)}%`
+                                                        : undefined}
+                                                ></div>
+                                            </div>
+                                        {:else if m.downloaded}
+                                            <button
+                                                class="stg-card-mini-btn"
+                                                onclick={() =>
+                                                    handleMeetingModelDelete(
+                                                        m.name,
+                                                    )}
+                                                disabled={deletingModel ===
+                                                    m.name}>Delete</button
+                                            >
+                                        {:else}
+                                            <button
+                                                class="stg-card-mini-btn"
+                                                onclick={() =>
+                                                    handleMeetingModelDownload(
+                                                        m.name,
+                                                    )}>Download</button
+                                            >
+                                        {/if}
+                                    </div>
+                                {/each}
+
+                                <div class="stg-card-row">
+                                    <label class="stg-card-row-label"
+                                        >Default model</label
+                                    >
+                                    {#if downloadedModels.length === 0}
+                                        <span class="stg-meeting-model-size"
+                                            >Download a model first</span
+                                        >
+                                    {:else}
+                                        <select
+                                            class="stg-select"
+                                            value={meetingModel}
+                                            onchange={(e) =>
+                                                handleSettingChange(
+                                                    "workspace_meeting_model",
+                                                    e.currentTarget.value,
+                                                )}
+                                        >
+                                            {#if !downloadedModels.some((m) => m.name === meetingModel)}
+                                                <option
+                                                    value={meetingModel}
+                                                    disabled
+                                                    >{meetingModel} (not downloaded)</option
+                                                >
+                                            {/if}
+                                            {#each downloadedModels as m (m.name)}
+                                                <option value={m.name}
+                                                    >{m.name}</option
+                                                >
+                                            {/each}
+                                        </select>
+                                    {/if}
+                                </div>
+
+                                <div
+                                    class="stg-card-row stg-card-row-action"
+                                >
+                                    <div class="stg-card-row-action-text">
+                                        <span class="stg-card-row-label"
+                                            >Language</span
+                                        >
+                                        <span class="stg-card-row-help"
+                                            >English-only models ignore this
+                                            and always transcribe in
+                                            English.</span
+                                        >
+                                    </div>
+                                    <select
+                                        class="stg-select"
+                                        value={meetingLanguage}
+                                        onchange={(e) =>
+                                            handleSettingChange(
+                                                "workspace_meeting_language",
+                                                e.currentTarget.value,
+                                            )}
+                                    >
+                                        {#each MEETING_LANGUAGES as l (l.code)}
+                                            <option value={l.code}
+                                                >{l.label}</option
+                                            >
+                                        {/each}
+                                    </select>
                                 </div>
                             </div>
                         </section>
@@ -5726,6 +6012,64 @@
         flex: 1;
         min-width: 0;
         max-width: 240px;
+    }
+
+    /* AI Meeting Notes — whisper model rows. */
+    .stg-meeting-model {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .stg-meeting-model-tag {
+        font-size: 10px;
+        font-family: var(--ui);
+        color: var(--t4);
+        border: 1px solid var(--b-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 4px;
+        padding: 1px 5px;
+        white-space: nowrap;
+    }
+
+    .stg-meeting-model-size {
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--t4);
+        white-space: nowrap;
+    }
+
+    .stg-meeting-progress {
+        position: relative;
+        width: 140px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--b-subtle, rgba(255, 255, 255, 0.08));
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .stg-meeting-progress-fill {
+        height: 100%;
+        border-radius: 2px;
+        background: var(--acc);
+        transition: width 0.2s ease;
+    }
+
+    .stg-meeting-progress.indeterminate .stg-meeting-progress-fill {
+        position: absolute;
+        width: 40%;
+        animation: stg-meeting-indeterminate 1.2s ease-in-out infinite;
+    }
+
+    @keyframes stg-meeting-indeterminate {
+        0% {
+            left: -40%;
+        }
+        100% {
+            left: 100%;
+        }
     }
 
     /* Stat strip — sits between the card header and body. Big numbers,

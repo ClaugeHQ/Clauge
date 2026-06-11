@@ -106,20 +106,44 @@ pub async fn workspace_meeting_model_delete(
 
 // --- Recording ---
 
+/// Settings keys for the user's default transcription model/language.
+/// Written by the Settings UI through the generic `set_setting` command;
+/// read here so callers that can't reach the frontend settings store
+/// (the floating widget) inherit the same defaults.
+pub const MODEL_SETTING_KEY: &str = "workspace_meeting_model";
+pub const LANGUAGE_SETTING_KEY: &str = "workspace_meeting_language";
+
+async fn setting_or(pool: &SqlitePool, key: &str, default: &str) -> String {
+    match settings_repo::get_by_key(pool, key).await {
+        Ok(Some(s)) if !s.value.trim().is_empty() => s.value,
+        _ => default.to_string(),
+    }
+}
+
 #[tauri::command]
 pub async fn workspace_meeting_start(
     app: AppHandle,
+    pool: State<'_, SqlitePool>,
     source_app: Option<String>,
     model: Option<String>,
     language: Option<String>,
 ) -> Result<String, String> {
-    recorder::start_recording(
-        app,
-        source_app,
-        model.unwrap_or_else(|| recorder::DEFAULT_MODEL.to_string()),
-        language.unwrap_or_else(|| recorder::DEFAULT_LANGUAGE.to_string()),
-    )
-    .await
+    let model = match model {
+        Some(m) => m,
+        None => setting_or(pool.inner(), MODEL_SETTING_KEY, recorder::DEFAULT_MODEL).await,
+    };
+    let language = match language {
+        Some(l) => l,
+        None => {
+            setting_or(
+                pool.inner(),
+                LANGUAGE_SETTING_KEY,
+                recorder::DEFAULT_LANGUAGE,
+            )
+            .await
+        }
+    };
+    recorder::start_recording(app, source_app, model, language).await
 }
 
 #[tauri::command]

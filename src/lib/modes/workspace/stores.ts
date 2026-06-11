@@ -471,17 +471,26 @@ export const modelDownloadProgress = writable<Map<string, { downloaded: number; 
 
 /** Start a whisper model download. Always use this over calling the
  *  command directly: the finally clears the progress entry whether the
- *  download succeeds, fails, or the final 100% event never arrives. */
-export async function downloadModel(name: string): Promise<void> {
+ *  download succeeds, fails, or the final 100% event never arrives.
+ *  `onSettled` runs before the entry is cleared so callers can refresh
+ *  their model list without the row flashing back to "Download". */
+export async function downloadModel(
+  name: string,
+  onSettled?: () => void | Promise<void>,
+): Promise<void> {
   try {
     await cmd.workspaceMeetingModelDownload(name);
   } finally {
-    modelDownloadProgress.update((m) => {
-      if (!m.has(name)) return m;
-      const next = new Map(m);
-      next.delete(name);
-      return next;
-    });
+    try {
+      await onSettled?.();
+    } finally {
+      modelDownloadProgress.update((m) => {
+        if (!m.has(name)) return m;
+        const next = new Map(m);
+        next.delete(name);
+        return next;
+      });
+    }
   }
 }
 
