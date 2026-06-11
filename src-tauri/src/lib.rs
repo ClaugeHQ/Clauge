@@ -232,6 +232,14 @@ pub fn run() {
             app.manage(modes::workspace::commands::McpServerState::default());
             app.manage(modes::workspace::meetings::recorder::RecorderState::default());
 
+            // Meeting call detection — polls mic-in-use + process names and
+            // emits meetings:call-detected / meetings:call-ended for the
+            // floating widget. The poller loads the persisted
+            // `workspace_meeting_detect_enabled` setting itself (default on)
+            // and stays silent while the recorder is busy.
+            app.manage(modes::workspace::meetings::detect::DetectState::default());
+            modes::workspace::meetings::detect::start_poller(app.handle().clone());
+
             // Auto-start the workspace MCP server in the background so
             // agents can connect without the user opening Settings.
             // Opt-out via the `workspace_mcp_enabled = "false"` setting.
@@ -613,6 +621,10 @@ pub fn run() {
             modes::workspace::meetings::commands::workspace_meeting_start,
             modes::workspace::meetings::commands::workspace_meeting_stop,
             modes::workspace::meetings::commands::workspace_meeting_recording_status,
+            modes::workspace::meetings::commands::workspace_meeting_detect_set_enabled,
+            modes::workspace::meetings::commands::workspace_meeting_detect_get_enabled,
+            modes::workspace::meetings::commands::workspace_meeting_detect_dismiss,
+            modes::workspace::meetings::commands::workspace_meeting_detect_status,
 
             // Companion (mobile) server
             companion::server::companion_status,

@@ -3,5 +3,6 @@
 // write through `repo`.
 
 pub mod commands;
+pub mod detect;
 pub mod recorder;
 pub mod repo;

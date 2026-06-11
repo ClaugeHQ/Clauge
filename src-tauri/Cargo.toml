@@ -87,6 +87,10 @@ axum = { version = "0.8.4", default-features = false, features = ["tokio", "http
 rand = "0.10"
 local-ip-address = "0.6"
 toml_edit = "0.25.5"
+# Meeting call detection (workspace/meetings/detect.rs): per-tick process-name
+# snapshot only — default features off keeps disk/network/component probes out.
+# 0.39.x raised MSRV to rustc 1.95; 0.38 is the newest line our toolchain builds.
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 # Meeting-notes audio kernel (shared/audio/).
 # cpal ships default = [] — without the "pulseaudio" feature the Linux host is
 # bare ALSA, which exposes no "<sink>.monitor" capture sources. The feature is
@@ -137,7 +141,10 @@ window-vibrancy = "0.7"
 # Match the windows-rs major Tauri 2.10 pulls in to avoid shipping two
 # copies of the crate. HWND is the same shape in both, so the cast in
 # appearance/window_chrome.rs works either way.
-windows = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
+# Win32_Media_Audio + Win32_System_Com power meeting detection's WASAPI
+# session walk (IMMDeviceEnumerator → IAudioSessionManager2). StructuredStorage
+# is pulled in by IMMDevice::Activate's PROPVARIANT parameter type.
+windows = { version = "0.61", features = ["Win32_Graphics_Dwm", "Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage"] }
 
 # Single-instance enforcement on Linux + Windows. macOS .app bundles
 # are single-instance natively, so this plugin is gated to other OSes.

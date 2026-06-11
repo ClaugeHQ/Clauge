@@ -1,9 +1,11 @@
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
+use crate::modes::workspace::meetings::detect;
 use crate::modes::workspace::meetings::recorder;
 use crate::modes::workspace::meetings::repo;
 use crate::modes::workspace::models::WorkspaceMeeting;
+use crate::shared::repos::settings as settings_repo;
 use crate::shared::transcribe::models as whisper_models;
 
 // --- CRUD ---
@@ -130,4 +132,44 @@ pub fn workspace_meeting_recording_status(
     state: State<'_, recorder::RecorderState>,
 ) -> recorder::RecorderStatus {
     state.status()
+}
+
+// --- Call detection ---
+
+#[tauri::command]
+pub async fn workspace_meeting_detect_set_enabled(
+    pool: State<'_, SqlitePool>,
+    detect_state: State<'_, detect::DetectState>,
+    enabled: bool,
+) -> Result<(), String> {
+    settings_repo::upsert(
+        pool.inner(),
+        detect::SETTING_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    detect_state.set_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn workspace_meeting_detect_get_enabled(
+    detect_state: State<'_, detect::DetectState>,
+) -> bool {
+    detect_state.enabled()
+}
+
+#[tauri::command]
+pub fn workspace_meeting_detect_dismiss(detect_state: State<'_, detect::DetectState>) {
+    detect_state.dismiss();
+}
+
+/// Snapshot for widget re-sync after a webview reload: did it miss a
+/// `meetings:call-detected` while it wasn't listening?
+#[tauri::command]
+pub fn workspace_meeting_detect_status(
+    detect_state: State<'_, detect::DetectState>,
+) -> detect::DetectStatus {
+    detect_state.status()
 }
