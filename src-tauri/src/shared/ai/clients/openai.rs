@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncBufReadExt;
 use tokio_stream::StreamExt;
 
+use super::errors;
 use crate::cloud::auth::AuthState;
 use crate::modes::sql::client::SqlConnectionManager;
 use crate::modes::nosql::client::NoSqlConnections;
@@ -237,78 +238,15 @@ pub async fn stream_openai(
                 log::warn!("[AI Clauge] token refresh failed — surfacing 401 to caller");
             }
 
-            let retry_after = response.headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<f64>().ok());
-            let remaining_tokens = response.headers()
-                .get("x-ratelimit-remaining-tokens")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
+            let (retry_after, remaining_tokens) = errors::rate_limit_detail(response.headers());
             let error_body = response.text().await.unwrap_or_default();
             log::error!("[AI OpenAI] Error {}: {}", status, truncate_str(&error_body, 500));
-            let msg = match status {
-                401 => "Invalid API key".to_string(),
-                402 => {
-                    // Clauge AI returns:
-                    //   {"error":"INSUFFICIENT_CREDITS","message":"out of Clauge AI credits this cycle","retryable":false}
-                    // Other providers may return a generic OpenAI-shape body. Always
-                    // produce a message that contains the word "credits" so the
-                    // frontend error mapper can classify it without parsing JSON.
-                    let detail = serde_json::from_str::<serde_json::Value>(&error_body)
-                        .ok()
-                        .and_then(|v| {
-                            v["message"]
-                                .as_str()
-                                .or_else(|| v["error"]["message"].as_str())
-                                .map(|s| s.to_string())
-                        })
-                        .unwrap_or_default();
-                    if detail.is_empty() {
-                        "Out of credits — payment required".to_string()
-                    } else if detail.to_lowercase().contains("credits") {
-                        detail
-                    } else {
-                        format!("Out of credits — {}", detail)
-                    }
-                }
-                429 => {
-                    let mut m = "Rate limited".to_string();
-                    if let Some(secs) = retry_after {
-                        m.push_str(&format!(" — retry in {:.0}s", secs));
-                    } else {
-                        m.push_str(" — try again in a moment");
-                    }
-                    if let Some(rem) = remaining_tokens {
-                        m.push_str(&format!(" ({} tokens remaining)", rem));
-                    }
-                    m
-                }
-                _ => {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&error_body) {
-                        // OpenAI format: {"error": {"message": "..."}}
-                        if let Some(msg) = parsed["error"]["message"].as_str() {
-                            msg.to_string()
-                        }
-                        // Mistral format: {"message": {"detail": [{"msg": "..."}]}}
-                        else if let Some(detail) = parsed["message"]["detail"].as_array() {
-                            detail.iter()
-                                .filter_map(|d| d["msg"].as_str())
-                                .collect::<Vec<_>>()
-                                .join("; ")
-                        }
-                        // Mistral format: {"message": "string"}
-                        else if let Some(msg) = parsed["message"].as_str() {
-                            msg.to_string()
-                        }
-                        else {
-                            format!("API error ({}): {}", status, truncate_str(&error_body, 200))
-                        }
-                    } else {
-                        format!("API error ({}): {}", status, truncate_str(&error_body, 200))
-                    }
-                }
-            };
+            let msg = errors::map_upstream_error(
+                status,
+                &error_body,
+                retry_after,
+                remaining_tokens.as_deref(),
+            );
             let _ = app.emit(
                 &format!("ai:error:{}", session_id),
                 serde_json::json!({"error": msg}),

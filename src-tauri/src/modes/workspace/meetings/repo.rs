@@ -104,6 +104,20 @@ pub async fn update_notes(
     Ok(result.rows_affected())
 }
 
+/// Lifecycle transitions outside the recorder ('notes_ready' after a
+/// successful notes generation). The recorder owns 'recording' →
+/// 'transcribed' via `insert_meeting`/`finish_meeting`.
+pub async fn set_status(pool: &SqlitePool, id: &str, status: &str) -> Result<u64, sqlx::Error> {
+    let result =
+        sqlx::query("UPDATE workspace_meetings SET status = ?, updated_at = ? WHERE id = ?")
+            .bind(status)
+            .bind(now_rfc3339())
+            .bind(id)
+            .execute(pool)
+            .await?;
+    Ok(result.rows_affected())
+}
+
 /// Read-modify-write on the transcript JSON. Assumes a single writer
 /// per meeting (one recorder flush task); concurrent appends to the
 /// same meeting would lose segments.
@@ -233,6 +247,11 @@ mod tests {
         let got = get_meeting(&pool, &m.id).await.unwrap().unwrap();
         assert_eq!(got.status, "transcribed");
         assert!(got.ended_at.is_some());
+
+        assert_eq!(set_status(&pool, &m.id, "notes_ready").await.unwrap(), 1);
+        let got = get_meeting(&pool, &m.id).await.unwrap().unwrap();
+        assert_eq!(got.status, "notes_ready");
+        assert_eq!(set_status(&pool, "missing", "notes_ready").await.unwrap(), 0);
 
         update_notes(&pool, &m.id, "# Notes", Some("anthropic"), Some("opus"))
             .await

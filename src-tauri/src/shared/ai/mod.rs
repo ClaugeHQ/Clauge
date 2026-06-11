@@ -26,8 +26,9 @@ use self::context::build_api_messages;
 /// Look up the registry entry for a frontend-supplied provider slug, falling
 /// back to the provider's default model when no model is specified.
 ///
-/// Centralised here so `test_ai_key` and `ai_chat` resolve identically.
-fn resolve_config(
+/// Centralised here so `test_ai_key`, `ai_chat`, and background
+/// generation flows (meeting notes) resolve identically.
+pub(crate) fn resolve_config(
     provider_slug: &str,
     model: Option<&str>,
 ) -> Result<&'static ProviderConfig, String> {

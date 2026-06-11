@@ -1,9 +1,15 @@
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+use parking_lot::Mutex;
+
 use crate::modes::workspace::meetings::detect;
 use crate::modes::workspace::meetings::recorder;
 use crate::modes::workspace::meetings::repo;
+use crate::modes::workspace::meetings::summarize;
 use crate::modes::workspace::models::WorkspaceMeeting;
 use crate::shared::repos::settings as settings_repo;
 use crate::shared::transcribe::models as whisper_models;
@@ -77,6 +83,47 @@ pub async fn workspace_meeting_delete(
     repo::delete_meeting(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
+}
+
+// --- Notes generation ---
+
+/// Meeting ids with a notes generation currently running. Module-level
+/// static (same pattern as `cloud::scheduler`) — survives webview
+/// reloads, so a re-mounted frontend can't double-spend on the same
+/// meeting.
+static GENERATING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn generating() -> &'static Mutex<HashSet<String>> {
+    GENERATING.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Removes the meeting id from the in-flight set even when the command
+/// future is dropped mid-generation (webview reload cancels commands).
+struct GenerationGuard(String);
+
+impl Drop for GenerationGuard {
+    fn drop(&mut self) {
+        generating().lock().remove(&self.0);
+    }
+}
+
+#[tauri::command]
+pub async fn workspace_meeting_generate_notes(
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    recorder_state: State<'_, recorder::RecorderState>,
+    id: String,
+    provider_id: String,
+    model: Option<String>,
+) -> Result<String, String> {
+    if recorder_state.status().meeting_id.as_deref() == Some(id.as_str()) {
+        return Err("meeting is still recording".to_string());
+    }
+    if !generating().lock().insert(id.clone()) {
+        return Err("generation already in progress".to_string());
+    }
+    let _guard = GenerationGuard(id.clone());
+    summarize::generate_notes(&app, pool.inner(), &id, &provider_id, model.as_deref()).await
 }
 
 // --- Whisper models ---

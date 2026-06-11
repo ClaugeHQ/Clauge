@@ -614,6 +614,7 @@ pub fn run() {
             modes::workspace::meetings::commands::workspace_meeting_get,
             modes::workspace::meetings::commands::workspace_meeting_update_title,
             modes::workspace::meetings::commands::workspace_meeting_update_notes,
+            modes::workspace::meetings::commands::workspace_meeting_generate_notes,
             modes::workspace::meetings::commands::workspace_meeting_delete,
             modes::workspace::meetings::commands::workspace_meeting_models_list,
             modes::workspace::meetings::commands::workspace_meeting_model_download,

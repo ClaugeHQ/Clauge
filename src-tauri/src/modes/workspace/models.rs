@@ -242,7 +242,7 @@ pub struct WorkspaceMeeting {
     pub notes_provider: Option<String>,
     pub notes_model: Option<String>,
     pub notes_generated_at: Option<String>,
-    /// 'recording' | 'transcribed'.
+    /// 'recording' | 'transcribed' | 'notes_ready'.
     pub status: String,
     pub created_at: String,
     pub updated_at: String,

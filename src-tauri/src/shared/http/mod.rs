@@ -123,6 +123,28 @@ pub async fn build_download_http_client(pool: &SqlitePool) -> Result<reqwest::Cl
         .map_err(|e| format!("HTTP client build failed: {}", e))
 }
 
+/// Build the HTTP client for one-shot AI completion calls (the collect
+/// path used by background generation flows such as meeting notes).
+///
+/// Deliberately has NO total timeout — a non-streaming completion with a
+/// large `max_tokens` budget can take well over the app client's 60s
+/// total. Stall protection comes from `connect_timeout` (30s) +
+/// `read_timeout` (120s of socket silence; for SSE-collected responses
+/// this applies between chunks). Picks up the global proxy like every
+/// other client.
+pub async fn build_ai_oneshot_http_client(pool: &SqlitePool) -> Result<reqwest::Client, String> {
+    let builder = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .read_timeout(Duration::from_secs(120))
+        .redirect(reqwest::redirect::Policy::limited(DEFAULT_REDIRECT_LIMIT));
+
+    let builder = apply_proxy(pool, builder).await?;
+
+    builder
+        .build()
+        .map_err(|e| format!("HTTP client build failed: {}", e))
+}
+
 /// Build the HTTP client for user-driven REST requests. Layers REST-only
 /// knobs (timeout, redirects, SSL verification, gzip/brotli/deflate)
 /// on top of the app-client base.
