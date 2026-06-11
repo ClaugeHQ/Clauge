@@ -6,6 +6,7 @@
   import { openSettingsTab } from '$lib/shared/stores/tabs';
   import AgentGitPanel from '$lib/modes/agent/components/AgentGitPanel.svelte';
   import GetProButton from '$lib/components/sidebar/GetProButton.svelte';
+  import MeetingRecIndicator from './MeetingRecIndicator.svelte';
   import { USAGE_DANGER, USAGE_WARN } from '$lib/shared/constants/colors';
   import { mcpStatus } from '$lib/modes/workspace/stores';
 
@@ -142,6 +143,7 @@
     {/if}
   </div>
   <div class="sr">
+    <MeetingRecIndicator />
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="si shell-toggle" onclick={() => { if ($activeAgentSession) agentShellOpen.update(v => !v); }}>
       <svg style="width:10px;height:10px;stroke:{$agentShellOpen ? 'var(--acc)' : 'var(--t3)'};fill:none;stroke-width:1.7;stroke-linecap:round" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -159,6 +161,7 @@
 {:else}
 <footer class="statusbar glass-surface">
   <div class="sr">
+    <MeetingRecIndicator />
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="si mcp-clickable" onclick={openMcpSettings} title={$mcpStatus.running ? `MCP server running on :${$mcpStatus.port}` : 'MCP server stopped — click to configure'}>
       <span class="sled mcp-led" class:on={$mcpStatus.running}></span>

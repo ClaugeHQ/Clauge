@@ -19,6 +19,8 @@ import * as cmd from './commands';
 import { currentUserActor } from './attribution';
 import { showToast } from '$lib/shared/primitives/toast';
 import { MEETING_EVENT } from '$lib/shared/constants/events';
+import { tabs as sharedTabs, addTab, activateTab } from '$lib/shared/stores/tabs';
+import { setMode } from '$lib/stores/app';
 
 // ── List + active selection ───────────────────────────────────────────
 
@@ -402,6 +404,17 @@ export async function deleteBoard(boardId: string, workspaceId: string) {
 // NoteView / BoardView.
 
 export const meetings = writable<WorkspaceMeeting[]>([]);
+
+/** Open (or activate) the `meeting:<id>` workspace tab and switch to
+ *  workspace mode. Shared by the nav accordion rows and the statusbar
+ *  recording indicator. */
+export function openMeetingTab(m: Pick<WorkspaceMeeting, 'id' | 'title'>) {
+  const key = `meeting:${m.id}`;
+  const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
+  if (existing) activateTab(existing.id);
+  else addTab(m.title || 'Untitled meeting', 'workspace', key, 'var(--acc)');
+  void setMode('workspace');
+}
 
 export async function loadMeetings() {
   try {

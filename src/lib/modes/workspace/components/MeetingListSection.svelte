@@ -5,7 +5,7 @@
   // WorkspacePanel).
 
   import { get } from 'svelte/store';
-  import { meetings, recordingStatus, loadMeetings } from '../stores';
+  import { meetings, recordingStatus, loadMeetings, openMeetingTab } from '../stores';
   import {
     workspaceMeetingStart,
     workspaceMeetingStop,
@@ -20,8 +20,7 @@
   import { errorToast } from '$lib/utils/errors';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import InlineInput from '$lib/components/nav/InlineInput.svelte';
-  import { tabs as sharedTabs, addTab, activateTab, updateTab, closeTab } from '$lib/shared/stores/tabs';
-  import { setMode } from '$lib/stores/app';
+  import { tabs as sharedTabs, updateTab, closeTab } from '$lib/shared/stores/tabs';
 
   interface Props {
     searchQuery?: string;
@@ -94,7 +93,7 @@
       expanded = true;
       await loadMeetings();
       const m = get(meetings).find(x => x.id === id);
-      if (m) openMeeting(m);
+      if (m) openMeetingTab(m);
     } catch (err) {
       if (String(err).includes(MEETING_MODEL_MISSING)) {
         showToast('Download a transcription model in Settings first', 'error');
@@ -104,14 +103,6 @@
     } finally {
       starting = false;
     }
-  }
-
-  function openMeeting(m: WorkspaceMeeting) {
-    const key = `meeting:${m.id}`;
-    const existing = get(sharedTabs).find(t => t.mode === 'workspace' && t.key === key);
-    if (existing) activateTab(existing.id);
-    else addTab(m.title || 'Untitled meeting', 'workspace', key, 'var(--acc)');
-    void setMode('workspace');
   }
 
   async function handleRename(m: WorkspaceMeeting, newTitle: string) {
@@ -160,7 +151,7 @@
       {
         label: 'Open',
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/></svg>',
-        action: () => openMeeting(m),
+        action: () => openMeetingTab(m),
       },
       {
         label: 'Rename',
@@ -226,7 +217,7 @@
     style="max-height:{expanded ? Math.max(filtered.length, 1) * 44 + 24 + 'px' : '0'}"
   >
     {#each filtered as m (m.id)}
-      <div class="ws-leaf" onclick={() => openMeeting(m)} oncontextmenu={(e) => showRowMenu(e, m)}>
+      <div class="ws-leaf" onclick={() => openMeetingTab(m)} oncontextmenu={(e) => showRowMenu(e, m)}>
         <span
           class="mtg-dot"
           class:mtg-dot-rec={m.status === 'recording'}
