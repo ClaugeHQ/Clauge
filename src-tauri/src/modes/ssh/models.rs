@@ -61,6 +61,9 @@ pub enum SshCommand {
 
 pub(crate) struct SshTerminalEntry {
     pub(crate) handle_tx: tokio::sync::mpsc::UnboundedSender<SshCommand>,
+    /// Profile this tab was spawned from — lets the companion server
+    /// mark a profile `live` when any tab for it is open.
+    pub(crate) profile_id: String,
 }
 
 pub struct SshTerminalState {

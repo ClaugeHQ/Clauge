@@ -215,6 +215,12 @@ pub(crate) struct TerminalEntry {
     pub(crate) writer: Box<dyn Write + Send>,
     #[allow(dead_code)]
     pub(crate) child: Box<dyn portable_pty::Child + Send>,
+    /// Which agent session this PTY belongs to, for the companion
+    /// server's status derivation. Companion spawns stamp the session
+    /// row id; desktop spawns stamp the claude resume id they were
+    /// given (the frontend keeps its own session→terminal map and
+    /// never reads this). `None` for plain shell terminals.
+    pub(crate) session_ref: Option<String>,
 }
 
 pub struct TerminalState {

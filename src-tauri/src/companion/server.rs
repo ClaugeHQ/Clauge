@@ -4,15 +4,14 @@
 // loopback) and shutdown is a watch channel instead of a oneshot so
 // future WebSocket tasks (D3) can each subscribe and die on stop.
 
-use axum::{middleware, response::Json as JsonResponse, routing::get, Router};
-use serde_json::{json, Value};
+use axum::{middleware, routing::get, Router};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tauri::State as TauriState;
 use tokio::sync::watch;
 
 use super::pairing::PairingState;
-use super::{auth, pairing, BASE_PORT, PORT_FALLBACK_RANGE};
+use super::{api, auth, pairing, BASE_PORT, PORT_FALLBACK_RANGE};
 
 pub struct ServerHandle {
     pub port: u16,
@@ -43,14 +42,12 @@ pub async fn start(
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(listener) => {
                 // Everything under /v1 requires a paired device token;
-                // /healthz and /pair are the only open endpoints.
-                // D2 adds the session/spawn routes to this nest.
-                let v1 = Router::new()
-                    .route("/server/info", get(server_info))
-                    .route_layer(middleware::from_fn_with_state(
-                        state.clone(),
-                        auth::require_bearer,
-                    ));
+                // /healthz and /pair are the only open endpoints. The
+                // /v1 routes themselves live in api.rs.
+                let v1 = api::routes().route_layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth::require_bearer,
+                ));
                 let router = Router::new()
                     .route("/healthz", get(|| async { "ok" }))
                     .route("/pair", axum::routing::post(pairing::handle_pair))
@@ -79,13 +76,6 @@ pub async fn start(
         BASE_PORT + PORT_FALLBACK_RANGE,
         last_err.unwrap_or_default(),
     ))
-}
-
-async fn server_info() -> JsonResponse<Value> {
-    JsonResponse(json!({
-        "serverName": tauri_plugin_os::hostname(),
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
 }
 
 // ---------------------------------------------------------------------------

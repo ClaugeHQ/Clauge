@@ -62,6 +62,17 @@ pub async fn active_token_hashes(pool: &SqlitePool) -> Result<Vec<(String, Strin
     .await
 }
 
+/// Store/replace the FCM push token reported by the device itself via
+/// POST /v1/device/fcm. Push dispatch (D4) reads it back.
+pub async fn set_fcm_token(pool: &SqlitePool, id: &str, token: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE companion_devices SET fcm_token = ? WHERE id = ?")
+        .bind(token)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn bump_last_seen(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE companion_devices SET last_seen_at = datetime('now') WHERE id = ?")
         .bind(id)

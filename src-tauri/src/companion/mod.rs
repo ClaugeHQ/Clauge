@@ -3,6 +3,7 @@
 // and PTY mirroring over WebSocket. OFF by default: the server only
 // runs after an explicit `companion_start` from Settings → Mobile.
 
+pub mod api;
 pub mod auth;
 pub mod devices;
 pub mod pairing;
