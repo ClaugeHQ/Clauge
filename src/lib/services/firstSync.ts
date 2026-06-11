@@ -36,7 +36,9 @@ async function run(): Promise<void> {
     } else if (remoteHas && localEmpty) {
       showSyncRestorePrompt.set(true);
     } else if (!remoteHas && !localEmpty) {
-      cloudSyncPushNow()
+      // Awaited so decideFirstSync() doesn't resolve mid-push — the
+      // inFlight guard must cover the whole decision, push included.
+      await cloudSyncPushNow()
         .then(() => markSynced())
         .catch((e) => {
           console.warn('[Cloud] initial push failed:', e);

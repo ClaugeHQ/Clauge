@@ -88,6 +88,7 @@
         welcomeProModalOpen,
         welcomeProPlanHint,
         postCheckoutVerifying,
+        hasSyncedOnce,
     } from "$lib/stores/cloud";
     import {
         cloudGetStatus,
@@ -1127,6 +1128,10 @@
         // pull_if_remote_newer skips kinds with unpushed local changes.
         let lastFocusPull = 0;
         const pullIfDue = () => {
+            // Until the first-sync decision resolves there are no per-kind
+            // hashes to compare — Rust would skip everything anyway; bail
+            // early to make the intent explicit and save the network call.
+            if (!get(hasSyncedOnce)) return;
             if (Date.now() - lastFocusPull < 5 * 60_000) return;
             lastFocusPull = Date.now();
             cloudPullIfRemoteNewer()

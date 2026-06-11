@@ -93,13 +93,16 @@
     busy = 'merge';
     try {
       for (const k of [...$cloudConflicts]) await cloudResolveKind(k, 'merge');
-      await refreshConflictsStore();
-      await reloadSyncedStores();
       showToast('Merged both devices’ changes', 'success');
-      if ($cloudConflicts.length === 0) show = false;
     } catch (e: any) {
       showToast(`Couldn’t merge: ${e?.message ?? e}`, 'error');
     } finally {
+      // Refresh + reload even when a mid-loop merge fails — the kinds that
+      // DID resolve before the failure must still drop out of the list and
+      // have their imported rows reflected in the UI.
+      await refreshConflictsStore();
+      await reloadSyncedStores().catch((e) => console.warn('[Cloud] reload after merge:', e));
+      if ($cloudConflicts.length === 0) show = false;
       busy = null;
     }
   }

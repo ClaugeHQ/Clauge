@@ -13,6 +13,7 @@
   import { showDeviceSetup, cloudUser, markSynced } from '$lib/stores/cloud';
   import { cloudMergeAll, cloudForcePushAll, cloudSyncRestore } from '$lib/commands/cloud';
   import { reloadSyncedStores } from '$lib/commands/syncReload';
+  import { announceRestoreCompletion } from '$lib/stores/missingCredentials';
   import { showToast } from '$lib/shared/primitives/toast';
 
   /** Teleport the modal subtree to <body>. Same pattern as
@@ -47,6 +48,10 @@
       else await cloudSyncRestore();
       markSynced();
       await reloadSyncedStores();
+      // 'merge' and 'cloud' both import remote rows whose secrets were
+      // stripped server-side — surface the same credentials notice the
+      // Sidebar restore flow shows. 'keep' only pushes, nothing imported.
+      if (choice !== 'keep') await announceRestoreCompletion();
       showToast('Device set up', 'success');
       showDeviceSetup.set(false);
     } catch (e: any) {

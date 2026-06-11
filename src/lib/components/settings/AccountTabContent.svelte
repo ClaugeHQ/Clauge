@@ -119,6 +119,9 @@
     // Cloud version history — lazy-loaded per kind on selection.
     let historyKind = $state<string | null>(null);
     let historyEntries = $state<SyncHistoryEntry[]>([]);
+    // Monotonic request token — switching kind pills quickly must not let a
+    // slow stale response overwrite the newer kind's list.
+    let historyReq = 0;
     let loadingHistory = $state(false);
     let restoringHistory = $state<string | null>(null);
     let confirmRestoreHistory = $state(false);
@@ -170,6 +173,9 @@
             // Shared 4-case first-sync decision (restore prompt / push /
             // device setup) — same path the layout boot block runs.
             await decideFirstSync();
+            // The lazily-loaded per-kind device/time diagnostics were
+            // fetched (or skipped) while signed out — refresh them now.
+            loadRemoteState();
         } catch (err) {
             showToast(friendlyError(err), "error");
         } finally {
@@ -397,15 +403,21 @@
     }
 
     async function selectHistoryKind(kind: string) {
+        const req = ++historyReq;
         historyKind = kind;
         historyEntries = [];
         loadingHistory = true;
         try {
-            historyEntries = await cloudHistoryList(kind);
+            const entries = await cloudHistoryList(kind);
+            if (req !== historyReq) return; // a newer pill won the race
+            historyEntries = entries;
         } catch (e) {
+            if (req !== historyReq) return;
             showToast(friendlyError(e), "error");
         } finally {
-            loadingHistory = false;
+            // Only the latest request may flip the spinner off — otherwise a
+            // stale response would enable the restore buttons early.
+            if (req === historyReq) loadingHistory = false;
         }
     }
 
