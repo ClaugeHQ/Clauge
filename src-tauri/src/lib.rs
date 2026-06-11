@@ -127,6 +127,19 @@ pub fn run() {
                 db::legacy_import::run_if_needed(&pool).await;
             });
 
+            // Meetings left at status='recording' mean the app died
+            // mid-recording. Finalize them now, before the detect poller
+            // starts — no recording can be active at boot.
+            match tauri::async_runtime::block_on(
+                modes::workspace::meetings::repo::recover_interrupted(&pool),
+            ) {
+                Ok(n) if n > 0 => {
+                    log::info!("[meetings] recovered {} interrupted meeting(s)", n)
+                }
+                Ok(_) => {}
+                Err(e) => log::warn!("[meetings] recover_interrupted: {}", e),
+            }
+
             // Load saved vibrancy material before managing pool (which moves it)
             let saved_material = tauri::async_runtime::block_on(async {
                 sqlx::query_as::<_, (String,)>(

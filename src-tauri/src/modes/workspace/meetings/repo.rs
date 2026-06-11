@@ -159,6 +159,24 @@ pub async fn finish_meeting(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Err
     Ok(())
 }
 
+/// Boot-time sweep for meetings the app died on mid-recording.
+/// Segments are flushed as they arrive, so the transcript is intact —
+/// only the status/ended_at finalization was missed. Safe to run at
+/// startup because no recording can be active yet.
+pub async fn recover_interrupted(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let now = now_rfc3339();
+    let result = sqlx::query(
+        "UPDATE workspace_meetings \
+         SET status = 'transcribed', ended_at = COALESCE(ended_at, ?), updated_at = ? \
+         WHERE status = 'recording'",
+    )
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 pub async fn delete_meeting(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM workspace_meetings WHERE id = ?")
         .bind(id)
@@ -353,6 +371,28 @@ mod tests {
         assert_eq!(rows, 1);
         let got = get_meeting(&pool, &m.id).await.unwrap().unwrap();
         assert_eq!(got.title, "Q3 planning");
+    }
+
+    #[tokio::test]
+    async fn meeting_recover_interrupted_finalizes_only_stuck_rows() {
+        let pool = test_pool().await;
+        let stuck = insert_meeting(&pool, "Crashed", None, "auto").await.unwrap();
+        let done = insert_meeting(&pool, "Finished", None, "auto").await.unwrap();
+        finish_meeting(&pool, &done.id).await.unwrap();
+        let done_before = get_meeting(&pool, &done.id).await.unwrap().unwrap();
+
+        assert_eq!(recover_interrupted(&pool).await.unwrap(), 1);
+
+        let got = get_meeting(&pool, &stuck.id).await.unwrap().unwrap();
+        assert_eq!(got.status, "transcribed");
+        assert!(got.ended_at.is_some());
+
+        let done_after = get_meeting(&pool, &done.id).await.unwrap().unwrap();
+        assert_eq!(done_after.status, done_before.status);
+        assert_eq!(done_after.ended_at, done_before.ended_at);
+        assert_eq!(done_after.updated_at, done_before.updated_at);
+
+        assert_eq!(recover_interrupted(&pool).await.unwrap(), 0);
     }
 
     #[tokio::test]
