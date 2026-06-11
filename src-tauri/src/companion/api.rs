@@ -122,6 +122,9 @@ pub struct AgentSessionInfo {
     pub id: String,
     pub title: String,
     pub provider: String,
+    /// Session purpose tag (matches the desktop SESSION_PURPOSES registry,
+    /// e.g. `"feature"` | `"bugfix"` | `"review"`). Empty when unset.
+    pub purpose: Option<String>,
     /// "running" | "idle" | "exited"
     pub status: String,
     pub project_path: String,
@@ -196,6 +199,7 @@ async fn list_agent_sessions(State(state): State<Arc<CompanionAppState>>) -> Res
                 id: s.id,
                 title: s.title,
                 provider: s.provider,
+                purpose: Some(s.purpose).filter(|p| !p.is_empty()),
                 status,
                 project_path: s.project_path,
                 last_used_at: s.last_used_at,
@@ -556,6 +560,7 @@ mod tests {
             id: "sess-1".into(),
             title: "Fix the parser".into(),
             provider: "claude".into(),
+            purpose: Some("bugfix".into()),
             status: "running".into(),
             project_path: "/Users/me/proj".into(),
             last_used_at: "2026-06-11T10:00:00Z".into(),
@@ -567,6 +572,7 @@ mod tests {
                 "id": "sess-1",
                 "title": "Fix the parser",
                 "provider": "claude",
+                "purpose": "bugfix",
                 "status": "running",
                 "projectPath": "/Users/me/proj",
                 "lastUsedAt": "2026-06-11T10:00:00Z",
@@ -581,6 +587,7 @@ mod tests {
             id: "sess-2".into(),
             title: "Idle".into(),
             provider: "claude".into(),
+            purpose: None,
             status: "idle".into(),
             project_path: "/Users/me/proj".into(),
             last_used_at: "2026-06-11T10:00:00Z".into(),
@@ -588,6 +595,10 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(&info).unwrap()["liveTerminalId"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            serde_json::to_value(&info).unwrap()["purpose"],
             serde_json::Value::Null
         );
     }
