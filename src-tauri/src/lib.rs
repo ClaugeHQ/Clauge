@@ -230,6 +230,7 @@ pub fn run() {
             // Workspace MCP server state — single global handle.
             // Started/stopped via workspace_mcp_start/stop commands.
             app.manage(modes::workspace::commands::McpServerState::default());
+            app.manage(modes::workspace::meetings::recorder::RecorderState::default());
 
             // Auto-start the workspace MCP server in the background so
             // agents can connect without the user opening Settings.
@@ -609,6 +610,9 @@ pub fn run() {
             modes::workspace::meetings::commands::workspace_meeting_models_list,
             modes::workspace::meetings::commands::workspace_meeting_model_download,
             modes::workspace::meetings::commands::workspace_meeting_model_delete,
+            modes::workspace::meetings::commands::workspace_meeting_start,
+            modes::workspace::meetings::commands::workspace_meeting_stop,
+            modes::workspace::meetings::commands::workspace_meeting_recording_status,
 
             // Companion (mobile) server
             companion::server::companion_status,

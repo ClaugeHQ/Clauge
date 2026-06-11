@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
+use crate::modes::workspace::meetings::recorder;
 use crate::modes::workspace::meetings::repo;
 use crate::modes::workspace::models::WorkspaceMeeting;
 use crate::shared::transcribe::models as whisper_models;
@@ -99,4 +100,34 @@ pub async fn workspace_meeting_model_delete(
     name: String,
 ) -> Result<(), String> {
     whisper_models::delete_model(&app, &name)
+}
+
+// --- Recording ---
+
+#[tauri::command]
+pub async fn workspace_meeting_start(
+    app: AppHandle,
+    source_app: Option<String>,
+    model: Option<String>,
+    language: Option<String>,
+) -> Result<String, String> {
+    recorder::start_recording(
+        app,
+        source_app,
+        model.unwrap_or_else(|| recorder::DEFAULT_MODEL.to_string()),
+        language.unwrap_or_else(|| recorder::DEFAULT_LANGUAGE.to_string()),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn workspace_meeting_stop(app: AppHandle) -> Result<String, String> {
+    recorder::stop_recording(app).await
+}
+
+#[tauri::command]
+pub fn workspace_meeting_recording_status(
+    state: State<'_, recorder::RecorderState>,
+) -> recorder::RecorderStatus {
+    state.status()
 }

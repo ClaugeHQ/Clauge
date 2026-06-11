@@ -20,7 +20,9 @@ pub fn to_mono_16k(samples: &[f32], channels: u16, rate: u32) -> Vec<f32> {
     resample_to_16k(&mono, rate)
 }
 
-fn downmix(samples: &[f32], channels: u16) -> Vec<f32> {
+/// Channel-averages interleaved samples to mono at the native rate. Safe
+/// per-frame, unlike `to_mono_16k` — no resampler state is involved.
+pub fn downmix(samples: &[f32], channels: u16) -> Vec<f32> {
     if channels <= 1 {
         return samples.to_vec();
     }
