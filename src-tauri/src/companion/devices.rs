@@ -52,6 +52,25 @@ pub async fn revoke(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Hard-delete a single device row, dropping its token_hash for good.
+pub async fn delete_device(pool: &SqlitePool, device_id: &str) -> Result<(), String> {
+    sqlx::query("DELETE FROM companion_devices WHERE id = ?")
+        .bind(device_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Hard-delete every revoked device row, returning how many were removed.
+pub async fn purge_revoked(pool: &SqlitePool) -> Result<u64, String> {
+    let res = sqlx::query("DELETE FROM companion_devices WHERE revoked = 1")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(res.rows_affected())
+}
+
 /// (id, token_hash) of every device that may still authenticate.
 /// Callers compare hashes in constant time — see auth::authorize.
 pub async fn active_token_hashes(pool: &SqlitePool) -> Result<Vec<(String, String)>, sqlx::Error> {
@@ -125,4 +144,80 @@ pub async fn companion_revoke_device(
         .map_err(|e| e.to_string())?;
     log::info!("[companion] revoked device {}", device_id);
     Ok(())
+}
+
+/// Hard-delete a single (typically already-revoked) device row.
+#[tauri::command]
+pub async fn companion_delete_device(
+    pool: tauri::State<'_, SqlitePool>,
+    device_id: String,
+) -> Result<(), String> {
+    delete_device(pool.inner(), &device_id).await?;
+    log::info!("[companion] deleted device {}", device_id);
+    Ok(())
+}
+
+/// Hard-delete all revoked device rows, returning the count removed.
+#[tauri::command]
+pub async fn companion_purge_revoked(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<u64, String> {
+    let n = purge_revoked(pool.inner()).await?;
+    log::info!("[companion] purged {} revoked device(s)", n);
+    Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIGRATION_22: &str = include_str!("../../migrations/22_companion_devices.sql");
+
+    async fn test_pool() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory sqlite");
+        sqlx::raw_sql(MIGRATION_22)
+            .execute(&pool)
+            .await
+            .expect("apply migration 22");
+        pool
+    }
+
+    #[tokio::test]
+    async fn delete_device_removes_row() {
+        let pool = test_pool().await;
+        insert(&pool, "dev-1", "Pixel", "android", "hash1")
+            .await
+            .unwrap();
+        assert_eq!(list(&pool).await.unwrap().len(), 1);
+
+        delete_device(&pool, "dev-1").await.unwrap();
+        assert!(list(&pool).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn purge_revoked_only_deletes_revoked() {
+        let pool = test_pool().await;
+        insert(&pool, "active", "A", "android", "h-a")
+            .await
+            .unwrap();
+        insert(&pool, "rev-1", "R1", "android", "h-r1")
+            .await
+            .unwrap();
+        insert(&pool, "rev-2", "R2", "ios", "h-r2")
+            .await
+            .unwrap();
+        revoke(&pool, "rev-1").await.unwrap();
+        revoke(&pool, "rev-2").await.unwrap();
+
+        let removed = purge_revoked(&pool).await.unwrap();
+        assert_eq!(removed, 2);
+
+        let remaining = list(&pool).await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "active");
+    }
 }

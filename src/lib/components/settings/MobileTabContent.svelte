@@ -8,6 +8,8 @@
         companionNewPairCode,
         companionListDevices,
         companionRevokeDevice,
+        companionDeleteDevice,
+        companionPurgeRevoked,
         type CompanionStatus,
         type PairCodeInfo,
         type CompanionDevice,
@@ -35,6 +37,15 @@
     // Revoke confirm.
     let showRevokeConfirm = $state(false);
     let revokeTarget = $state<CompanionDevice | null>(null);
+
+    // Remove (hard-delete) confirm.
+    let showRemoveConfirm = $state(false);
+    let removeTarget = $state<CompanionDevice | null>(null);
+
+    // Clear-revoked confirm.
+    let showClearConfirm = $state(false);
+
+    let hasRevoked = $derived(devices.some((d) => d.revoked));
 
     async function refreshStatus() {
         try {
@@ -138,6 +149,36 @@
             showToast(friendlyError(e), "error");
         } finally {
             revokeTarget = null;
+        }
+    }
+
+    function askRemove(d: CompanionDevice) {
+        removeTarget = d;
+        showRemoveConfirm = true;
+    }
+
+    async function confirmRemove() {
+        if (!removeTarget) return;
+        try {
+            await companionDeleteDevice(removeTarget.id);
+            await refreshDevices();
+        } catch (e) {
+            showToast(friendlyError(e), "error");
+        } finally {
+            removeTarget = null;
+        }
+    }
+
+    async function confirmClearRevoked() {
+        try {
+            const n = await companionPurgeRevoked();
+            await refreshDevices();
+            showToast(
+                `Removed ${n} device${n === 1 ? "" : "s"}`,
+                "success",
+            );
+        } catch (e) {
+            showToast(friendlyError(e), "error");
         }
     }
 
@@ -251,6 +292,13 @@
     <section class="stg-card">
         <div class="mob-section-hdr">
             <span class="mob-title">Paired devices</span>
+            {#if hasRevoked}
+                <button
+                    class="mob-btn danger"
+                    onclick={() => (showClearConfirm = true)}
+                    >Clear revoked</button
+                >
+            {/if}
         </div>
         {#if devices.length === 0}
             <p class="mob-hint">No devices paired yet.</p>
@@ -267,7 +315,12 @@
                                 {#if d.revoked}· revoked{/if}
                             </span>
                         </div>
-                        {#if !d.revoked}
+                        {#if d.revoked}
+                            <button
+                                class="mob-btn danger"
+                                onclick={() => askRemove(d)}>Remove</button
+                            >
+                        {:else}
                             <button
                                 class="mob-btn danger"
                                 onclick={() => askRevoke(d)}>Revoke</button
@@ -287,6 +340,23 @@
     confirmText="Revoke"
     onconfirm={confirmRevoke}
     oncancel={() => (revokeTarget = null)}
+/>
+
+<ConfirmDialog
+    bind:show={showRemoveConfirm}
+    title="Remove device"
+    message={`Permanently remove "${removeTarget?.name ?? ""}" from this list? This cannot be undone.`}
+    confirmText="Remove"
+    onconfirm={confirmRemove}
+    oncancel={() => (removeTarget = null)}
+/>
+
+<ConfirmDialog
+    bind:show={showClearConfirm}
+    title="Clear revoked devices"
+    message="Permanently remove all revoked devices from this list? This cannot be undone."
+    confirmText="Clear revoked"
+    onconfirm={confirmClearRevoked}
 />
 
 <style>

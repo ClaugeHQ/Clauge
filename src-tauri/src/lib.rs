@@ -606,6 +606,8 @@ pub fn run() {
             companion::pairing::companion_deny_pair,
             companion::devices::companion_list_devices,
             companion::devices::companion_revoke_device,
+            companion::devices::companion_delete_device,
+            companion::devices::companion_purge_revoked,
             companion::companion_report_opened,
             companion::companion_report_open_failed,
 

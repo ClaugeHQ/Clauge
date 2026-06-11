@@ -38,6 +38,12 @@ export const companionListDevices = () =>
 export const companionRevokeDevice = (deviceId: string) =>
   invoke<void>('companion_revoke_device', { deviceId });
 
+export const companionDeleteDevice = (deviceId: string) =>
+  invoke<void>('companion_delete_device', { deviceId });
+
+export const companionPurgeRevoked = () =>
+  invoke<number>('companion_purge_revoked');
+
 export const companionApprovePair = (requestId: string) =>
   invoke<void>('companion_approve_pair', { requestId });
 
