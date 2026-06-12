@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Welcome to Clauge Pro</title>
 <meta name="description" content="Your Clauge Pro subscription is active. Return to the app to continue.">
-<meta name="theme-color" content="#060709">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#fafaf8">
+<meta name="color-scheme" content="light">
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
@@ -16,7 +16,7 @@
 <link rel="manifest" href="/site.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="site.css">
 <style>
   body {
@@ -27,12 +27,10 @@
     position: relative; z-index: 1;
     width: min(560px, calc(100% - 48px));
     padding: 48px;
-    border: 1px solid var(--line-strong);
+    border: 1px solid var(--line);
     border-radius: 24px;
-    background:
-      radial-gradient(420px 220px at 50% -10%, rgba(200, 255, 74, 0.12), transparent 70%),
-      linear-gradient(180deg, var(--bg-2), var(--bg-1));
-    box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    background: var(--bg-1);
+    box-shadow: 0 24px 70px -36px rgba(22, 24, 29, 0.25);
   }
   .us-rail {
     display: grid;
@@ -51,12 +49,12 @@
     letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--lime);
     border: 1px solid var(--lime-line); border-radius: 999px;
-    background: rgba(200, 255, 74, 0.06);
+    background: rgba(90, 80, 232, 0.06);
     padding: 6px 13px;
     margin-bottom: 20px;
   }
   .us-title {
-    font-family: var(--font-display); font-weight: 800;
+    font-family: var(--font-display); font-weight: 700;
     font-size: clamp(34px, 4.8vw, 52px);
     line-height: 1.02; letter-spacing: -0.03em;
     color: var(--ink);
