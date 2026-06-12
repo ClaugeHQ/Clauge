@@ -47,6 +47,29 @@ jobs:
       - name: Install frontend dependencies
         run: bun install
 
+      - name: Configure clang-cl for whisper.cpp (Windows ARM)
+        if: matrix.platform == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          # ggml rejects MSVC on ARM ("MSVC is not supported for ARM, use
+          # clang"), so whisper-rs-sys must build whisper.cpp with clang-cl.
+          # The windows-11-arm runner image ships LLVM + Ninja preinstalled.
+          $llvmBin = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path "$llvmBin\clang-cl.exe")) {
+            Write-Error "clang-cl.exe not found at $llvmBin — runner image change?"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $llvmBin
+          # cmake-rs resolves CC/CXX by name, so clang-cl must be on PATH.
+          Add-Content -Path $env:GITHUB_ENV -Value "CC=clang-cl"
+          Add-Content -Path $env:GITHUB_ENV -Value "CXX=clang-cl"
+          # ggml uses C++ exceptions; cmake-rs disables them under clang-cl.
+          Add-Content -Path $env:GITHUB_ENV -Value "CXXFLAGS=/EHsc"
+          # cmake-rs's default Visual Studio generator injects its own -T/-A
+          # flags that pin the MSVC toolset; Ninja honors CC/CXX instead.
+          # Do NOT set CMAKE_GENERATOR_TOOLSET — Ninja rejects toolset specs.
+          Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_GENERATOR=Ninja"
+
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 
