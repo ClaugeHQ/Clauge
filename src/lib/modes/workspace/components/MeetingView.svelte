@@ -279,7 +279,14 @@
 
   onDestroy(() => {
     if (saveTimeout) clearTimeout(saveTimeout);
-    if (dirty) saveNotes();
+    // Bypass saveNotes(): its in-flight guard would drop the latest edit
+    // if a save is already running when the tab closes. Fire-and-forget —
+    // the component is gone, so no state to update.
+    if (dirty && meeting) {
+      workspaceMeetingUpdateNotes(meeting.id, currentNotes).catch((e) =>
+        console.error('Failed to save meeting notes on close', e),
+      );
+    }
   });
 
   // ── Generate notes ─────────────────────────────────────────────────

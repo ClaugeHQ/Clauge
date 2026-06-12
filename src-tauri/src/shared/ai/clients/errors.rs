@@ -70,11 +70,16 @@ pub fn map_upstream_error(
                 }
                 // Mistral format: {"message": {"detail": [{"msg": "..."}]}}
                 else if let Some(detail) = parsed["message"]["detail"].as_array() {
-                    detail
+                    let joined = detail
                         .iter()
                         .filter_map(|d| d["msg"].as_str())
                         .collect::<Vec<_>>()
-                        .join("; ")
+                        .join("; ");
+                    if joined.is_empty() {
+                        format!("API error ({}): {}", status, truncate_str(error_body, 200))
+                    } else {
+                        joined
+                    }
                 }
                 // Mistral format: {"message": "string"}
                 else if let Some(msg) = parsed["message"].as_str() {

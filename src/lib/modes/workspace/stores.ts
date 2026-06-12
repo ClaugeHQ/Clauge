@@ -3,7 +3,7 @@
 // don't have to thread the actor argument every time.
 
 import { writable, derived, get } from 'svelte/store';
-import { listen } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   RecordingStatus,
   TranscriptSegment,
@@ -547,76 +547,87 @@ export async function initMeetingListeners() {
   if (meetingListenersStarted) return;
   meetingListenersStarted = true;
   loadRecordingStatus();
-  try {
-    await Promise.all([
-      listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_STARTED, (e) => {
-        clearLiveSegments(e.payload.meetingId);
-        loadMeetings();
-        loadRecordingStatus();
-      }),
-      listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_STOPPED, async (e) => {
-        loadRecordingStatus();
-        // Clear AFTER the refetch lands so an open MeetingView swaps to
-        // the full transcript row without a flash of missing segments.
-        await loadMeetings();
-        clearLiveSegments(e.payload.meetingId);
-      }),
-      listen<{ meetingId: string; segment: TranscriptSegment }>(
-        MEETING_EVENT.TRANSCRIPT_SEGMENT,
-        (e) => {
-          liveSegmentsByMeeting.update((m) => {
-            const next = new Map(m);
-            next.set(e.payload.meetingId, [...(next.get(e.payload.meetingId) ?? []), e.payload.segment]);
-            return next;
-          });
-        },
-      ),
-      listen<{ meetingId: string; message: string }>(MEETING_EVENT.RECORDING_ERROR, (e) => {
-        showToast(e.payload.message, 'error');
-        loadMeetings();
-        loadRecordingStatus();
-      }),
-      listen<{ meetingId: string; message: string }>(MEETING_EVENT.RECORDING_WARNING, (e) => {
-        showToast(e.payload.message, 'info');
-      }),
-      listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_AUTOSTOPPED, () => {
-        // Refresh is handled by the RECORDING_STOPPED event that the normal
-        // stop flow emits — this one only explains WHY it stopped.
-        showToast('Recording stopped — call ended', 'info');
-      }),
-      listen<{ app: string }>(MEETING_EVENT.CALL_SUPPRESSED, () => {
-        showToast('Call detected — a recording is already in progress', 'info');
-      }),
-      listen<{ meetingId: string; done: number; total: number }>(
-        MEETING_EVENT.NOTES_PROGRESS,
-        (e) => markGenerationStart(e.payload.meetingId),
-      ),
-      listen<{ meetingId: string }>(MEETING_EVENT.NOTES_READY, (e) => {
-        markGenerationEnd(e.payload.meetingId);
-      }),
-      listen<{ meetingId: string; message: string }>(MEETING_EVENT.NOTES_ERROR, (e) => {
-        markGenerationEnd(e.payload.meetingId);
-      }),
-      listen(MEETING_EVENT.DETECT_DISABLED, () => {
-        showToast('Call detection turned off — re-enable in Settings → AI Meeting Notes', 'info');
-      }),
-      listen<{ name: string; downloaded: number; total: number }>(
-        MEETING_EVENT.MODEL_DOWNLOAD_PROGRESS,
-        (e) => {
-          const { name, downloaded, total } = e.payload;
-          modelDownloadProgress.update((m) => {
-            const next = new Map(m);
-            if (total > 0 && downloaded >= total) next.delete(name);
-            else next.set(name, { downloaded, total });
-            return next;
-          });
-        },
-      ),
-    ]);
-  } catch (e) {
-    // Allow a later call to retry registration instead of permanently
-    // running without listeners.
+  const results = await Promise.allSettled([
+    listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_STARTED, (e) => {
+      clearLiveSegments(e.payload.meetingId);
+      loadMeetings();
+      loadRecordingStatus();
+    }),
+    listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_STOPPED, async (e) => {
+      loadRecordingStatus();
+      // Clear AFTER the refetch lands so an open MeetingView swaps to
+      // the full transcript row without a flash of missing segments.
+      await loadMeetings();
+      clearLiveSegments(e.payload.meetingId);
+    }),
+    listen<{ meetingId: string; segment: TranscriptSegment }>(
+      MEETING_EVENT.TRANSCRIPT_SEGMENT,
+      (e) => {
+        liveSegmentsByMeeting.update((m) => {
+          const next = new Map(m);
+          next.set(e.payload.meetingId, [...(next.get(e.payload.meetingId) ?? []), e.payload.segment]);
+          return next;
+        });
+      },
+    ),
+    listen<{ meetingId: string; message: string }>(MEETING_EVENT.RECORDING_ERROR, (e) => {
+      showToast(e.payload.message, 'error');
+      loadMeetings();
+      loadRecordingStatus();
+    }),
+    listen<{ meetingId: string; message: string }>(MEETING_EVENT.RECORDING_WARNING, (e) => {
+      showToast(e.payload.message, 'info');
+    }),
+    listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_AUTOSTOPPED, () => {
+      // Refresh is handled by the RECORDING_STOPPED event that the normal
+      // stop flow emits — this one only explains WHY it stopped.
+      showToast('Recording stopped — call ended', 'info');
+    }),
+    listen<{ app: string }>(MEETING_EVENT.CALL_SUPPRESSED, () => {
+      showToast('Call detected — a recording is already in progress', 'info');
+    }),
+    listen<{ meetingId: string; done: number; total: number }>(
+      MEETING_EVENT.NOTES_PROGRESS,
+      (e) => markGenerationStart(e.payload.meetingId),
+    ),
+    listen<{ meetingId: string }>(MEETING_EVENT.NOTES_READY, (e) => {
+      markGenerationEnd(e.payload.meetingId);
+    }),
+    listen<{ meetingId: string; message: string }>(MEETING_EVENT.NOTES_ERROR, (e) => {
+      markGenerationEnd(e.payload.meetingId);
+    }),
+    listen(MEETING_EVENT.DETECT_DISABLED, () => {
+      showToast('Call detection turned off — re-enable in Settings → AI Meeting Notes', 'info');
+    }),
+    listen<{ name: string; downloaded: number; total: number }>(
+      MEETING_EVENT.MODEL_DOWNLOAD_PROGRESS,
+      (e) => {
+        const { name, downloaded, total } = e.payload;
+        modelDownloadProgress.update((m) => {
+          const next = new Map(m);
+          if (total > 0 && downloaded >= total) next.delete(name);
+          else next.set(name, { downloaded, total });
+          return next;
+        });
+      },
+    ),
+  ]);
+  const unlistens = results
+    .filter((r): r is PromiseFulfilledResult<UnlistenFn> => r.status === 'fulfilled')
+    .map((r) => r.value);
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejected.length > 0) {
+    // Partial registration is worse than none: tear down what succeeded so
+    // a retry doesn't double-register handlers, then allow a later call to
+    // retry instead of permanently running without listeners.
+    for (const unlisten of unlistens) {
+      try {
+        unlisten();
+      } catch {
+        // best effort
+      }
+    }
     meetingListenersStarted = false;
-    console.warn('meeting event listen failed:', e);
+    console.warn('meeting event listen failed:', rejected.map((r) => r.reason));
   }
 }

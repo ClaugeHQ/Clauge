@@ -487,7 +487,9 @@
     let deletingModel = $state<string | null>(null);
     let meetingCardEl = $state<HTMLElement | null>(null);
     let meetingModel = $derived(
-        ($settings["workspace_meeting_model"] ?? "base") as string,
+        // `||` not `??`: empty string means "cleared" and falls back to the
+        // backend default, same as setting_or() on the Rust side.
+        ($settings["workspace_meeting_model"] || "base") as string,
     );
     let meetingLanguage = $derived(
         ($settings["workspace_meeting_language"] ?? "auto") as string,
@@ -562,11 +564,17 @@
             "true"
         )
             return;
-        workspaceMeetingRequestPermissions().catch(() => {});
-        setSetting(
-            "workspace_meeting_permissions_preflight_done",
-            "true",
-        ).catch(() => {});
+        workspaceMeetingRequestPermissions()
+            .then(() =>
+                setSetting(
+                    "workspace_meeting_permissions_preflight_done",
+                    "true",
+                ),
+            )
+            .catch((e) => {
+                // Flag intentionally not set — next enable retries the prompts.
+                console.error("Meeting permission preflight failed", e);
+            });
         showToast(
             "macOS may ask for Microphone and System Audio Recording access — please allow both so meeting notes can hear the whole call.",
             "info",
@@ -585,6 +593,12 @@
         deletingModel = name;
         try {
             await workspaceMeetingModelDelete(name);
+            if (name === meetingModel) {
+                // Deleted the persisted default — clear it so the backend
+                // falls back to its built-in default instead of a model
+                // that no longer exists on disk.
+                await setSetting("workspace_meeting_model", "");
+            }
         } catch (e) {
             errorToast("Failed to delete model", e);
         } finally {
