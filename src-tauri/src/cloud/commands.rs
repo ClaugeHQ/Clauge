@@ -262,9 +262,15 @@ pub async fn cloud_remote_state(
     pool: State<'_, SqlitePool>,
     state: State<'_, AuthState>,
 ) -> Result<Vec<crate::cloud::models::SyncStateRow>, String> {
-    client::sync_state(pool.inner(), &state)
+    let rows = client::sync_state(pool.inner(), &state)
         .await
-        .map_err(String::from)
+        .map_err(String::from)?;
+    // Hide kinds this client no longer understands (retired domains whose blobs
+    // still linger on the server) from the version-history UI and tooLargeKinds.
+    Ok(rows
+        .into_iter()
+        .filter(|r| ALL_KINDS.contains(&r.kind.as_str()))
+        .collect())
 }
 
 #[tauri::command]
@@ -340,7 +346,11 @@ pub async fn cloud_merge_all(
     state: State<'_, AuthState>,
 ) -> Result<Vec<String>, String> {
     let rows = client::sync_state(pool.inner(), &state).await.map_err(String::from)?;
-    let mut kinds: Vec<String> = rows.into_iter().map(|r| r.kind).collect();
+    let mut kinds: Vec<String> = rows
+        .into_iter()
+        .map(|r| r.kind)
+        .filter(|k| ALL_KINDS.contains(&k.as_str()))
+        .collect();
     kinds.sort_by_key(|k| sync::pull_order_rank(k));
     for k in &kinds {
         sync::resolve_merge(pool.inner(), &state, k).await?;

@@ -13,7 +13,6 @@ export function kindLabel(kind: string): string {
     case 'explorer':         return 'Explorer connections';
     case 'coworkers':        return 'Workspace coworkers';
     case 'workspace_notes':  return 'Workspace notes';
-    case 'workspace_boards': return 'Workspace boards';
     default:                 return kind;
   }
 }

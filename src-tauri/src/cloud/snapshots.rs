@@ -145,6 +145,11 @@ pub fn list_snapshots() -> Result<Vec<SnapshotInfo>, String> {
         if parts.len() != 3 {
             continue;
         }
+        // Hide snapshots for kinds this client no longer understands (retired
+        // domains); they age out via the existing on-disk cap.
+        if !ALL_KINDS.contains(&parts[1]) {
+            continue;
+        }
         out.push(SnapshotInfo {
             file_name: name.clone(),
             kind: parts[1].to_string(),

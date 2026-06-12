@@ -244,7 +244,6 @@ pub async fn workspace_create(
 
     // The workspaces table is exported by both workspace sync kinds.
     crate::cloud::scheduler::bump("workspace_notes");
-    crate::cloud::scheduler::bump("workspace_boards");
     repo::get_workspace_by_id(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())
@@ -274,7 +273,6 @@ pub async fn workspace_update(
     .await
     .map_err(|e| e.to_string())?;
     crate::cloud::scheduler::bump("workspace_notes");
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -337,7 +335,6 @@ pub async fn workspace_delete(
         .await
         .map_err(|e| e.to_string())?;
     crate::cloud::scheduler::bump("workspace_notes");
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -491,7 +488,6 @@ pub async fn workspace_board_create(
     let position = existing.len() as i32;
     let board_id =
         create_default_board(pool.inner(), &workspace_id, &name, None, position, &now).await?;
-    crate::cloud::scheduler::bump("workspace_boards");
     repo::get_board_by_id(pool.inner(), &board_id)
         .await
         .map_err(|e| e.to_string())
@@ -526,7 +522,6 @@ pub async fn workspace_board_set_project(
     repo::update_board_source_config(pool.inner(), &id, cfg.as_deref(), &now)
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -540,7 +535,6 @@ pub async fn workspace_board_rename(
     repo::update_board_name(pool.inner(), &id, &name, &now)
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -552,7 +546,6 @@ pub async fn workspace_board_delete(
     repo::delete_board(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -619,7 +612,6 @@ pub async fn workspace_card_create(
     )
     .await
     .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
 
     sqlx::query_as::<_, WorkspaceBoardCard>("SELECT * FROM workspace_board_cards WHERE id = ?")
         .bind(&id)
@@ -674,7 +666,6 @@ pub async fn workspace_card_update(
             _ => return Err("Card update failed".into()),
         }
     }
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -727,7 +718,6 @@ pub async fn workspace_card_move(
     )
     .await
     .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -741,7 +731,6 @@ pub async fn workspace_card_clear_review(
     repo::clear_review_pending(pool.inner(), &id, &actor, &now, repo::MutationGuard::default())
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -753,7 +742,6 @@ pub async fn workspace_card_delete(
     repo::delete_card(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -877,7 +865,6 @@ pub async fn workspace_card_drawer_chat(
     let result =
         super::agent_spawn::drawer_chat_turn(pool.inner(), Some(&app), &id, &coworker_id, trimmed, &actor)
             .await?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(result)
 }
 
@@ -899,7 +886,6 @@ pub async fn workspace_card_release(
         delete_worktree.unwrap_or(false),
     )
     .await?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 
@@ -921,7 +907,6 @@ pub async fn workspace_card_start_work(
     actor: String,
 ) -> Result<StartWorkResult, String> {
     let result = super::agent_spawn::start_work(pool.inner(), &id, &actor).await?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(result)
 }
 
@@ -936,7 +921,6 @@ pub async fn workspace_card_push_to_repo(
     actor: String,
 ) -> Result<serde_json::Value, String> {
     let result = super::push::push_card_to_repo(pool.inner(), &id, &actor).await?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(result)
 }
 
@@ -966,7 +950,6 @@ pub async fn workspace_card_raise_pr(
     )
     .await
     .map_err(|e| e.message())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(result)
 }
 
@@ -1014,7 +997,6 @@ pub async fn workspace_card_add_comment(
     )
     .await
     .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(crate::modes::workspace::models::WorkspaceCardComment {
         id: comment_id,
         card_id: id,
@@ -1046,7 +1028,6 @@ pub async fn workspace_card_comment_delete(
     repo::delete_card_comment(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())?;
-    crate::cloud::scheduler::bump("workspace_boards");
     Ok(())
 }
 

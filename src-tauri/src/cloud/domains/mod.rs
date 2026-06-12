@@ -6,7 +6,6 @@ pub mod rest;
 pub mod sql;
 pub mod ssh;
 pub mod util;
-pub mod workspace_boards;
 pub mod workspace_notes;
 
 pub const ALL_KINDS: &[&str] = &[
@@ -18,7 +17,6 @@ pub const ALL_KINDS: &[&str] = &[
     explorer::KIND,
     coworkers::KIND,
     workspace_notes::KIND,
-    workspace_boards::KIND,
 ];
 
 /// Build the (hash, base64-gzip-json) tuple for a kind.
@@ -35,7 +33,6 @@ pub async fn export_kind(
         explorer::KIND => explorer::export(pool).await,
         coworkers::KIND => coworkers::export(pool).await,
         workspace_notes::KIND => workspace_notes::export(pool).await,
-        workspace_boards::KIND => workspace_boards::export(pool).await,
         _ => Err(format!("unknown kind: {}", kind)),
     }
 }
@@ -61,7 +58,6 @@ pub async fn import_kind(
         explorer::KIND => explorer::import(pool, &payload).await,
         coworkers::KIND => coworkers::import(pool, &payload).await,
         workspace_notes::KIND => workspace_notes::import(pool, &payload).await,
-        workspace_boards::KIND => workspace_boards::import(pool, &payload).await,
         _ => Err(format!("unknown kind: {}", kind)),
     }
 }
@@ -88,7 +84,6 @@ pub async fn merge_kind(
         explorer::KIND => explorer::merge_specs(),
         coworkers::KIND => coworkers::merge_specs(),
         workspace_notes::KIND => workspace_notes::merge_specs(),
-        workspace_boards::KIND => workspace_boards::merge_specs(),
         _ => return Err(format!("unknown kind: {}", kind)),
     };
     util::merge_import(pool, &payload, specs).await
@@ -107,7 +102,6 @@ mod spec_tests {
             ("explorer", crate::cloud::domains::explorer::merge_specs()),
             ("coworkers", crate::cloud::domains::coworkers::merge_specs()),
             ("workspace_notes", crate::cloud::domains::workspace_notes::merge_specs()),
-            ("workspace_boards", crate::cloud::domains::workspace_boards::merge_specs()),
         ];
         for (kind, specs) in all {
             assert!(!specs.is_empty(), "{kind} has no specs");

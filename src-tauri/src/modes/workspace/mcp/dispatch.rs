@@ -386,11 +386,8 @@ fn bump_sync_kinds_for_tool(tool_name: &str) {
         || tool_name == "cards_create_from_branch";
     if touches_workspaces_table {
         bump("workspace_notes");
-        bump("workspace_boards");
     } else if tool_name.starts_with("notes_") {
         bump("workspace_notes");
-    } else if tool_name.starts_with("cards_") || tool_name.starts_with("boards_") {
-        bump("workspace_boards");
     } else if tool_name.starts_with("rest_") {
         bump("rest");
     }
