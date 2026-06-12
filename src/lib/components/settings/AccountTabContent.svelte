@@ -116,13 +116,19 @@
     let confirmRestoreSnapshot = $state(false);
     let snapshotToRestore = $state<SnapshotInfo | null>(null);
 
-    // Cloud version history — lazy-loaded per kind on selection.
+    // Collapsible section state + per-kind nested disclosure. Rarely-used
+    // recovery UI — both sections start collapsed.
+    let snapSectionOpen = $state(false);
+    let histSectionOpen = $state(false);
+    let snapKindOpen = $state<Record<string, boolean>>({});
+    let histKindOpen = $state<Record<string, boolean>>({});
+
+    // Cloud version history — lazy-loaded + cached per kind. A kind's
+    // versions are only fetched the first time its row is expanded.
+    let histCache = $state<Record<string, SyncHistoryEntry[]>>({});
+    let histLoading = $state<Record<string, boolean>>({});
+    // Which kind a restore confirm/spinner currently targets.
     let historyKind = $state<string | null>(null);
-    let historyEntries = $state<SyncHistoryEntry[]>([]);
-    // Monotonic request token — switching kind pills quickly must not let a
-    // slow stale response overwrite the newer kind's list.
-    let historyReq = 0;
-    let loadingHistory = $state(false);
     let restoringHistory = $state<string | null>(null);
     let confirmRestoreHistory = $state(false);
     let historyToRestore = $state<SyncHistoryEntry | null>(null);
@@ -402,23 +408,27 @@
         return t ? fmtAgo(t) : s;
     }
 
-    async function selectHistoryKind(kind: string) {
-        const req = ++historyReq;
-        historyKind = kind;
-        historyEntries = [];
-        loadingHistory = true;
+    // Lazy per-kind fetch — only hits the worker the first time a kind's
+    // row is expanded. Result is cached in `histCache` so re-expanding is
+    // instant. The finally-block always clears the spinner, even on error,
+    // so a failed kind never spins forever.
+    async function loadHistoryKind(kind: string) {
+        if (histCache[kind] || histLoading[kind]) return;
+        histLoading = { ...histLoading, [kind]: true };
         try {
             const entries = await cloudHistoryList(kind);
-            if (req !== historyReq) return; // a newer pill won the race
-            historyEntries = entries;
+            histCache = { ...histCache, [kind]: entries };
         } catch (e) {
-            if (req !== historyReq) return;
             showToast(friendlyError(e), "error");
         } finally {
-            // Only the latest request may flip the spinner off — otherwise a
-            // stale response would enable the restore buttons early.
-            if (req === historyReq) loadingHistory = false;
+            histLoading = { ...histLoading, [kind]: false };
         }
+    }
+
+    function toggleHistoryKind(kind: string) {
+        const open = !histKindOpen[kind];
+        histKindOpen = { ...histKindOpen, [kind]: open };
+        if (open) loadHistoryKind(kind);
     }
 
     async function restoreHistoryVersion() {
@@ -436,9 +446,12 @@
         } finally {
             restoringHistory = null;
             // The restore force-pushed a new cloud blob (archiving the old
-            // one) AND wrote a pre-history-restore local snapshot — refresh
-            // both lists so the UI reflects that.
-            if (historyKind === kind) selectHistoryKind(kind);
+            // one) AND wrote a pre-history-restore local snapshot — drop the
+            // cached list so the expanded row re-fetches, and refresh
+            // snapshots.
+            const { [kind]: _, ...rest } = histCache;
+            histCache = rest;
+            if (histKindOpen[kind]) loadHistoryKind(kind);
             loadSnapshots();
         }
     }
@@ -542,6 +555,52 @@
 
     // Kinds the server currently holds — drives the history kind selector.
     let historyKinds = $derived(remoteState.map((r) => r.kind));
+
+    // Local snapshots grouped by kind (in-memory — they're all loaded
+    // client-side). Newest entry per group is surfaced on the kind row.
+    interface SnapGroup {
+        kind: string;
+        entries: SnapshotInfo[];
+        newest: SnapshotInfo;
+    }
+    let snapshotGroups = $derived.by<SnapGroup[]>(() => {
+        const map = new Map<string, SnapshotInfo[]>();
+        for (const s of snapshots) {
+            const arr = map.get(s.kind);
+            if (arr) arr.push(s);
+            else map.set(s.kind, [s]);
+        }
+        const groups: SnapGroup[] = [];
+        for (const [kind, entries] of map) {
+            const sorted = [...entries].sort(
+                (a, b) =>
+                    parseSnapshotStamp(b.createdAt) -
+                    parseSnapshotStamp(a.createdAt),
+            );
+            groups.push({ kind, entries: sorted, newest: sorted[0] });
+        }
+        groups.sort(
+            (a, b) =>
+                parseSnapshotStamp(b.newest.createdAt) -
+                parseSnapshotStamp(a.newest.createdAt),
+        );
+        return groups;
+    });
+
+    // Resolve the device label for a cloud history entry. Never surface a
+    // raw "unknown device": fall back to this device's own name (from the
+    // remote-state row for the kind, or the local device-name field) and
+    // finally "unknown".
+    function historyDeviceLabel(
+        h: SyncHistoryEntry,
+        kind: string,
+    ): string {
+        const own = (h.deviceName ?? "").trim();
+        if (own) return own;
+        const row = remoteState.find((r) => r.kind === kind);
+        const fallback = (row?.deviceName ?? deviceNameInput ?? "").trim();
+        return fallback || "unknown";
+    }
 
     // Kinds whose last export exceeded the worker's payload limit — the
     // push path parks a `cloud:too_large:<kind>` setting (value = gzipped
@@ -1405,128 +1464,234 @@
                 {/each}
             </section>
 
+            <!-- Shared kind-row: chevron + label + meta, optional right slot.
+                 Used by BOTH snapshots and cloud history so they're siblings. -->
+            {#snippet accGrpRow(
+                open: boolean,
+                label: string,
+                count: number,
+                meta: string,
+                onToggle: () => void,
+                rightSlot?: import("svelte").Snippet,
+            )}
+                <button
+                    class="acc-grp-row"
+                    class:acc-grp-open={open}
+                    onclick={onToggle}
+                >
+                    <svg
+                        class="acc-grp-chev"
+                        viewBox="0 0 24 24"
+                        width="12"
+                        height="12"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"><polyline points="9 6 15 12 9 18" /></svg
+                    >
+                    <span class="acc-grp-name">{label}</span>
+                    <span class="acc-grp-meta">{count} · {meta}</span>
+                    {#if rightSlot}{@render rightSlot()}{/if}
+                </button>
+            {/snippet}
+
+            <!-- Shared entry-row: name + sub + Restore button. -->
+            {#snippet accEntryRow(
+                name: string,
+                sub: import("svelte").Snippet,
+                restoring: boolean,
+                disabled: boolean,
+                onRestore: () => void,
+            )}
+                <div class="acc-grp-entry">
+                    <div class="acc-snap-text">
+                        <span class="acc-snap-name">{name}</span>
+                        <span class="acc-snap-sub">{@render sub()}</span>
+                    </div>
+                    <button
+                        class="acc-mini-btn"
+                        {disabled}
+                        onclick={onRestore}
+                    >
+                        {#if restoring}<span
+                                class="acc-spinner acc-spinner-light acc-spinner-tiny"
+                            ></span>{/if}
+                        <span>{restoring ? "Restoring…" : "Restore"}</span>
+                    </button>
+                </div>
+            {/snippet}
+
             <!-- Local snapshots -->
             <section class="acc-card">
-                <h3 class="acc-card-title acc-card-title-solo">
-                    Local snapshots
-                </h3>
-                {#if snapshots.length === 0}
-                    <p class="acc-snap-empty">
-                        No snapshots yet — they're created automatically
-                        before any sync restore.
-                    </p>
-                {:else}
-                    {#each snapshots as s (s.fileName)}
-                        <div class="acc-snap-row">
-                            <div class="acc-snap-text">
-                                <span class="acc-snap-name"
-                                    >{kindLabel(s.kind)}</span
-                                >
-                                <span class="acc-snap-sub"
-                                    >{s.reason}
-                                    <span class="acc-sub-dot">·</span>
-                                    {fmtSnapshotTime(s.createdAt)}
-                                    <span class="acc-sub-dot">·</span>
-                                    {fmtSnapshotSize(s.sizeBytes)}</span
-                                >
-                            </div>
-                            <button
-                                class="acc-mini-btn"
-                                disabled={restoringSnapshot !== null}
-                                onclick={() => {
-                                    snapshotToRestore = s;
-                                    confirmRestoreSnapshot = true;
-                                }}
-                            >
-                                {#if restoringSnapshot === s.fileName}<span
-                                        class="acc-spinner acc-spinner-light acc-spinner-tiny"
-                                    ></span>{/if}
-                                <span
-                                    >{restoringSnapshot === s.fileName
-                                        ? "Restoring…"
-                                        : "Restore"}</span
-                                >
-                            </button>
+                <button
+                    class="acc-sec-head"
+                    class:acc-sec-open={snapSectionOpen}
+                    onclick={() => (snapSectionOpen = !snapSectionOpen)}
+                >
+                    <h3 class="acc-card-title acc-sec-title">
+                        Local snapshots ({snapshotGroups.length})
+                    </h3>
+                    <svg
+                        class="acc-sec-chev"
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"><polyline points="9 6 15 12 9 18" /></svg
+                    >
+                </button>
+                {#if snapSectionOpen}
+                    {#if snapshotGroups.length === 0}
+                        <p class="acc-snap-empty">
+                            No snapshots yet — they're created automatically
+                            before any sync restore.
+                        </p>
+                    {:else}
+                        <div class="acc-grp-list">
+                            {#each snapshotGroups as g (g.kind)}
+                                {@render accGrpRow(
+                                    !!snapKindOpen[g.kind],
+                                    kindLabel(g.kind),
+                                    g.entries.length,
+                                    fmtSnapshotTime(g.newest.createdAt),
+                                    () =>
+                                        (snapKindOpen = {
+                                            ...snapKindOpen,
+                                            [g.kind]: !snapKindOpen[g.kind],
+                                        }),
+                                )}
+                                {#if snapKindOpen[g.kind]}
+                                    <div class="acc-grp-entries">
+                                        {#each g.entries as s (s.fileName)}
+                                            {#snippet snapSub()}
+                                                {s.reason}
+                                                <span class="acc-sub-dot">·</span>
+                                                {fmtSnapshotTime(s.createdAt)}
+                                                <span class="acc-sub-dot">·</span>
+                                                {fmtSnapshotSize(s.sizeBytes)}
+                                            {/snippet}
+                                            {@render accEntryRow(
+                                                s.reason,
+                                                snapSub,
+                                                restoringSnapshot === s.fileName,
+                                                restoringSnapshot !== null,
+                                                () => {
+                                                    snapshotToRestore = s;
+                                                    confirmRestoreSnapshot = true;
+                                                },
+                                            )}
+                                        {/each}
+                                    </div>
+                                {/if}
+                            {/each}
                         </div>
-                    {/each}
+                    {/if}
                 {/if}
             </section>
 
             <!-- Cloud version history -->
             <section class="acc-card">
-                <h3 class="acc-card-title acc-card-title-solo">
-                    Cloud version history
-                </h3>
-                {#if historyKinds.length === 0}
-                    <p class="acc-snap-empty">
-                        Nothing synced to the cloud yet.
-                    </p>
-                {:else}
-                    <div class="acc-hist-kinds">
-                        {#each historyKinds as k (k)}
-                            <button
-                                class="acc-hist-kind-btn"
-                                class:acc-hist-kind-active={historyKind === k}
-                                onclick={() => selectHistoryKind(k)}
-                            >
-                                {kindLabel(k)}
-                                {#if tooLargeKinds[k] !== undefined}
-                                    <span
-                                        class="acc-too-large"
-                                        title={`Last export was ~${tooLargeKinds[k]} KB gzipped — over the sync limit. New changes for this kind stay local.`}
-                                        >Too large to sync</span
-                                    >
-                                {/if}
-                            </button>
-                        {/each}
-                    </div>
-                    {#if historyKind !== null}
-                        {#if loadingHistory}
-                            <p class="acc-snap-empty">Loading…</p>
-                        {:else if historyEntries.length === 0}
-                            <p class="acc-snap-empty">
-                                No older versions yet — history is written
-                                when a device overwrites a synced kind.
-                            </p>
-                        {:else}
-                            {#each historyEntries as h (h.contentHash)}
-                                <div class="acc-snap-row">
-                                    <div class="acc-snap-text">
-                                        <span class="acc-snap-name"
-                                            >{h.deviceName ??
-                                                "unknown device"}</span
-                                        >
-                                        <span class="acc-snap-sub"
-                                            >{fmtHistoryTime(h.replacedAt)}
-                                            <span class="acc-sub-dot">·</span>
-                                            {h.contentHash.slice(0, 8)}</span
-                                        >
-                                    </div>
-                                    <button
-                                        class="acc-mini-btn"
-                                        disabled={restoringHistory !== null}
-                                        onclick={() => {
-                                            historyToRestore = h;
-                                            confirmRestoreHistory = true;
-                                        }}
-                                    >
-                                        {#if restoringHistory === h.contentHash}<span
-                                                class="acc-spinner acc-spinner-light acc-spinner-tiny"
-                                            ></span>{/if}
-                                        <span
-                                            >{restoringHistory ===
-                                            h.contentHash
-                                                ? "Restoring…"
-                                                : "Restore"}</span
-                                        >
-                                    </button>
-                                </div>
-                            {/each}
-                        {/if}
-                    {:else}
+                <button
+                    class="acc-sec-head"
+                    class:acc-sec-open={histSectionOpen}
+                    onclick={() => (histSectionOpen = !histSectionOpen)}
+                >
+                    <h3 class="acc-card-title acc-sec-title">
+                        Cloud version history ({historyKinds.length})
+                    </h3>
+                    <svg
+                        class="acc-sec-chev"
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"><polyline points="9 6 15 12 9 18" /></svg
+                    >
+                </button>
+                {#if histSectionOpen}
+                    {#if historyKinds.length === 0}
                         <p class="acc-snap-empty">
-                            Pick a kind to see its archived cloud versions.
+                            Nothing synced to the cloud yet.
                         </p>
+                    {:else}
+                        <div class="acc-grp-list">
+                            {#each historyKinds as k (k)}
+                                {@const row = remoteState.find(
+                                    (r) => r.kind === k,
+                                )}
+                                {#snippet histRight()}
+                                    {#if tooLargeKinds[k] !== undefined}
+                                        <span
+                                            class="acc-too-large"
+                                            title={`Last export was ~${tooLargeKinds[k]} KB gzipped — over the sync limit. New changes for this kind stay local.`}
+                                            >Too large to sync</span
+                                        >
+                                    {/if}
+                                {/snippet}
+                                {@render accGrpRow(
+                                    !!histKindOpen[k],
+                                    kindLabel(k),
+                                    histCache[k]?.length ?? 0,
+                                    (row?.updatedAt
+                                        ? fmtHistoryTime(row.updatedAt)
+                                        : "—") +
+                                        (row?.deviceName
+                                            ? ` · ${row.deviceName}`
+                                            : ""),
+                                    () => toggleHistoryKind(k),
+                                    histRight,
+                                )}
+                                {#if histKindOpen[k]}
+                                    <div class="acc-grp-entries">
+                                        {#if histLoading[k]}
+                                            <p class="acc-snap-empty acc-grp-loading">
+                                                <span
+                                                    class="acc-spinner acc-spinner-light acc-spinner-tiny"
+                                                ></span>
+                                                Loading…
+                                            </p>
+                                        {:else if (histCache[k]?.length ?? 0) === 0}
+                                            <p class="acc-snap-empty">
+                                                No older versions yet — history is
+                                                written when a device overwrites a
+                                                synced kind.
+                                            </p>
+                                        {:else}
+                                            {#each histCache[k] as h (h.contentHash)}
+                                                {#snippet histSub()}
+                                                    {fmtHistoryTime(h.replacedAt)}
+                                                    <span class="acc-sub-dot">·</span
+                                                    >
+                                                    {h.contentHash.slice(0, 8)}
+                                                {/snippet}
+                                                {@render accEntryRow(
+                                                    historyDeviceLabel(h, k),
+                                                    histSub,
+                                                    restoringHistory ===
+                                                        h.contentHash,
+                                                    restoringHistory !== null,
+                                                    () => {
+                                                        historyKind = k;
+                                                        historyToRestore = h;
+                                                        confirmRestoreHistory = true;
+                                                    },
+                                                )}
+                                            {/each}
+                                        {/if}
+                                    </div>
+                                {/if}
+                            {/each}
+                        </div>
                     {/if}
                 {/if}
             </section>
@@ -2536,21 +2701,101 @@
         white-space: nowrap;
     }
 
-    /* Local snapshots */
-    .acc-snap-row {
+    /* Collapsible recovery sections (snapshots + cloud history) — shared. */
+    .acc-sec-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        gap: 10px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        cursor: default;
+        color: inherit;
+        text-align: left;
+    }
+    .acc-sec-title {
+        margin: 0;
+    }
+    .acc-sec-chev {
+        color: var(--t3);
+        transition: transform 0.15s ease;
+        flex-shrink: 0;
+    }
+    .acc-sec-open .acc-sec-chev {
+        transform: rotate(90deg);
+    }
+    .acc-grp-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 12px;
+    }
+    .acc-grp-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--b1);
+        background: var(--surface-hover);
+        color: inherit;
+        cursor: default;
+        text-align: left;
+        font-family: var(--ui);
+    }
+    .acc-grp-row:hover {
+        border-color: var(--b2);
+    }
+    .acc-grp-chev {
+        color: var(--t3);
+        transition: transform 0.15s ease;
+        flex-shrink: 0;
+    }
+    .acc-grp-open .acc-grp-chev {
+        transform: rotate(90deg);
+        color: var(--acc);
+    }
+    .acc-grp-name {
+        font-weight: 600;
+        color: var(--t1);
+        font-size: 12.5px;
+        white-space: nowrap;
+    }
+    .acc-grp-meta {
+        font-size: 11px;
+        color: var(--t3);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .acc-grp-entries {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 4px 0 6px 22px;
+    }
+    .acc-grp-entry {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px 12px;
-        border-radius: 8px;
+        padding: 8px 10px;
+        border-radius: 7px;
         border: 1px solid var(--b1);
-        margin-bottom: 8px;
-        font-size: 12.5px;
         background: var(--surface-hover);
+        font-size: 12.5px;
     }
-    .acc-snap-row:last-child {
-        margin-bottom: 0;
+    .acc-grp-loading {
+        display: flex;
+        align-items: center;
+        gap: 7px;
     }
+
+    /* Local snapshots */
     .acc-snap-text {
         display: flex;
         flex-direction: column;
@@ -2580,34 +2825,7 @@
         margin: 0;
     }
 
-    /* Cloud version history */
-    .acc-hist-kinds {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-bottom: 10px;
-    }
-    .acc-hist-kind-btn {
-        padding: 5px 10px;
-        font-size: 11.5px;
-        border-radius: 6px;
-        border: 1px solid var(--b1);
-        background: transparent;
-        color: var(--t2);
-        cursor: default;
-        white-space: nowrap;
-        font-family: var(--ui);
-    }
-    .acc-hist-kind-btn:hover {
-        background: var(--surface-hover);
-        color: var(--t1);
-    }
-    .acc-hist-kind-active,
-    .acc-hist-kind-active:hover {
-        border-color: var(--acc);
-        color: var(--t1);
-        background: var(--surface-hover);
-    }
+    /* Cloud version history — "too large to sync" chip on a kind row. */
     .acc-too-large {
         margin-left: 5px;
         padding: 1px 6px;
