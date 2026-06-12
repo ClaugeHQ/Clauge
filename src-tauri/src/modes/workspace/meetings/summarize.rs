@@ -71,10 +71,15 @@ pub const MERGE_PROMPT: &str = concat!(
     notes_format_spec!()
 );
 
-/// One transcript segment per line: `[mm:ss] [mic|system] text`.
+/// One transcript segment per line: `[mm:ss] [mic|system] text`,
+/// in timeline order regardless of the order segments were stored.
 pub fn render_transcript(segments: &[TranscriptSegment]) -> String {
+    let mut ordered: Vec<&TranscriptSegment> = segments.iter().collect();
+    ordered.sort_by(|a, b| {
+        (a.start_ms, a.end_ms, a.source.as_str()).cmp(&(b.start_ms, b.end_ms, b.source.as_str()))
+    });
     let mut out = String::new();
-    for seg in segments {
+    for seg in ordered {
         let text = seg.text.trim();
         if text.is_empty() {
             continue;
@@ -251,6 +256,15 @@ async fn generate_notes_inner(
     };
 
     let chunks = split_transcript(&rendered, MAX_CHUNK_CHARS, OVERLAP_CHARS);
+    // A 0/total progress event fires for EVERY run (single-chunk included)
+    // before the first model call, so a meeting tab reopened mid-flight
+    // re-raises its in-flight spinner even when no chunk boundary will
+    // ever emit progress.
+    let started_total = if chunks.len() == 1 { 1 } else { chunks.len() + 1 };
+    let _ = app.emit(
+        EVT_PROGRESS,
+        serde_json::json!({"meetingId": meeting_id, "done": 0, "total": started_total}),
+    );
     let notes = if chunks.len() == 1 {
         complete(NOTES_SYSTEM_PROMPT, rendered).await?
     } else {
@@ -316,6 +330,21 @@ mod tests {
         assert_eq!(
             rendered,
             "[00:00] [mic] hello everyone\n[01:05] [system] hi there\n[62:05] [mic] wrapping up"
+        );
+    }
+
+    #[test]
+    fn render_sorts_interleaved_sources_chronologically() {
+        let rendered = render_transcript(&[
+            seg(0, "mic", "first"),
+            seg(15_000, "mic", "third"),
+            seg(5_000, "system", "second"),
+            seg(21_000, "mic", "fourth"),
+        ]);
+        assert_eq!(
+            rendered,
+            "[00:00] [mic] first\n[00:05] [system] second\n\
+             [00:15] [mic] third\n[00:21] [mic] fourth"
         );
     }
 

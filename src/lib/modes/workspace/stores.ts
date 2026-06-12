@@ -18,6 +18,7 @@ import type { WorkspaceCoworker } from './types';
 import * as cmd from './commands';
 import { currentUserActor } from './attribution';
 import { showToast } from '$lib/shared/primitives/toast';
+import { errorToast } from '$lib/utils/errors';
 import { MEETING_EVENT } from '$lib/shared/constants/events';
 import { tabs as sharedTabs, addTab, activateTab } from '$lib/shared/stores/tabs';
 import { setMode } from '$lib/stores/app';
@@ -444,6 +445,48 @@ export async function loadRecordingStatus() {
   } catch { /* ignore */ }
 }
 
+/** Shared stop path for the nav record button and MeetingView's Stop
+ *  button (the statusbar indicator stays open-only). Toasts on failure
+ *  and refreshes the recorder snapshot either way so subscribers leave
+ *  the "recording" state even when the stopped event lags behind the
+ *  transcription drain. Returns whether the stop invoke resolved. */
+export async function stopActiveRecording(): Promise<boolean> {
+  try {
+    await cmd.workspaceMeetingStop();
+    return true;
+  } catch (err) {
+    errorToast('Failed to stop recording', err);
+    return false;
+  } finally {
+    loadRecordingStatus();
+  }
+}
+
+/** Meeting ids with a notes generation currently in flight. Fed by the
+ *  global notes-progress / notes-ready / notes-error listeners (the
+ *  backend emits 0/total progress at the start of EVERY run) plus an
+ *  eager add in MeetingView.startGeneration, so the nav can block
+ *  deletes for meetings it never opened a tab for. */
+export const generatingMeetings = writable<Set<string>>(new Set());
+
+export function markGenerationStart(meetingId: string) {
+  generatingMeetings.update((s) => {
+    if (s.has(meetingId)) return s;
+    const next = new Set(s);
+    next.add(meetingId);
+    return next;
+  });
+}
+
+export function markGenerationEnd(meetingId: string) {
+  generatingMeetings.update((s) => {
+    if (!s.has(meetingId)) return s;
+    const next = new Set(s);
+    next.delete(meetingId);
+    return next;
+  });
+}
+
 /** Segments streamed while a recording is live, keyed by meeting id.
  *  An open MeetingView renders `parseTranscript(meeting)` + this list.
  *  The stop-event handler below clears the entry itself after
@@ -535,6 +578,27 @@ export async function initMeetingListeners() {
       }),
       listen<{ meetingId: string; message: string }>(MEETING_EVENT.RECORDING_WARNING, (e) => {
         showToast(e.payload.message, 'info');
+      }),
+      listen<{ meetingId: string }>(MEETING_EVENT.RECORDING_AUTOSTOPPED, () => {
+        // Refresh is handled by the RECORDING_STOPPED event that the normal
+        // stop flow emits — this one only explains WHY it stopped.
+        showToast('Recording stopped — call ended', 'info');
+      }),
+      listen<{ app: string }>(MEETING_EVENT.CALL_SUPPRESSED, () => {
+        showToast('Call detected — a recording is already in progress', 'info');
+      }),
+      listen<{ meetingId: string; done: number; total: number }>(
+        MEETING_EVENT.NOTES_PROGRESS,
+        (e) => markGenerationStart(e.payload.meetingId),
+      ),
+      listen<{ meetingId: string }>(MEETING_EVENT.NOTES_READY, (e) => {
+        markGenerationEnd(e.payload.meetingId);
+      }),
+      listen<{ meetingId: string; message: string }>(MEETING_EVENT.NOTES_ERROR, (e) => {
+        markGenerationEnd(e.payload.meetingId);
+      }),
+      listen(MEETING_EVENT.DETECT_DISABLED, () => {
+        showToast('Call detection turned off — re-enable in Settings → AI Meeting Notes', 'info');
       }),
       listen<{ name: string; downloaded: number; total: number }>(
         MEETING_EVENT.MODEL_DOWNLOAD_PROGRESS,

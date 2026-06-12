@@ -232,6 +232,30 @@ pub fn workspace_meeting_detect_get_enabled(
 }
 
 #[tauri::command]
+pub async fn workspace_meeting_autostop_set_enabled(
+    pool: State<'_, SqlitePool>,
+    detect_state: State<'_, detect::DetectState>,
+    enabled: bool,
+) -> Result<(), String> {
+    settings_repo::upsert(
+        pool.inner(),
+        detect::AUTOSTOP_SETTING_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    detect_state.set_autostop_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn workspace_meeting_autostop_get_enabled(
+    detect_state: State<'_, detect::DetectState>,
+) -> bool {
+    detect_state.autostop_enabled()
+}
+
+#[tauri::command]
 pub fn workspace_meeting_detect_dismiss(detect_state: State<'_, detect::DetectState>) {
     detect_state.dismiss();
 }

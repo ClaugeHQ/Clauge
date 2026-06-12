@@ -39,6 +39,9 @@
         workspaceMeetingModelDelete,
         workspaceMeetingDetectSetEnabled,
         workspaceMeetingDetectGetEnabled,
+        workspaceMeetingAutostopSetEnabled,
+        workspaceMeetingAutostopGetEnabled,
+        workspaceMeetingRequestPermissions,
     } from "$lib/modes/workspace/commands";
     import {
         mcpStatus as mcpStatusStore,
@@ -479,6 +482,7 @@
     // them when `workspace_meeting_start` is called without args, so the
     // widget and the record button inherit them for free.
     let meetingDetectEnabled = $state(true);
+    let meetingAutostopEnabled = $state(true);
     let whisperModels = $state<WhisperModelInfo[]>([]);
     let deletingModel = $state<string | null>(null);
     let meetingCardEl = $state<HTMLElement | null>(null);
@@ -509,6 +513,9 @@
             workspaceMeetingDetectGetEnabled()
                 .then((v) => (meetingDetectEnabled = v))
                 .catch(() => {});
+            workspaceMeetingAutostopGetEnabled()
+                .then((v) => (meetingAutostopEnabled = v))
+                .catch(() => {});
         }
     });
 
@@ -522,13 +529,48 @@
 
     async function handleMeetingDetectToggle(input: HTMLInputElement) {
         const next = input.checked;
+        const wasEnabled = meetingDetectEnabled;
         try {
             await workspaceMeetingDetectSetEnabled(next);
             meetingDetectEnabled = next;
+            if (next && !wasEnabled) runMeetingPermissionPreflight();
         } catch (e) {
             input.checked = meetingDetectEnabled;
             errorToast("Failed to update call detection", e);
         }
+    }
+
+    async function handleMeetingAutostopToggle(input: HTMLInputElement) {
+        const next = input.checked;
+        try {
+            await workspaceMeetingAutostopSetEnabled(next);
+            meetingAutostopEnabled = next;
+        } catch (e) {
+            input.checked = meetingAutostopEnabled;
+            errorToast("Failed to update auto-stop", e);
+        }
+    }
+
+    // macOS asks for Microphone + System Audio Recording the first time a
+    // capture stream opens. Trigger both prompts once, here — the calm
+    // moment the user deliberately turns meeting notes on — instead of
+    // mid-meeting. Fire-and-forget so the toggle never blocks on a dialog.
+    function runMeetingPermissionPreflight() {
+        if (!isMac()) return;
+        if (
+            $settings["workspace_meeting_permissions_preflight_done"] ===
+            "true"
+        )
+            return;
+        workspaceMeetingRequestPermissions().catch(() => {});
+        setSetting(
+            "workspace_meeting_permissions_preflight_done",
+            "true",
+        ).catch(() => {});
+        showToast(
+            "macOS may ask for Microphone and System Audio Recording access — please allow both so meeting notes can hear the whole call.",
+            "info",
+        );
     }
 
     async function handleMeetingModelDownload(name: string) {
@@ -2170,6 +2212,32 @@
                                             checked={meetingDetectEnabled}
                                             onchange={(e) =>
                                                 handleMeetingDetectToggle(
+                                                    e.currentTarget,
+                                                )}
+                                        />
+                                        <span class="stg-toggle-slider"></span>
+                                    </label>
+                                </div>
+
+                                <div
+                                    class="stg-card-row stg-card-row-action"
+                                >
+                                    <div class="stg-card-row-action-text">
+                                        <span class="stg-card-row-label"
+                                            >Stop recording automatically when
+                                            the call ends</span
+                                        >
+                                        <span class="stg-card-row-help"
+                                            >Applies to recordings started
+                                            from a detected call.</span
+                                        >
+                                    </div>
+                                    <label class="stg-toggle">
+                                        <input
+                                            type="checkbox"
+                                            checked={meetingAutostopEnabled}
+                                            onchange={(e) =>
+                                                handleMeetingAutostopToggle(
                                                     e.currentTarget,
                                                 )}
                                         />

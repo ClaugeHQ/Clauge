@@ -4,7 +4,7 @@
     import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
     import { getCurrentWindow } from "@tauri-apps/api/window";
     import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-    import { LogicalSize } from "@tauri-apps/api/dpi";
+    import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
     import { MEETING_EVENT } from "$lib/shared/constants/events";
     import { MEETING_MODEL_MISSING } from "$lib/modes/workspace/commands";
 
@@ -26,13 +26,20 @@
     const WINDOW_WIDTH = 480;
     const COLLAPSED_HEIGHT = 80;
     const EXPANDED_HEIGHT = 236;
+    // Compact recording pill: 186×44 pill + 10px margin on each side
+    // (the extra 16px over the old 170 fits the drag-grip handle).
+    const COMPACT_WIDTH = 206;
+    const COMPACT_HEIGHT = 64;
+    // Wider pill while the stop-failed error line is showing.
+    const COMPACT_ERROR_WIDTH = 306;
 
     let phase = $state<"prompt" | "starting" | "model-missing" | "recording">(
         "prompt",
     );
     let sourceApp = $state<string | null>(null);
-    let systemAudio = $state(true);
     let stopping = $state(false);
+    let stopError = $state(false);
+    let micOnly = $state(false);
     let menuOpen = $state(false);
     let errorMsg = $state<string | null>(null);
     let startedAtMs = $state(0);
@@ -61,11 +68,6 @@
             : (errorMsg ??
                   (sourceApp ? `${cap(sourceApp)} call detected` : "Call detected")),
     );
-    const recordingSubtitle = $derived(
-        (sourceApp ? `${cap(sourceApp)} call` : "Call") +
-            (systemAudio ? "" : " · mic only"),
-    );
-
     $effect(() => {
         if (phase !== "recording") return;
         const id = setInterval(() => (nowMs = Date.now()), 1000);
@@ -73,12 +75,70 @@
     });
 
     // The window is only as tall as the pill; the dropdown needs room, so
-    // grow the (transparent) window while the menu is open.
+    // grow the (transparent) window while the menu is open. Recording
+    // shrinks to the compact pill instead and stays there — the window
+    // closes when the recording ends.
+    let compactApplied = false;
+    let preCompactPos: LogicalPosition | null = null;
     $effect(() => {
+        if (phase === "recording") {
+            const width = stopError ? COMPACT_ERROR_WIDTH : COMPACT_WIDTH;
+            if (!compactApplied) {
+                compactApplied = true;
+                void enterCompact(width);
+            } else {
+                getCurrentWindow()
+                    .setSize(new LogicalSize(width, COMPACT_HEIGHT))
+                    .catch(() => {});
+            }
+            return;
+        }
+        compactApplied = false;
+        // Undo the compact recentering: "close" only hides this window, so
+        // a leftover offset would shift it further right every recording
+        // cycle until it reappears off-screen.
+        if (preCompactPos) {
+            getCurrentWindow()
+                .setPosition(preCompactPos)
+                .catch(() => {});
+            preCompactPos = null;
+        }
         const height = menuOpen ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT;
         getCurrentWindow()
             .setSize(new LogicalSize(WINDOW_WIDTH, height))
             .catch(() => {});
+    });
+
+    async function enterCompact(width: number) {
+        const win = getCurrentWindow();
+        try {
+            const [pos, size, factor] = await Promise.all([
+                win.outerPosition(),
+                win.outerSize(),
+                win.scaleFactor(),
+            ]);
+            const oldPos = pos.toLogical(factor);
+            const oldWidth = size.toLogical(factor).width;
+            preCompactPos = new LogicalPosition(oldPos.x, oldPos.y);
+            await win.setSize(new LogicalSize(width, COMPACT_HEIGHT));
+            await win.setPosition(
+                new LogicalPosition(
+                    oldPos.x + (oldWidth - width) / 2,
+                    oldPos.y,
+                ),
+            );
+        } catch {
+            /* full-size widget still works */
+        }
+    }
+
+    // Self-heal: while showing the recording pill, poll the backend; if
+    // the recording ended without the stopped/error event reaching this
+    // window (the zombie-widget case), close instead of staying stuck.
+    $effect(() => {
+        if (phase !== "recording") return;
+        const id = setInterval(() => void refreshRecordingStatus(), 3000);
+        return () => clearInterval(id);
     });
 
     // Escape closes the menu. No arrow-key navigation: the menu items are
@@ -94,11 +154,28 @@
 
     function applyRecording(rec: RecordingStatus) {
         sourceApp = rec.sourceApp ?? sourceApp;
-        systemAudio = rec.systemAudio;
         startedAtMs = Date.now() - rec.elapsedSecs * 1000;
         nowMs = Date.now();
-        stopping = rec.stopping;
+        // Never downgrade a locally in-flight stop: the backend flips its
+        // stopping flag a beat after the invoke leaves this window.
+        stopping = stopping || rec.stopping;
+        micOnly = !rec.systemAudio;
+        menuOpen = false;
         phase = "recording";
+    }
+
+    /** Close after a recording finished. "Close" only hides this window
+     *  (the app-wide close handler prevents destruction), so also reset
+     *  to the idle prompt: a hidden window stuck in the recording phase
+     *  keeps the self-heal poller alive, and its queued close() can land
+     *  right after the next open_widget show() — hiding the freshly
+     *  reopened prompt before the user ever sees it. */
+    function closeFinished() {
+        getCurrentWindow().close().catch(() => {});
+        stopping = false;
+        stopError = false;
+        menuOpen = false;
+        phase = "prompt";
     }
 
     async function refreshRecordingStatus() {
@@ -106,7 +183,13 @@
             const rec = await invoke<RecordingStatus>(
                 "workspace_meeting_recording_status",
             );
-            if (rec.recording || rec.stopping) applyRecording(rec);
+            if (rec.recording || rec.stopping) {
+                applyRecording(rec);
+            } else if (phase === "recording") {
+                // The recording ended but no stopped/error event reached
+                // this window — close instead of showing a dead pill.
+                closeFinished();
+            }
         } catch {
             /* status refresh is best-effort */
         }
@@ -132,10 +215,17 @@
     async function stopRecording() {
         if (stopping) return;
         stopping = true;
+        stopError = false;
         try {
             await invoke("workspace_meeting_stop");
+            // Stop is accepted: the backend keeps draining the final
+            // chunks and flushing them to the DB on its own. The stopped
+            // event can lag minutes behind that drain, so close now —
+            // the in-app surfaces track the rest.
+            closeFinished();
         } catch {
             stopping = false;
+            stopError = true;
         }
     }
 
@@ -149,12 +239,23 @@
         getCurrentWindow().close().catch(() => {});
     }
 
+    /** Recording-phase escape hatch: hides only this window. The
+     *  recording continues in the backend and the in-app surfaces
+     *  (nav, statusbar, meeting view) still control it — so no
+     *  detect_dismiss here. */
+    function hideWidget() {
+        getCurrentWindow().close().catch(() => {});
+    }
+
     async function disableDetect() {
         menuOpen = false;
         try {
             await invoke("workspace_meeting_detect_set_enabled", {
                 enabled: false,
             });
+            // The main window owns the confirmation toast — this window
+            // is about to close.
+            await emit(MEETING_EVENT.DETECT_DISABLED);
         } catch {
             /* closing anyway */
         }
@@ -177,9 +278,35 @@
     }
 
     onMount(async () => {
+        try {
+            await setup();
+        } catch (e) {
+            // Forwarded to the app log file by the console forwarder — a
+            // silent mount failure here is an invisible (transparent)
+            // window with no way to debug it.
+            console.error("[meeting-widget] mount failed:", e);
+        }
+    });
+
+    async function setup() {
         unlistens = await Promise.all([
-            listen<{ app: string }>(MEETING_EVENT.CALL_DETECTED, (e) => {
-                if (phase === "recording") return;
+            listen<{ app: string }>(MEETING_EVENT.CALL_DETECTED, async (e) => {
+                if (phase === "recording") {
+                    // A fresh call while the pill is still up usually means
+                    // the previous recording ended without us hearing the
+                    // stopped event — re-check instead of ignoring. A live
+                    // recording keeps the pill.
+                    try {
+                        const rec = await invoke<RecordingStatus>(
+                            "workspace_meeting_recording_status",
+                        );
+                        if (rec.recording || rec.stopping) return;
+                    } catch {
+                        return;
+                    }
+                    stopping = false;
+                    stopError = false;
+                }
                 sourceApp = e.payload.app;
                 errorMsg = null;
                 phase = "prompt";
@@ -191,10 +318,12 @@
                 systemAudio: boolean;
             }>(MEETING_EVENT.RECORDING_STARTED, (e) => {
                 sourceApp = e.payload.sourceApp ?? sourceApp;
-                systemAudio = e.payload.systemAudio;
                 startedAtMs = Date.parse(e.payload.startedAt) || Date.now();
                 nowMs = Date.now();
                 stopping = false;
+                stopError = false;
+                micOnly = !e.payload.systemAudio;
+                menuOpen = false;
                 phase = "recording";
             }),
             listen(MEETING_EVENT.RECORDING_WARNING, () => {
@@ -202,11 +331,11 @@
             }),
             listen(MEETING_EVENT.RECORDING_STOPPED, () => {
                 if (phase !== "recording") return;
-                getCurrentWindow().close().catch(() => {});
+                closeFinished();
             }),
             listen(MEETING_EVENT.RECORDING_ERROR, () => {
                 if (phase !== "recording") return;
-                getCurrentWindow().close().catch(() => {});
+                closeFinished();
             }),
         ]);
 
@@ -231,7 +360,7 @@
         } catch {
             /* keep generic subtitle */
         }
-    });
+    }
 
     onDestroy(() => {
         for (const unlisten of unlistens) unlisten();
@@ -250,14 +379,38 @@
 />
 
 <div class="widget-root">
-    <div class="pill" data-tauri-drag-region>
+    <div
+        class="pill"
+        class:compact={phase === "recording"}
+        title={phase === "recording"
+            ? micOnly
+                ? "Recording — microphone only"
+                : "Recording"
+            : undefined}
+        data-tauri-drag-region
+    >
         {#if phase === "recording"}
+            <svg
+                class="grip"
+                width="7"
+                height="13"
+                viewBox="0 0 7 13"
+                fill="currentColor"
+                aria-hidden="true"
+            >
+                <circle cx="1.5" cy="1.5" r="1.5" />
+                <circle cx="5.5" cy="1.5" r="1.5" />
+                <circle cx="1.5" cy="6.5" r="1.5" />
+                <circle cx="5.5" cy="6.5" r="1.5" />
+                <circle cx="1.5" cy="11.5" r="1.5" />
+                <circle cx="5.5" cy="11.5" r="1.5" />
+            </svg>
             <span class="rec-dot" aria-hidden="true"></span>
-            <div class="text">
-                <span class="title">Recording meeting notes</span>
-                <span class="subtitle">{recordingSubtitle}</span>
-            </div>
-            <span class="elapsed">{elapsedLabel}</span>
+            {#if stopError}
+                <span class="stop-error">Couldn't stop — open Clauge</span>
+            {:else}
+                <span class="elapsed">{elapsedLabel}</span>
+            {/if}
             <button
                 class="stop-btn"
                 onclick={stopRecording}
@@ -278,6 +431,25 @@
                         <rect x="1" y="1" width="10" height="10" rx="2" />
                     </svg>
                 {/if}
+            </button>
+            <button
+                class="close-btn subtle"
+                onclick={hideWidget}
+                aria-label="Hide widget"
+                title="Hide widget — recording continues"
+            >
+                <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 10 10"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                >
+                    <path d="M2 2l6 6M8 2L2 8" />
+                </svg>
             </button>
         {:else}
             <img class="logo" src="/clauge-icon.svg" alt="" />
@@ -326,6 +498,20 @@
                     </button>
                 </div>
             {/if}
+            <button class="close-btn" onclick={dismiss} aria-label="Dismiss">
+                <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 10 10"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                >
+                    <path d="M2 2l6 6M8 2L2 8" />
+                </svg>
+            </button>
         {/if}
     </div>
 
@@ -346,8 +532,12 @@
 </div>
 
 <style>
+    /* app.css paints `body:not(.glass-mode)` opaque with !important; the
+       extra `html.widget-window body` selector out-ranks it so the only
+       painted pixels in this window are the pill and the menu card. */
     :global(html),
-    :global(body) {
+    :global(body),
+    :global(html.widget-window body) {
         background: transparent !important;
         margin: 0;
         overflow: hidden;
@@ -365,6 +555,7 @@
     }
 
     .pill {
+        position: relative;
         height: 60px;
         margin: 10px;
         display: flex;
@@ -382,11 +573,90 @@
         box-sizing: border-box;
     }
 
+    .pill.compact {
+        height: 44px;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 10px;
+        cursor: grab;
+    }
+
+    /* Drag affordance: anchored at the pill's far left so the timer
+       cluster stays visually centered. pointer-events: none so drags
+       pass through to the pill's data-tauri-drag-region. */
+    .grip {
+        position: absolute;
+        left: 9px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #1f1f21;
+        opacity: 0.4;
+        pointer-events: none;
+        transition: opacity 0.12s;
+    }
+
+    .pill:hover .grip {
+        opacity: 0.6;
+    }
+
+    .close-btn {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.45);
+        color: #ffffff;
+        cursor: pointer;
+        transition: background 0.12s;
+    }
+
+    .close-btn:hover {
+        background: rgba(0, 0, 0, 0.65);
+    }
+
+    /* Recording-phase escape hatch: present but unobtrusive until the
+       pill is hovered. */
+    .close-btn.subtle {
+        width: 18px;
+        height: 18px;
+        top: -6px;
+        right: -6px;
+        opacity: 0.55;
+        transition:
+            opacity 0.12s,
+            background 0.12s;
+    }
+
+    .pill:hover .close-btn.subtle {
+        opacity: 1;
+    }
+
+    .stop-error {
+        font-size: 10.5px;
+        font-weight: 500;
+        color: #b54708;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        pointer-events: none;
+    }
+
     .logo {
         width: 30px;
         height: 30px;
         flex: none;
         pointer-events: none;
+    }
+
+    .pill.compact .rec-dot {
+        margin: 0;
     }
 
     .rec-dot {
@@ -580,10 +850,16 @@
         .menu-item {
             color: #f0f0f2;
         }
+        .grip {
+            color: #f0f0f2;
+        }
         .subtitle {
             color: #9d9da6;
         }
         .subtitle.warn {
+            color: #f0a05a;
+        }
+        .stop-error {
             color: #f0a05a;
         }
         .menu-item:hover {

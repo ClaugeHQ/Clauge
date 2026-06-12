@@ -214,12 +214,21 @@ export interface TranscriptSegment {
   text: string;
 }
 
-/** Parse a meeting's transcript wire string. Falls back to `[]` on
- *  malformed JSON or a non-array payload. */
+/** Timeline order. Segments are produced per-source in transcription
+ *  completion order, so mic and system chunks covering the same window
+ *  interleave whole-chunk; every display path must re-sort. */
+export function sortSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  return segments
+    .slice()
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.source.localeCompare(b.source));
+}
+
+/** Parse a meeting's transcript wire string into timeline order. Falls
+ *  back to `[]` on malformed JSON or a non-array payload. */
 export function parseTranscript(m: Pick<WorkspaceMeeting, 'transcript'>): TranscriptSegment[] {
   try {
     const parsed = JSON.parse(m.transcript);
-    return Array.isArray(parsed) ? (parsed as TranscriptSegment[]) : [];
+    return Array.isArray(parsed) ? sortSegments(parsed as TranscriptSegment[]) : [];
   } catch { return []; }
 }
 

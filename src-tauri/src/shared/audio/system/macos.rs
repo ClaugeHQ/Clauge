@@ -8,6 +8,7 @@ use cidre::{cat, cf, ns, os};
 
 use super::SystemAudioError;
 use crate::shared::audio::{AudioFrame, CaptureEvent};
+use crate::shared::platform::macos::macos_version;
 
 const MIN_MACOS: (u32, u32) = (14, 4);
 
@@ -70,21 +71,6 @@ impl Drop for MacSystemCapture {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-fn macos_version() -> Option<(u32, u32)> {
-    let out = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8(out.stdout).ok()?;
-    let mut parts = text.trim().split('.');
-    let major: u32 = parts.next()?.parse().ok()?;
-    let minor: u32 = parts.next().unwrap_or("0").parse().ok()?;
-    Some((major, minor))
 }
 
 struct ProcCtx {

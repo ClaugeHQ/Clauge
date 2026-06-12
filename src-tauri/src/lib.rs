@@ -637,8 +637,11 @@ pub fn run() {
             modes::workspace::meetings::commands::workspace_meeting_recording_status,
             modes::workspace::meetings::commands::workspace_meeting_detect_set_enabled,
             modes::workspace::meetings::commands::workspace_meeting_detect_get_enabled,
+            modes::workspace::meetings::commands::workspace_meeting_autostop_set_enabled,
+            modes::workspace::meetings::commands::workspace_meeting_autostop_get_enabled,
             modes::workspace::meetings::commands::workspace_meeting_detect_dismiss,
             modes::workspace::meetings::commands::workspace_meeting_detect_status,
+            modes::workspace::meetings::permissions::workspace_meeting_request_permissions,
 
             // Companion (mobile) server
             companion::server::companion_status,
@@ -708,6 +711,32 @@ pub fn run() {
                     api.prevent_exit();
                     let ah = _app_handle.clone();
                     tauri::async_runtime::spawn(async move {
+                        // Stop an active recording first so the last buffered
+                        // segments flush to the DB instead of dying with the
+                        // process. Bounded: a wedged stop must not block quit —
+                        // the crash-recovery sweep finalizes the meeting at
+                        // next boot if this can't finish in time.
+                        let recorder = ah
+                            .state::<modes::workspace::meetings::recorder::RecorderState>();
+                        if recorder.status().recording {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(8),
+                                modes::workspace::meetings::recorder::stop_recording(ah.clone()),
+                            )
+                            .await
+                            {
+                                Ok(Ok(id)) => {
+                                    log::info!("[meetings] recording {id} stopped on quit")
+                                }
+                                Ok(Err(e)) => {
+                                    log::warn!("[meetings] stop on quit failed: {e}")
+                                }
+                                Err(_) => log::warn!(
+                                    "[meetings] stop on quit timed out — crash recovery \
+                                     finalizes the meeting at next boot"
+                                ),
+                            }
+                        }
                         persist_pending_sync(&ah).await;
                         ah.exit(0);
                     });

@@ -3,14 +3,22 @@
   import { get } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
   import MilkdownEditor from './MilkdownEditor.svelte';
-  import { recordingStatus, liveSegmentsByMeeting, clearLiveSegments, loadMeetings } from '../stores';
+  import {
+    recordingStatus,
+    liveSegmentsByMeeting,
+    clearLiveSegments,
+    loadMeetings,
+    stopActiveRecording,
+    markGenerationStart,
+    markGenerationEnd,
+  } from '../stores';
   import {
     workspaceMeetingGet,
     workspaceMeetingUpdateTitle,
     workspaceMeetingUpdateNotes,
     workspaceMeetingGenerateNotes,
   } from '../commands';
-  import { parseTranscript } from '../types';
+  import { parseTranscript, sortSegments } from '../types';
   import type { TranscriptSegment, WorkspaceMeeting } from '../types';
   import { showToast } from '$lib/shared/primitives/toast';
   import { errorToast } from '$lib/utils/errors';
@@ -18,7 +26,7 @@
   import { tabs as sharedTabs, updateTab, openSettingsTab } from '$lib/shared/stores/tabs';
   import { MEETING_EVENT } from '$lib/shared/constants/events';
   import { settings } from '$lib/stores/settings';
-  import { cloudPlan, upgradeModalOpen } from '$lib/stores/cloud';
+  import { cloudPlan, cloudCredits, upgradeModalOpen } from '$lib/stores/cloud';
   import { PROVIDERS } from '$lib/shared/ai/providers';
 
   interface Props {
@@ -48,6 +56,17 @@
   const rec = $derived($recordingStatus);
   const recordingThis = $derived(rec.meetingId === meetingId && (rec.recording || rec.stopping));
 
+  let stopBusy = $state(false);
+  async function stopThisRecording() {
+    if (stopBusy || rec.stopping) return;
+    stopBusy = true;
+    try {
+      await stopActiveRecording();
+    } finally {
+      stopBusy = false;
+    }
+  }
+
   const liveSegs = $derived($liveSegmentsByMeeting.get(meetingId) ?? []);
   /** Survives the gap between the store clearing live segments and the
    *  post-stop refetch landing — without it the transcript flashes
@@ -65,9 +84,9 @@
       // opened mid-recording would show flushed segments twice. Drop
       // live segments already present in the persisted transcript.
       const persisted = new Set(parsed.map(s => `${s.startMs}:${s.endMs}:${s.source}`));
-      return [...parsed, ...liveSegs.filter(s => !persisted.has(`${s.startMs}:${s.endMs}:${s.source}`))];
+      return sortSegments([...parsed, ...liveSegs.filter(s => !persisted.has(`${s.startMs}:${s.endMs}:${s.source}`))]);
     }
-    return parsed.length ? parsed : liveSnapshot;
+    return parsed.length ? parsed : sortSegments(liveSnapshot);
   });
 
   // 1s tick drives the live timer + duration while recording.
@@ -268,6 +287,15 @@
   const CLAUGE = 'clauge';
   const isPro = $derived($cloudPlan === 'pro');
 
+  /** Advisory only — the server is authoritative on every call. Flags
+   *  zero/near-zero (≤5% of allowance) remaining Clauge AI credits so
+   *  the picker can hint before a run fails with a 402. */
+  const lowCredits = $derived.by(() => {
+    const c = $cloudCredits;
+    if (!isPro || !c) return false;
+    return c.remaining <= 0 || (c.allowance > 0 && c.remaining <= c.allowance * 0.05);
+  });
+
   // Same configured-provider rule as AIConfigSelector: only BYOK
   // providers with a key set are offered. Deduped to the first registry
   // entry per provider — that entry is the provider's default model.
@@ -348,6 +376,13 @@
     if (message.includes('pro_required')) {
       showToast('Clauge AI needs an active Pro plan — upgrade to generate notes', 'error');
       upgradeModalOpen.set(true);
+    } else if (message.toLowerCase().includes('credit')) {
+      // Backend maps upstream 402s to a message that always contains
+      // "credits" (shared/ai/clients/errors.rs). There is no separate
+      // top-up purchase — the Account settings card shows the balance
+      // and when the cycle's credits come back.
+      showToast('Out of Clauge AI credits', 'error');
+      openSettingsTab('account');
     } else if (message.includes('no_api_key')) {
       showToast('No API key for this provider — add one in Settings → AI', 'error');
       openSettingsTab('ai:byok');
@@ -367,16 +402,24 @@
     generating = true;
     progress = null;
     errorHandledFor = null;
+    // Eager add so the nav's delete guard sees the run before the
+    // backend's first notes-progress event lands; the global
+    // ready/error listeners in stores.ts remove it.
+    markGenerationStart(id);
     try {
       await workspaceMeetingGenerateNotes(id, providerId, model);
       // Success is applied by the notes-ready listener (refetch + tab
       // switch + toast) — nothing to do here.
     } catch (e) {
+      const msg = String(e);
+      // Pre-guard rejections emit no notes-error event, so the store
+      // entry must be released here — except when the rejection means a
+      // real run from another tab instance is still going.
+      if (!msg.includes('generation already in progress')) markGenerationEnd(id);
       // Another meeting is displayed (or the component is gone): skip ALL
       // of it — state reset, toasts, modals. If the failed meeting is
       // reopened later, the notes-error listener shows the failure there.
       if (destroyed || meetingId !== id) return;
-      const msg = String(e);
       if (msg.includes('generation already in progress')) {
         // A run started from a previous tab instance is still going; keep
         // the button in its in-flight state and let notes-ready land it.
@@ -433,6 +476,10 @@
 
   let scrollEl = $state<HTMLDivElement | null>(null);
   let atBottom = true;
+
+  /** Mic-only recordings have no system rows — the "other participants"
+   *  legend entry would only mislead. */
+  const hasSystemSegments = $derived(segments.some((s) => s.source === 'system'));
 
   function onScroll() {
     if (!scrollEl) return;
@@ -558,6 +605,19 @@
           <span class="mv-live-dot"></span>
           {rec.stopping ? 'Saving…' : liveElapsed}
         </span>
+        {#if !rec.stopping}
+          <button
+            type="button"
+            class="mv-stop-btn"
+            onclick={stopThisRecording}
+            disabled={stopBusy}
+          >
+            <svg viewBox="0 0 12 12" width="8" height="8" fill="currentColor" aria-hidden="true">
+              <rect x="1" y="1" width="10" height="10" rx="2" />
+            </svg>
+            {stopBusy ? 'Stopping…' : 'Stop'}
+          </button>
+        {/if}
       {/if}
     </div>
 
@@ -613,6 +673,8 @@
                 </span>
                 {#if !isPro}
                   <span class="mv-gen-pro">PRO</span>
+                {:else if lowCredits}
+                  <span class="mv-gen-low" title="Clauge AI credits are nearly used up — the server decides per run">Low credits</span>
                 {/if}
               </div>
               {#if configuredProviders.length > 0}
@@ -671,6 +733,14 @@
           <h3>Recording in progress…</h3>
           <p>Notes can be generated once the recording stops.</p>
         </div>
+      {:else if segments.length === 0}
+        <div class="mv-notes-empty">
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="var(--t4)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>
+          </svg>
+          <h3>No meeting notes</h3>
+          <p>No speech was captured in this meeting.</p>
+        </div>
       {:else}
         <div class="mv-notes-empty">
           <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="var(--t4)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -678,7 +748,9 @@
           </svg>
           <h3>No meeting notes yet</h3>
           <p>The transcript was captured. Generate notes from it with AI.</p>
-          <button class="mv-generate" onclick={onGenerate}>Generate meeting notes</button>
+          {#if parsed.length > 0}
+            <button class="mv-generate" onclick={onGenerate}>Generate meeting notes</button>
+          {/if}
         </div>
       {/if}
     </div>
@@ -688,8 +760,10 @@
         <span class="mv-tr-count">{segments.length} segment{segments.length === 1 ? '' : 's'}</span>
         <span class="mv-legend">
           <span class="mv-legend-dot mv-legend-mic"></span>Mic — you
-          <span class="mv-legend-gap">·</span>
-          <span class="mv-legend-dot mv-legend-sys"></span>System — other participants
+          {#if hasSystemSegments}
+            <span class="mv-legend-gap">·</span>
+            <span class="mv-legend-dot mv-legend-sys"></span>System — other participants
+          {/if}
         </span>
         <span style="flex:1"></span>
         <button class="mv-copy" onclick={copyTranscript} disabled={segments.length === 0}>
@@ -853,6 +927,26 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
   }
+  .mv-stop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--err, #f87171) 35%, transparent);
+    background: color-mix(in srgb, var(--err, #f87171) 12%, transparent);
+    color: var(--err, #f87171);
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: default;
+    transition: background 0.12s;
+  }
+  .mv-stop-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--err, #f87171) 22%, transparent);
+  }
+  .mv-stop-btn:disabled { opacity: 0.6; }
 
   .mv-toolbar {
     display: flex;
@@ -978,6 +1072,18 @@
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.06em;
+  }
+  .mv-gen-low {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--warn, #f5a623) 45%, transparent);
+    color: var(--warn, #f5a623);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
   }
   .mv-gen-sep {
     display: flex;

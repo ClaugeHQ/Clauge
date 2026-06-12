@@ -16,16 +16,28 @@ use crate::modes::workspace::meetings::widget;
 use crate::shared::repos::settings as settings_repo;
 
 pub const SETTING_KEY: &str = "workspace_meeting_detect_enabled";
+pub const AUTOSTOP_SETTING_KEY: &str = "workspace_meeting_autostop_enabled";
 
 const POLL_INTERVAL: Duration = Duration::from_secs(3);
-/// Active episodes ride out long mutes so the widget doesn't flap.
-const IDLE_RESET: Duration = Duration::from_secs(30);
+/// Active episodes ride out brief mutes so the widget doesn't flap, but
+/// Zoom/Teams/Meet keep the mic device open even while muted — OS-level
+/// mic idle means the call actually ended. 8s is enough debounce to
+/// survive device-handoff blips while still catching back-to-back calls.
+const ACTIVE_RESET_SECS: u64 = 8;
+const ACTIVE_RESET: Duration = Duration::from_secs(ACTIVE_RESET_SECS);
 /// Dismissed episodes reset fast: dismissing call 1 then joining call 2
 /// moments later must still detect call 2.
 const DISMISSED_RESET_SECS: u64 = 5;
+/// Auto-stop: a detected-call recording stops after this much CONSECUTIVE
+/// "no other process is capturing the mic" — i.e. Zoom/Teams/Meet released
+/// the input device because the call ended. Longer than the detection
+/// windows on purpose: a false stop loses the tail of a real meeting.
+const CALL_END_STOP_SECS: u64 = 20;
 
 const EVT_DETECTED: &str = "meetings:call-detected";
 const EVT_ENDED: &str = "meetings:call-ended";
+const EVT_AUTOSTOPPED: &str = "meetings:recording-autostopped";
+const EVT_CALL_SUPPRESSED: &str = "meetings:call-suppressed";
 
 // --- Process labeling ---
 
@@ -105,7 +117,7 @@ enum Phase {
     Dismissed,
 }
 
-/// One "episode" spans mic-active → sustained mic silence (30s while
+/// One "episode" spans mic-active → sustained mic silence (8s while
 /// Active, 5s once Dismissed). The detected event fires once per episode;
 /// dismissal (user or our own recording) keeps the episode alive but mute
 /// until it resets to Idle.
@@ -162,7 +174,7 @@ impl EpisodeTracker {
         }
         let reset_after = match self.phase {
             Phase::Dismissed => Duration::from_secs(DISMISSED_RESET_SECS),
-            _ => IDLE_RESET,
+            _ => ACTIVE_RESET,
         };
         let since = *self.idle_since.get_or_insert(now);
         if now.duration_since(since) >= reset_after {
@@ -200,6 +212,154 @@ impl EpisodeTracker {
     }
 }
 
+// --- Auto-stop tracker (pure, testable) ---
+
+/// Stops a detected-call recording once the call ends. Arms only while a
+/// recording with a `source_app` is live (manual recordings are never
+/// auto-stopped) and fires at most once per recording: 20s of CONSECUTIVE
+/// `Some(false)` from `other_process_uses_mic()`. `Some(true)` (call still
+/// holds the mic) and `None` (probe unavailable/unknown) both reset the
+/// idle run — unknown must never stop a recording.
+#[derive(Default)]
+pub struct AutoStopTracker {
+    recording_id: Option<String>,
+    armed: bool,
+    fired: bool,
+    idle_since: Option<Instant>,
+}
+
+impl AutoStopTracker {
+    /// One observation per poll tick. `recording` is
+    /// `Some((meeting_id, is_detected_call))` while the recorder is live,
+    /// `None` otherwise. Returns true exactly when the recording should be
+    /// stopped.
+    pub fn tick(
+        &mut self,
+        now: Instant,
+        recording: Option<(&str, bool)>,
+        other_mic: Option<bool>,
+    ) -> bool {
+        let Some((meeting_id, detected)) = recording else {
+            *self = Self::default();
+            return false;
+        };
+        if self.recording_id.as_deref() != Some(meeting_id) {
+            *self = Self {
+                recording_id: Some(meeting_id.to_string()),
+                armed: detected,
+                fired: false,
+                idle_since: None,
+            };
+        }
+        if !self.armed || self.fired {
+            return false;
+        }
+        match other_mic {
+            Some(false) => {
+                let since = *self.idle_since.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_secs(CALL_END_STOP_SECS) {
+                    self.fired = true;
+                    self.idle_since = None;
+                    return true;
+                }
+                false
+            }
+            Some(true) | None => {
+                self.idle_since = None;
+                false
+            }
+        }
+    }
+}
+
+// --- Suppressed-call notice tracker (pure, testable) ---
+
+/// A NEW call needs this much CONSECUTIVE mic quiet first while recording a
+/// detected call: the recorded call holds the mic from the start, so only
+/// "original call over for a while, then someone on the mic again" is a new
+/// call. Longer than CALL_END_STOP_SECS on purpose — when auto-stop is
+/// enabled it wins and stops the recording instead.
+const NOTICE_QUIET_SECS: u64 = 30;
+
+/// Surfaces "a call started but detection is suppressed because a recording
+/// is already in progress" (the widget otherwise stays silently away and
+/// users think it broke). Watches `other_process_uses_mic()` while the
+/// recorder is live and fires at most once per recording:
+/// - Manual recordings (`detected = false`): the mic was observed free at
+///   least once during the recording, then another process grabbed it — a
+///   call started mid-recording. Already-captured at recording start never
+///   fires (the user knowingly started recording during that call).
+/// - Detected-call recordings (`detected = true`): requires ≥30s of
+///   consecutive `Some(false)` (the recorded call ended) before a
+///   `Some(true)` counts as a new call. Auto-stop (20s) normally stops the
+///   recording before that, so this arm matters when auto-stop is disabled.
+/// `None` (probe unavailable/unknown) resets the quiet run and never fires.
+#[derive(Default)]
+pub struct SuppressedCallTracker {
+    recording_id: Option<String>,
+    fired: bool,
+    quiet_since: Option<Instant>,
+    quiet_satisfied: bool,
+}
+
+impl SuppressedCallTracker {
+    /// Whether the poller should keep running the `other_process_uses_mic`
+    /// probe on this tracker's behalf — false once the one-shot fired for
+    /// `meeting_id`, so the steady state after the notice costs nothing.
+    pub fn wants_probe(&self, meeting_id: &str) -> bool {
+        !self.fired || self.recording_id.as_deref() != Some(meeting_id)
+    }
+
+    /// One observation per poll tick; same inputs as `AutoStopTracker::tick`.
+    /// Returns true exactly when the suppressed-call notice should fire.
+    pub fn tick(
+        &mut self,
+        now: Instant,
+        recording: Option<(&str, bool)>,
+        other_mic: Option<bool>,
+    ) -> bool {
+        let Some((meeting_id, detected)) = recording else {
+            *self = Self::default();
+            return false;
+        };
+        if self.recording_id.as_deref() != Some(meeting_id) {
+            *self = Self {
+                recording_id: Some(meeting_id.to_string()),
+                ..Self::default()
+            };
+        }
+        if self.fired {
+            return false;
+        }
+        let required_quiet = if detected {
+            Duration::from_secs(NOTICE_QUIET_SECS)
+        } else {
+            Duration::ZERO
+        };
+        match other_mic {
+            Some(false) => {
+                let since = *self.quiet_since.get_or_insert(now);
+                if now.duration_since(since) >= required_quiet {
+                    self.quiet_satisfied = true;
+                }
+                false
+            }
+            Some(true) => {
+                self.quiet_since = None;
+                if self.quiet_satisfied {
+                    self.fired = true;
+                    return true;
+                }
+                false
+            }
+            None => {
+                self.quiet_since = None;
+                false
+            }
+        }
+    }
+}
+
 // --- Managed state + commands surface ---
 
 #[derive(Clone, Serialize)]
@@ -211,6 +371,7 @@ pub struct DetectStatus {
 
 pub struct DetectState {
     enabled: AtomicBool,
+    autostop_enabled: AtomicBool,
     tracker: Mutex<EpisodeTracker>,
 }
 
@@ -218,6 +379,7 @@ impl Default for DetectState {
     fn default() -> Self {
         Self {
             enabled: AtomicBool::new(true),
+            autostop_enabled: AtomicBool::new(true),
             tracker: Mutex::new(EpisodeTracker::default()),
         }
     }
@@ -232,7 +394,16 @@ impl DetectState {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
+    pub fn autostop_enabled(&self) -> bool {
+        self.autostop_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn set_autostop_enabled(&self, enabled: bool) {
+        self.autostop_enabled.store(enabled, Ordering::Relaxed);
+    }
+
     pub fn dismiss(&self) {
+        log::info!("meeting detection: episode dismissed");
         self.tracker.lock().dismiss();
     }
 
@@ -252,9 +423,22 @@ pub fn mic_in_use() -> bool {
     os::mic_in_use()
 }
 
+/// Does any process OTHER than Clauge currently capture the microphone?
+/// `mic_in_use()` is useless while we record (our own cpal stream keeps the
+/// device "running somewhere"), so call-end detection during a recording
+/// needs the per-process view. `None` = unknown (probe unsupported or
+/// failed) and must never be treated as "call ended".
+pub fn other_process_uses_mic() -> Option<bool> {
+    os::other_process_uses_mic()
+}
+
 #[cfg(target_os = "macos")]
 mod os {
+    use std::sync::OnceLock;
+
     use cidre::core_audio as ca;
+
+    use crate::shared::platform::macos::macos_version;
 
     /// kAudioDevicePropertyDeviceIsRunningSomewhere on the default input
     /// device: 1 when ANY process has the mic running. Clauge's own
@@ -267,13 +451,39 @@ mod os {
         let addr = ca::PropSelector::DEVICE_IS_RUNNING_SOMEWHERE.global_addr();
         matches!(device.prop::<u32>(&addr), Ok(1))
     }
+
+    /// Core Audio process objects (kAudioHardwarePropertyProcessObjectList,
+    /// macOS 14.4+, same generation as the tap API the system-audio capture
+    /// relies on): a process with kAudioProcessPropertyIsRunningInput true
+    /// is capturing input right now; kAudioProcessPropertyPID excludes
+    /// Clauge itself.
+    pub fn other_process_uses_mic() -> Option<bool> {
+        static SUPPORTED: OnceLock<bool> = OnceLock::new();
+        let supported = *SUPPORTED
+            .get_or_init(|| matches!(macos_version(), Some((major, minor)) if (major, minor) >= (14, 4)));
+        if !supported {
+            return None;
+        }
+        let processes = ca::Process::list().ok()?;
+        let own_pid = std::process::id() as cidre::sys::Pid;
+        for process in processes {
+            if process.pid().ok() == Some(own_pid) {
+                continue;
+            }
+            if process.is_running_input().unwrap_or(false) {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
 }
 
 #[cfg(target_os = "windows")]
 mod os {
+    use windows::core::Interface;
     use windows::Win32::Media::Audio::{
-        eCapture, eMultimedia, AudioSessionStateActive, IAudioSessionManager2,
-        IMMDeviceEnumerator, MMDeviceEnumerator,
+        eCapture, eMultimedia, AudioSessionStateActive, IAudioSessionControl2,
+        IAudioSessionManager2, IMMDeviceEnumerator, MMDeviceEnumerator,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -306,6 +516,40 @@ mod os {
                 CoUninitialize();
             }
             probe.unwrap_or(false)
+        }
+    }
+
+    /// Same WASAPI session walk as `mic_in_use`, but each active session is
+    /// attributed via IAudioSessionControl2::GetProcessId so Clauge's own
+    /// capture session can be excluded.
+    pub fn other_process_uses_mic() -> Option<bool> {
+        unsafe {
+            let init = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let probe = (|| -> windows::core::Result<bool> {
+                let enumerator: IMMDeviceEnumerator =
+                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+                let device = enumerator.GetDefaultAudioEndpoint(eCapture, eMultimedia)?;
+                let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+                let sessions = manager.GetSessionEnumerator()?;
+                let own_pid = std::process::id();
+                for i in 0..sessions.GetCount()? {
+                    let session = sessions.GetSession(i)?;
+                    if session.GetState()? != AudioSessionStateActive {
+                        continue;
+                    }
+                    let session2: IAudioSessionControl2 = session.cast()?;
+                    // GetProcessId fails for cross-process system sessions —
+                    // those aren't us, so they count as "other".
+                    if session2.GetProcessId().map_or(true, |pid| pid != own_pid) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })();
+            if init.is_ok() {
+                CoUninitialize();
+            }
+            probe.ok()
         }
     }
 }
@@ -344,12 +588,72 @@ mod os {
             .filter(|l| !l.trim().is_empty())
             .any(|l| !l.split_whitespace().any(|field| field.ends_with(".monitor")))
     }
+
+    /// Full `pactl list source-outputs`: every capture stream block carries
+    /// `application.process.id = "N"` and a `Source: <index>` line. Streams
+    /// from Clauge's own pid and streams reading `.monitor` sources (system
+    /// audio loopback — including our own) are skipped; anything left is
+    /// another process holding a real mic. pactl missing/failing → None.
+    pub fn other_process_uses_mic() -> Option<bool> {
+        let output = Command::new("pactl")
+            .args(["list", "source-outputs"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        // Indices of monitor sources, so `Source: <idx>` can be classified.
+        let monitor_sources: Vec<String> = Command::new("pactl")
+            .args(["list", "short", "sources"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .filter_map(|l| {
+                        let mut fields = l.split_whitespace();
+                        let idx = fields.next()?;
+                        let name = fields.next()?;
+                        name.ends_with(".monitor").then(|| idx.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let own_pid = std::process::id().to_string();
+        let text = String::from_utf8_lossy(&output.stdout);
+        for block in text.split("Source Output #").skip(1) {
+            let mut source_idx: Option<&str> = None;
+            let mut pid: Option<&str> = None;
+            for line in block.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("Source:") {
+                    source_idx = Some(rest.trim());
+                } else if let Some(rest) = line.strip_prefix("application.process.id =") {
+                    pid = Some(rest.trim().trim_matches('"'));
+                }
+            }
+            if source_idx.is_some_and(|idx| monitor_sources.iter().any(|m| m == idx)) {
+                continue;
+            }
+            // No pid property → can't be excluded as ours → counts as other.
+            if pid.is_none_or(|p| p != own_pid) {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod os {
     pub fn mic_in_use() -> bool {
         false
+    }
+
+    pub fn other_process_uses_mic() -> Option<bool> {
+        None
     }
 }
 
@@ -358,6 +662,12 @@ mod os {
 #[derive(Clone, Serialize)]
 struct CallDetectedPayload {
     app: MeetingApp,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoStoppedPayload<'a> {
+    meeting_id: &'a str,
 }
 
 fn process_name_snapshot(sys: &mut System) -> Vec<String> {
@@ -378,11 +688,24 @@ pub fn start_poller(app: AppHandle) {
             let pool = app.state::<sqlx::SqlitePool>().inner().clone();
             let enabled = settings_repo::get_bool_or(&pool, SETTING_KEY, true).await;
             app.state::<DetectState>().set_enabled(enabled);
+            let autostop =
+                settings_repo::get_bool_or(&pool, AUTOSTOP_SETTING_KEY, true).await;
+            app.state::<DetectState>().set_autostop_enabled(autostop);
         }
 
         // Reusing one System keeps each refresh incremental instead of a
         // from-scratch process-table build every tick.
         let sys = Arc::new(Mutex::new(System::new()));
+
+        // Change-tracking so the idle steady state logs nothing.
+        let mut last_mic = false;
+        let mut last_label: Option<MeetingApp> = None;
+        let mut suppressed_by_recording = false;
+
+        // Owned by the poller alone: nothing else observes auto-stop
+        // progress, so it stays off the managed state.
+        let mut autostop = AutoStopTracker::default();
+        let mut suppressed_call = SuppressedCallTracker::default();
 
         loop {
             tokio::time::sleep(POLL_INTERVAL).await;
@@ -390,6 +713,7 @@ pub fn start_poller(app: AppHandle) {
             let state = app.state::<DetectState>();
             if !state.enabled() {
                 if state.tracker.lock().reset() {
+                    log::info!("meeting detection: disabled while episode live — emitting call-ended");
                     let _ = app.emit(EVT_ENDED, ());
                     widget::close_widget(&app);
                 }
@@ -398,8 +722,94 @@ pub fn start_poller(app: AppHandle) {
 
             let status = app.state::<RecorderState>().status();
             if status.recording || status.stopping {
+                if !suppressed_by_recording {
+                    suppressed_by_recording = true;
+                    log::info!("meeting detection: suppressed while recording");
+                }
                 let _ = state.tracker.lock().tick(Instant::now(), true, false, None);
+
+                // The other-process mic probe feeds two consumers:
+                //  • auto-stop — detected-call recordings only, while not
+                //    already stopping, only when enabled;
+                //  • the suppressed-call notice — any recording, until its
+                //    one-shot fired for this recording.
+                // The probe never runs when neither wants it.
+                let detected = status.source_app.is_some();
+                let autostop_wanted =
+                    !status.stopping && detected && state.autostop_enabled();
+                let notice_wanted = !status.stopping
+                    && status
+                        .meeting_id
+                        .as_deref()
+                        .is_some_and(|id| suppressed_call.wants_probe(id));
+                let other_mic = if autostop_wanted || notice_wanted {
+                    tauri::async_runtime::spawn_blocking(other_process_uses_mic)
+                        .await
+                        .unwrap_or(None)
+                } else {
+                    None
+                };
+                let recording = status
+                    .meeting_id
+                    .as_deref()
+                    .map(|id| (id, detected));
+                if suppressed_call.tick(Instant::now(), recording, other_mic) {
+                    // One-shot per recording, so the label check (process
+                    // snapshot) runs at most once per recording session. It
+                    // gates the toast on a meeting app actually being around
+                    // — another process on the mic alone could be dictation.
+                    let sys = sys.clone();
+                    let label = tauri::async_runtime::spawn_blocking(move || {
+                        label_meeting_app(&process_name_snapshot(&mut sys.lock()))
+                    })
+                    .await
+                    .unwrap_or(None);
+                    match label {
+                        Some(meeting_app) => {
+                            log::info!(
+                                "meeting detection: new call while recording (app={meeting_app:?}) — emitting call-suppressed"
+                            );
+                            let _ = app.emit(
+                                EVT_CALL_SUPPRESSED,
+                                CallDetectedPayload { app: meeting_app },
+                            );
+                        }
+                        None => log::info!(
+                            "meeting detection: another process took the mic while recording, but no meeting app is running — notice skipped"
+                        ),
+                    }
+                }
+                if autostop.tick(Instant::now(), recording, other_mic) {
+                    let meeting_id = status.meeting_id.clone().unwrap_or_default();
+                    log::info!(
+                        "meeting auto-stop: call ended ({CALL_END_STOP_SECS}s without another process on the mic) — stopping recording {meeting_id}"
+                    );
+                    match crate::modes::workspace::meetings::recorder::stop_recording(
+                        app.clone(),
+                    )
+                    .await
+                    {
+                        Ok(stopped_id) => {
+                            let _ = app.emit(
+                                EVT_AUTOSTOPPED,
+                                AutoStoppedPayload {
+                                    meeting_id: &stopped_id,
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("meeting auto-stop: stop failed: {e}")
+                        }
+                    }
+                }
                 continue;
+            }
+            // Recorder idle → any armed auto-stop / notice state is stale.
+            let _ = autostop.tick(Instant::now(), None, None);
+            let _ = suppressed_call.tick(Instant::now(), None, None);
+            if suppressed_by_recording {
+                suppressed_by_recording = false;
+                log::info!("meeting detection: recording ended, detection resumed");
             }
 
             // Both probes shell out / hit CoreAudio-COM — keep them off the
@@ -418,13 +828,33 @@ pub fn start_poller(app: AppHandle) {
                 None
             };
 
-            let event = state.tracker.lock().tick(Instant::now(), false, mic, label);
+            if mic != last_mic || label != last_label {
+                log::debug!("meeting detection: mic_in_use={mic} label={label:?}");
+                last_mic = mic;
+                last_label = label;
+            }
+
+            let (event, phase_before, phase_after) = {
+                let mut tracker = state.tracker.lock();
+                let before = tracker.phase;
+                let event = tracker.tick(Instant::now(), false, mic, label);
+                (event, before, tracker.phase)
+            };
+            if phase_after != phase_before {
+                log::debug!("meeting detection: phase {phase_before:?} -> {phase_after:?}");
+            }
             match event {
                 Some(DetectEvent::CallDetected(meeting_app)) => {
+                    log::info!(
+                        "meeting detection: episode activated (app={meeting_app:?}) — emitting call-detected"
+                    );
                     let _ = app.emit(EVT_DETECTED, CallDetectedPayload { app: meeting_app });
                     widget::open_widget(&app);
                 }
                 Some(DetectEvent::CallEnded) => {
+                    log::info!(
+                        "meeting detection: episode reset (sustained mic idle) — emitting call-ended"
+                    );
                     let _ = app.emit(EVT_ENDED, ());
                     widget::close_widget(&app);
                 }
@@ -535,22 +965,46 @@ mod tests {
     }
 
     #[test]
-    fn idle_for_30s_resets_and_emits_ended() {
+    fn idle_for_8s_resets_and_emits_ended() {
         let mut tracker = EpisodeTracker::default();
         let t0 = Instant::now();
         tracker.tick(t0, false, true, Some(MeetingApp::Teams));
         assert_eq!(tracker.tick(t0 + T, false, false, None), None);
         // Mic comes back before the reset window — episode survives, no re-emit.
         assert_eq!(tracker.tick(t0 + 2 * T, false, true, Some(MeetingApp::Teams)), None);
-        // Now stays idle past 30s.
+        // Now stays idle past 8s.
         assert_eq!(tracker.tick(t0 + 3 * T, false, false, None), None);
         assert_eq!(
-            tracker.tick(t0 + 3 * T + IDLE_RESET, false, false, None),
+            tracker.tick(t0 + 3 * T + ACTIVE_RESET, false, false, None),
             Some(DetectEvent::CallEnded)
         );
         // Fresh episode detects again.
         assert_eq!(
-            tracker.tick(t0 + 4 * T + IDLE_RESET, false, true, Some(MeetingApp::Teams)),
+            tracker.tick(t0 + 4 * T + ACTIVE_RESET, false, true, Some(MeetingApp::Teams)),
+            Some(DetectEvent::CallDetected(MeetingApp::Teams))
+        );
+    }
+
+    /// Back-to-back calls: call 1 ends, call 2 joined ~10s later (after the
+    /// 8s active reset) must produce a fresh detection — this was the
+    /// no-widget-for-call-2 bug under the old 30s window.
+    #[test]
+    fn back_to_back_calls_both_detected() {
+        let mut tracker = EpisodeTracker::default();
+        let t0 = Instant::now();
+        assert_eq!(
+            tracker.tick(t0, false, true, Some(MeetingApp::Zoom)),
+            Some(DetectEvent::CallDetected(MeetingApp::Zoom))
+        );
+        // Call 1 hangs up: mic goes idle.
+        assert_eq!(tracker.tick(t0 + T, false, false, None), None);
+        assert_eq!(
+            tracker.tick(t0 + T + ACTIVE_RESET, false, false, None),
+            Some(DetectEvent::CallEnded)
+        );
+        // Call 2 starts ~11s after call 1 ended its mic stream.
+        assert_eq!(
+            tracker.tick(t0 + T + ACTIVE_RESET + T, false, true, Some(MeetingApp::Teams)),
             Some(DetectEvent::CallDetected(MeetingApp::Teams))
         );
     }
@@ -592,28 +1046,32 @@ mod tests {
             tracker.tick(t0 + T + DISMISSED_RESET, false, false, None),
             Some(DetectEvent::CallEnded)
         );
-        // Call 2 joined well inside the old 30s window → detected.
+        // Call 2 joined moments later → detected.
         assert_eq!(
             tracker.tick(t0 + 2 * T + DISMISSED_RESET, false, true, Some(MeetingApp::Teams)),
             Some(DetectEvent::CallDetected(MeetingApp::Teams))
         );
     }
 
-    /// Undismissed episodes keep the long window: a 5s mute must NOT end
-    /// the call (no widget flapping on brief mutes).
+    /// Undismissed episodes keep the longer window: a 7s mic blip must NOT
+    /// end the call (no widget flapping), and the 5s dismissed window must
+    /// not apply either — only 8s+ of sustained idle resets.
     #[test]
-    fn active_episode_still_needs_30s_idle() {
+    fn active_episode_still_needs_8s_idle() {
         let mut tracker = EpisodeTracker::default();
         let t0 = Instant::now();
         tracker.tick(t0, false, true, Some(MeetingApp::Zoom));
         assert_eq!(tracker.tick(t0 + T, false, false, None), None);
+        // 5s idle (the dismissed-window length) is not enough while Active.
         assert_eq!(tracker.tick(t0 + T + DISMISSED_RESET, false, false, None), None);
+        // 7s idle still rides it out.
         assert_eq!(
-            tracker.tick(t0 + T + IDLE_RESET - Duration::from_secs(1), false, false, None),
+            tracker.tick(t0 + T + ACTIVE_RESET - Duration::from_secs(1), false, false, None),
             None
         );
+        // 8s idle resets.
         assert_eq!(
-            tracker.tick(t0 + T + IDLE_RESET, false, false, None),
+            tracker.tick(t0 + T + ACTIVE_RESET, false, false, None),
             Some(DetectEvent::CallEnded)
         );
     }
@@ -657,6 +1115,190 @@ mod tests {
             tracker.tick(t_idle + DISMISSED_RESET + T, false, true, Some(MeetingApp::Zoom)),
             Some(DetectEvent::CallDetected(MeetingApp::Zoom))
         );
+    }
+
+    const STOP_WINDOW: Duration = Duration::from_secs(CALL_END_STOP_SECS);
+
+    #[test]
+    fn autostop_arms_only_for_detected_recordings() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        // Manual recording (detected = false): 20s+ of idle never fires.
+        assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
+        assert!(!t.tick(t0 + STOP_WINDOW, Some(("m1", false)), Some(false)));
+        assert!(!t.tick(t0 + 2 * STOP_WINDOW, Some(("m1", false)), Some(false)));
+    }
+
+    #[test]
+    fn autostop_fires_once_after_20s_consecutive_idle() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t0 + T, Some(("m1", true)), Some(false)));
+        assert!(t.tick(t0 + STOP_WINDOW, Some(("m1", true)), Some(false)));
+        // One-shot: keeps returning false for the same recording.
+        assert!(!t.tick(t0 + STOP_WINDOW + T, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t0 + 3 * STOP_WINDOW, Some(("m1", true)), Some(false)));
+    }
+
+    #[test]
+    fn autostop_other_mic_active_resets_idle_run() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        // Call still holds the mic — run resets.
+        assert!(!t.tick(t0 + 5 * T, Some(("m1", true)), Some(true)));
+        // 18s of idle measured from the reset: not yet.
+        let t1 = t0 + 6 * T;
+        assert!(!t.tick(t1, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t1 + STOP_WINDOW - Duration::from_secs(2), Some(("m1", true)), Some(false)));
+        // Full 20s from the reset fires.
+        assert!(t.tick(t1 + STOP_WINDOW, Some(("m1", true)), Some(false)));
+    }
+
+    #[test]
+    fn autostop_unknown_probe_resets_and_never_fires() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        // Probe went unknown mid-run — resets, must not count as idle.
+        assert!(!t.tick(t0 + 5 * T, Some(("m1", true)), None));
+        assert!(!t.tick(t0 + STOP_WINDOW + T, Some(("m1", true)), Some(false)));
+        // Unknown forever never fires.
+        let mut t = AutoStopTracker::default();
+        for i in 0..20u32 {
+            assert!(!t.tick(t0 + i * STOP_WINDOW, Some(("m1", true)), None));
+        }
+    }
+
+    #[test]
+    fn autostop_rearms_for_a_new_recording() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        assert!(t.tick(t0 + STOP_WINDOW, Some(("m1", true)), Some(false)));
+        // Recorder goes idle, then a new detected recording starts.
+        assert!(!t.tick(t0 + STOP_WINDOW + T, None, None));
+        let t1 = t0 + STOP_WINDOW + 2 * T;
+        assert!(!t.tick(t1, Some(("m2", true)), Some(false)));
+        assert!(t.tick(t1 + STOP_WINDOW, Some(("m2", true)), Some(false)));
+    }
+
+    #[test]
+    fn autostop_recording_swap_without_idle_gap_rearms() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        // A different meeting id resets the idle run AND the fired guard.
+        assert!(!t.tick(t0 + STOP_WINDOW, Some(("m2", true)), Some(false)));
+        assert!(t.tick(t0 + 2 * STOP_WINDOW, Some(("m2", true)), Some(false)));
+    }
+
+    const NOTICE_QUIET: Duration = Duration::from_secs(NOTICE_QUIET_SECS);
+
+    #[test]
+    fn notice_manual_recording_fires_once_on_other_mic_edge() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        // Mic free, then another process grabs it → call started mid-recording.
+        assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
+        assert!(t.tick(t0 + T, Some(("m1", false)), Some(true)));
+        // One-shot: stays silent for the rest of the recording.
+        assert!(!t.tick(t0 + 2 * T, Some(("m1", false)), Some(true)));
+        assert!(!t.tick(t0 + 3 * T, Some(("m1", false)), Some(false)));
+        assert!(!t.tick(t0 + 4 * T, Some(("m1", false)), Some(true)));
+    }
+
+    #[test]
+    fn notice_manual_recording_started_during_call_stays_silent() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        // The user knowingly started recording while already on a call:
+        // other_mic is true from the first observation → no toast.
+        assert!(!t.tick(t0, Some(("m1", false)), Some(true)));
+        assert!(!t.tick(t0 + 10 * T, Some(("m1", false)), Some(true)));
+        // That call ends, a NEW call starts → toast.
+        assert!(!t.tick(t0 + 11 * T, Some(("m1", false)), Some(false)));
+        assert!(t.tick(t0 + 12 * T, Some(("m1", false)), Some(true)));
+    }
+
+    #[test]
+    fn notice_detected_recording_needs_30s_quiet_before_new_call() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        // The recorded call holds the mic from the start.
+        assert!(!t.tick(t0, Some(("m1", true)), Some(true)));
+        // A brief device-handoff blip (6s quiet) is NOT a new call.
+        assert!(!t.tick(t0 + T, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t0 + 2 * T, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t0 + 3 * T, Some(("m1", true)), Some(true)));
+        // Original call ends: 30s of consecutive quiet…
+        let t1 = t0 + 4 * T;
+        assert!(!t.tick(t1, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t1 + NOTICE_QUIET, Some(("m1", true)), Some(false)));
+        // …then someone is on the mic again → new call, toast.
+        assert!(t.tick(t1 + NOTICE_QUIET + T, Some(("m1", true)), Some(true)));
+        // One-shot for this recording.
+        assert!(!t.tick(t1 + NOTICE_QUIET + 2 * T, Some(("m1", true)), Some(true)));
+    }
+
+    #[test]
+    fn notice_unknown_probe_resets_quiet_run_and_never_fires() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", true)), Some(false)));
+        // Probe goes unknown 15s in — the quiet run must restart.
+        assert!(!t.tick(t0 + 5 * T, Some(("m1", true)), None));
+        let t1 = t0 + 6 * T;
+        assert!(!t.tick(t1, Some(("m1", true)), Some(false)));
+        assert!(!t.tick(t1 + NOTICE_QUIET - Duration::from_secs(2), Some(("m1", true)), Some(false)));
+        // 28s since the restart → a true here must NOT fire.
+        assert!(!t.tick(t1 + NOTICE_QUIET - Duration::from_secs(1), Some(("m1", true)), Some(true)));
+        // Unknown forever never fires.
+        let mut t = SuppressedCallTracker::default();
+        for i in 0..20u32 {
+            assert!(!t.tick(t0 + i * NOTICE_QUIET, Some(("m1", false)), None));
+        }
+    }
+
+    #[test]
+    fn notice_rearms_for_a_new_recording_and_resets_when_idle() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
+        assert!(t.tick(t0 + T, Some(("m1", false)), Some(true)));
+        assert!(!t.wants_probe("m1"));
+        // Recorder idle → state clears.
+        assert!(!t.tick(t0 + 2 * T, None, None));
+        assert!(t.wants_probe("m2"));
+        // New recording can fire again — but quiet must be re-observed first.
+        let t1 = t0 + 3 * T;
+        assert!(!t.tick(t1, Some(("m2", false)), Some(true)));
+        assert!(!t.tick(t1 + T, Some(("m2", false)), Some(false)));
+        assert!(t.tick(t1 + 2 * T, Some(("m2", false)), Some(true)));
+    }
+
+    #[test]
+    fn notice_wants_probe_until_fired() {
+        let mut t = SuppressedCallTracker::default();
+        let t0 = Instant::now();
+        assert!(t.wants_probe("m1"));
+        assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
+        assert!(t.wants_probe("m1"));
+        assert!(t.tick(t0 + T, Some(("m1", false)), Some(true)));
+        // Fired → steady state goes probe-free for this recording…
+        assert!(!t.wants_probe("m1"));
+        // …but a recording swap without an idle gap re-wants the probe.
+        assert!(t.wants_probe("m2"));
+    }
+
+    /// Manual probe: `cargo test --lib meetings::detect -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn probe_other_process_uses_mic() {
+        let started = Instant::now();
+        let other = other_process_uses_mic();
+        println!("other_process_uses_mic={other:?} ({:?})", started.elapsed());
     }
 
     /// Manual probe: `cargo test --lib meetings::detect -- --ignored --nocapture`

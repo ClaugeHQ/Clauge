@@ -83,6 +83,10 @@ export const MEETING_EVENT = {
   RECORDING_STARTED: 'meetings:recording-started',
   /** Detail: `{ meetingId }`. */
   RECORDING_STOPPED: 'meetings:recording-stopped',
+  /** Detail: `{ meetingId }` — the recorder was stopped automatically
+   *  because the detected call ended (the meeting app released the mic).
+   *  Fired IN ADDITION to RECORDING_STOPPED, which handles the refresh. */
+  RECORDING_AUTOSTOPPED: 'meetings:recording-autostopped',
   /** Detail: `{ meetingId, message }`. */
   RECORDING_ERROR: 'meetings:recording-error',
   /** Detail: `{ meetingId, message }`. */
@@ -102,6 +106,13 @@ export const MEETING_EVENT = {
   /** Detail: `{ app }`. */
   CALL_DETECTED: 'meetings:call-detected',
   CALL_ENDED: 'meetings:call-ended',
+  /** Detail: `{ app }` — a NEW call started while a recording was already
+   *  in progress, so call detection (the widget) stayed suppressed. Fired
+   *  at most once per recording session. */
+  CALL_SUPPRESSED: 'meetings:call-suppressed',
+  /** Emitted by the floating widget right before it disables call
+   *  detection — the main window toasts how to re-enable it. */
+  DETECT_DISABLED: 'meetings:detect-disabled',
   /** Emitted by the floating widget when its settings shortcut is
    *  clicked — main window opens workspace Settings. */
   OPEN_SETTINGS: 'meetings:open-settings',

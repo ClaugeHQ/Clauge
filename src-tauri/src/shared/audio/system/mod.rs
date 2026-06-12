@@ -85,18 +85,22 @@ mod tests {
     use crate::shared::audio::CaptureEvent;
 
     /// Manual smoke test — triggers the macOS system-audio permission dialog
-    /// on first run, so it must never run in CI. Play some audio, then:
+    /// on first run, so it must never run in CI. MUST be run while audio is
+    /// playing (e.g. `while true; do afplay /System/Library/Sounds/Glass.aiff; done`),
+    /// because a denied permission delivers frames of pure silence — this test
+    /// asserts non-silence to distinguish the two:
     /// `cargo test --lib shared::audio::system -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn manual_system_tap_smoke() {
         let (tx, rx) = channel();
         let capture = SystemCapture::start(tx).expect("start system capture");
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(Duration::from_secs(3));
         capture.stop();
 
         let mut frames = 0usize;
         let mut samples = 0usize;
+        let mut peak = 0.0f32;
         let mut format: Option<(u16, u32)> = None;
         let mut errors: Vec<String> = Vec::new();
         while let Ok(event) = rx.try_recv() {
@@ -104,15 +108,23 @@ mod tests {
                 CaptureEvent::Frame(f) => {
                     frames += 1;
                     samples += f.samples.len();
+                    peak = f.samples.iter().fold(peak, |p, s| p.max(s.abs()));
                     format.get_or_insert((f.channels, f.rate));
                 }
                 CaptureEvent::Error(e) => errors.push(e),
             }
         }
         println!(
-            "system tap smoke: frames={frames} samples={samples} format={format:?} errors={errors:?}"
+            "system tap smoke: frames={frames} samples={samples} peak={peak} format={format:?} errors={errors:?}"
         );
         assert!(errors.is_empty(), "capture reported errors: {errors:?}");
-        assert!(frames > 0, "no frames captured in 2s");
+        assert!(frames > 0, "no frames captured in 3s");
+        assert!(
+            peak > 1e-6,
+            "tap delivered only silence — either nothing was playing during the \
+             test, or System Audio Recording permission is denied for this \
+             terminal (System Settings → Privacy & Security → Screen & System \
+             Audio Recording)"
+        );
     }
 }

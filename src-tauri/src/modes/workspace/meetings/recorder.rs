@@ -41,6 +41,22 @@ const CHUNK_MAX_SECS: f32 = 28.0;
 /// hallucinate text and burn CPU.
 const SILENT_CHUNK_RMS: f32 = 0.005;
 
+/// A denied macOS System Audio Recording permission makes Core Audio
+/// deliver all-zero frames instead of an error, so the system stream looks
+/// healthy while every chunk gets RMS-skipped. If nothing but silence has
+/// arrived for this long, warn the user once.
+const SYSTEM_SILENCE_WARN_MS: u64 = 60_000;
+
+/// Faster first line of defense for the same denied-silence symptom: a
+/// Core Audio process tap created BEFORE the TCC grant landed delivers
+/// zeros forever, and only a full teardown + recreate of the tap and
+/// aggregate device recovers (Apple forum 825780). If the system source
+/// has produced nothing but silent chunks for this long, restart
+/// SystemCapture once — the recreated tap is post-grant and unmutes. The
+/// 60s warning above stays as the second line, firing only if the stream
+/// is still silent after the restart.
+const SYSTEM_SILENCE_RESTART_MS: u64 = 15_000;
+
 const FLUSH_MAX_BUFFERED: usize = 50;
 const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// Hard ceiling on unflushed segments while the DB keeps failing; beyond
@@ -51,6 +67,10 @@ const FLUSH_BUFFER_CAP: usize = 5000;
 const FLUSH_FAILURE_WARN_EVERY: u32 = 3;
 /// A long final chunk can take seconds of whisper CPU after stop.
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
+/// Bounded wait for the capture teardown itself (cpal stream drops can
+/// wedge on a hung audio driver). Past this the threads are leaked so
+/// stop can finish instead of hanging forever.
+const CAPTURE_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const SEGMENT_QUEUE_CAPACITY: usize = 256;
 
 /// 8 pending 16k mono chunks ≈ 2.5 min of audio (~7.7 MB worst case). If
@@ -196,14 +216,17 @@ pub async fn start_recording(
     };
 
     let (sys_tx, sys_rx) = channel();
+    let mut mic_only_reason: Option<String> = None;
     let system = match SystemCapture::start(sys_tx) {
         Ok(s) => Some(s),
         Err(SystemAudioError::Unsupported(msg)) => {
             log::info!("[meetings] system audio unsupported, recording mic-only: {msg}");
+            mic_only_reason = Some(msg);
             None
         }
         Err(SystemAudioError::Failed(msg)) => {
             log::warn!("[meetings] system audio failed to start, recording mic-only: {msg}");
+            mic_only_reason = Some(msg);
             None
         }
     };
@@ -284,6 +307,19 @@ pub async fn start_recording(
         done_tx,
     ));
 
+    // Surface the mic-only degradation to the user (toast in the main
+    // window via the warning listener), not just the log.
+    if let Some(reason) = &mic_only_reason {
+        let _ = app.emit(
+            EVT_WARNING,
+            RecordingMessage {
+                meeting_id: &meeting_id,
+                message: &format!(
+                    "System audio unavailable — recording microphone only ({reason})"
+                ),
+            },
+        );
+    }
     let _ = app.emit(
         EVT_STARTED,
         RecordingStarted {
@@ -321,9 +357,26 @@ pub async fn stop_recording(app: AppHandle) -> Result<String, String> {
     }
 
     if mic.is_some() || system.is_some() {
-        tauri::async_runtime::spawn_blocking(move || stop_captures(mic, system))
-            .await
-            .map_err(|e| format!("capture stop task failed: {e}"))?;
+        let join = tauri::async_runtime::spawn_blocking(move || stop_captures(mic, system));
+        match tokio::time::timeout(CAPTURE_STOP_TIMEOUT, join).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                // The slot still holds this recording (with the handles
+                // already taken) — clear it before bailing or every later
+                // stop/start sees a phantom "already recording".
+                let mut slot = active.lock();
+                if slot.as_ref().is_some_and(|r| r.meeting_id == meeting_id) {
+                    *slot = None;
+                }
+                return Err(format!("capture stop task failed: {e}"));
+            }
+            Err(_) => {
+                log::error!(
+                    "[meetings] capture teardown timed out after {CAPTURE_STOP_TIMEOUT:?} — \
+                     leaking capture threads and finalizing anyway"
+                );
+            }
+        }
     }
 
     if let Some(done_rx) = done_rx {
@@ -409,6 +462,14 @@ struct DrainPipeline {
     dropped_chunks: u64,
     dropped_ms: u64,
     on_backlog: Option<Box<dyn FnMut(&str) + Send>>,
+    /// Fired once if the stream is still all-silence past
+    /// `SYSTEM_SILENCE_WARN_MS`; disarmed by the first audible chunk.
+    on_silence: Option<Box<dyn FnOnce() + Send>>,
+    /// Armed by `with_silence_restart`; disarmed by the first audible chunk
+    /// or by requesting one restart, so at most one fires per recording.
+    silence_restart_armed: bool,
+    /// A restart request waiting to be consumed by `take_silence_restart`.
+    silence_restart_pending: bool,
 }
 
 impl DrainPipeline {
@@ -433,12 +494,32 @@ impl DrainPipeline {
             dropped_chunks: 0,
             dropped_ms: 0,
             on_backlog: None,
+            on_silence: None,
+            silence_restart_armed: false,
+            silence_restart_pending: false,
         }
     }
 
     fn with_backlog_warning(mut self, warn: impl FnMut(&str) + Send + 'static) -> Self {
         self.on_backlog = Some(Box::new(warn));
         self
+    }
+
+    fn with_silence_warning(mut self, warn: impl FnOnce() + Send + 'static) -> Self {
+        self.on_silence = Some(Box::new(warn));
+        self
+    }
+
+    fn with_silence_restart(mut self) -> Self {
+        self.silence_restart_armed = true;
+        self
+    }
+
+    /// True once when sustained initial silence has crossed
+    /// `SYSTEM_SILENCE_RESTART_MS`; the drain loop reacts by recreating
+    /// the capture.
+    fn take_silence_restart(&mut self) -> bool {
+        std::mem::take(&mut self.silence_restart_pending)
     }
 
     /// Errs only when the transcriber side has gone away.
@@ -501,9 +582,21 @@ impl DrainPipeline {
         let offset_ms = offset.chunk_start_ms();
         let rate = offset.rate;
         offset.advance(chunk.len());
+        let end_ms = offset.chunk_start_ms();
         if is_silent_chunk(&chunk) {
+            if self.silence_restart_armed && end_ms >= SYSTEM_SILENCE_RESTART_MS {
+                self.silence_restart_armed = false;
+                self.silence_restart_pending = true;
+            }
+            if end_ms >= SYSTEM_SILENCE_WARN_MS {
+                if let Some(warn) = self.on_silence.take() {
+                    warn();
+                }
+            }
             return Ok(());
         }
+        self.on_silence = None;
+        self.silence_restart_armed = false;
         let samples_16k = to_mono_16k(&chunk, 1, rate);
         let duration_ms = samples_16k.len() as u64 * 1000 / 16_000;
         match self
@@ -538,6 +631,9 @@ impl DrainPipeline {
 enum DrainExit {
     Closed,
     StreamError(String),
+    /// The pipeline heard nothing but silence past
+    /// `SYSTEM_SILENCE_RESTART_MS` and wants the capture recreated.
+    SilenceRestart,
 }
 
 fn drain_until_exit(pipeline: &mut DrainPipeline, rx: &Receiver<CaptureEvent>) -> DrainExit {
@@ -546,6 +642,9 @@ fn drain_until_exit(pipeline: &mut DrainPipeline, rx: &Receiver<CaptureEvent>) -
             Ok(CaptureEvent::Frame(frame)) => {
                 if pipeline.handle_frame(&frame).is_err() {
                     return DrainExit::Closed;
+                }
+                if pipeline.take_silence_restart() {
+                    return DrainExit::SilenceRestart;
                 }
             }
             Ok(CaptureEvent::Error(msg)) => return DrainExit::StreamError(msg),
@@ -594,12 +693,53 @@ fn run_system_drain(
     mut rx: Receiver<CaptureEvent>,
     chunk_tx: SyncSender<ChunkJob>,
 ) {
-    let mut pipeline = DrainPipeline::new(SOURCE_SYSTEM, chunk_tx)
+    let pipeline = DrainPipeline::new(SOURCE_SYSTEM, chunk_tx)
         .with_backlog_warning(backlog_warner(app.clone(), meeting_id.clone()));
+    // Silence handling is macOS-specific: a tap created before the TCC
+    // grant delivers zeros forever. On Windows, loopback silence just
+    // means nothing is playing — restarting there would be wrong.
+    #[cfg(target_os = "macos")]
+    let pipeline = {
+        let app = app.clone();
+        let meeting_id = meeting_id.clone();
+        pipeline.with_silence_restart().with_silence_warning(move || {
+            log::warn!("[meetings] system stream all-silent for 60s — likely denied permission");
+            let _ = app.emit(
+                EVT_WARNING,
+                RecordingMessage {
+                    meeting_id: &meeting_id,
+                    message: "System audio seems silent — check System Settings → Privacy & Security → Screen & System Audio Recording and enable Clauge, then restart the recording.",
+                },
+            );
+        })
+    };
+    let mut pipeline = pipeline;
     let mut restart_attempted = false;
+    let mut silence_restart_done = false;
     loop {
         match drain_until_exit(&mut pipeline, &rx) {
             DrainExit::Closed => break,
+            DrainExit::SilenceRestart => {
+                if silence_restart_done {
+                    continue;
+                }
+                silence_restart_done = true;
+                log::warn!(
+                    "[meetings] system stream all-silent for {SYSTEM_SILENCE_RESTART_MS}ms — \
+                     restarting capture in case the tap predates the permission grant"
+                );
+                if let Some((new_rx, elapsed_ms)) = restart_system_capture(&active) {
+                    log::info!("[meetings] system capture restarted after initial silence");
+                    pipeline.rebase_to_ms(elapsed_ms);
+                    rx = new_rx;
+                } else {
+                    // The old capture is already stopped (or a stop is in
+                    // flight); the next drain sees the closed channel and
+                    // exits normally.
+                    log::warn!("[meetings] silent-stream capture restart failed");
+                }
+                continue;
+            }
             DrainExit::StreamError(msg) => {
                 if !restart_attempted && msg.starts_with(DEVICE_CHANGED_PREFIX) {
                     restart_attempted = true;
@@ -757,12 +897,19 @@ async fn run_flush(
         log::warn!("[meetings] failed to finalize meeting {meeting_id}: {e}");
     }
     let _ = app.emit(EVT_STOPPED, MeetingEvent { meeting_id: &meeting_id });
-    widget::close_widget(&app);
-    {
+    // Only close the widget while it still belongs to THIS meeting: a
+    // late finalize (e.g. after a stop timeout) must not tear down a
+    // widget that meanwhile shows a different recording or a new prompt.
+    let was_active = {
         let mut slot = active.lock();
-        if slot.as_ref().is_some_and(|rec| rec.meeting_id == meeting_id) {
+        let ours = slot.as_ref().is_some_and(|rec| rec.meeting_id == meeting_id);
+        if ours {
             *slot = None;
         }
+        ours
+    };
+    if was_active {
+        widget::close_widget(&app);
     }
     let _ = done_tx.send(());
 }
@@ -892,6 +1039,92 @@ mod tests {
     }
 
     #[test]
+    fn silence_warning_fires_once_after_sustained_initial_silence() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let (tx, rx) = sync_channel(8);
+        let fired = Arc::new(AtomicUsize::new(0));
+        let f = Arc::clone(&fired);
+        let mut p = DrainPipeline::with_chunking(SOURCE_SYSTEM, tx, 1.0, 2.0)
+            .with_silence_warning(move || {
+                f.fetch_add(1, Ordering::SeqCst);
+            });
+        let silent = || AudioFrame { samples: vec![0.0; 8_000], channels: 1, rate: 16_000 };
+
+        for _ in 0..118 {
+            p.handle_frame(&silent()).unwrap();
+        }
+        assert_eq!(fired.load(Ordering::SeqCst), 0, "no warning before 60s of silence");
+        for _ in 0..8 {
+            p.handle_frame(&silent()).unwrap();
+        }
+        assert_eq!(fired.load(Ordering::SeqCst), 1, "warning fired once past 60s");
+        drop(rx);
+    }
+
+    #[test]
+    fn silence_restart_requested_once_after_15s_of_initial_silence() {
+        let (tx, rx) = sync_channel(8);
+        let mut p =
+            DrainPipeline::with_chunking(SOURCE_SYSTEM, tx, 1.0, 2.0).with_silence_restart();
+        let silent = || AudioFrame { samples: vec![0.0; 8_000], channels: 1, rate: 16_000 };
+
+        for _ in 0..28 {
+            p.handle_frame(&silent()).unwrap();
+            assert!(!p.take_silence_restart(), "no restart before 15s of silence");
+        }
+        for _ in 0..2 {
+            p.handle_frame(&silent()).unwrap();
+        }
+        assert!(p.take_silence_restart(), "restart requested at 15s");
+        for _ in 0..40 {
+            p.handle_frame(&silent()).unwrap();
+            assert!(!p.take_silence_restart(), "at most one restart per recording");
+        }
+        drop(rx);
+    }
+
+    #[test]
+    fn silence_restart_disarmed_by_audible_chunk() {
+        let (tx, rx) = sync_channel(8);
+        let mut p =
+            DrainPipeline::with_chunking(SOURCE_SYSTEM, tx, 1.0, 2.0).with_silence_restart();
+
+        let audible = AudioFrame { samples: tone(16_000, 1.0), channels: 1, rate: 16_000 };
+        p.handle_frame(&audible).unwrap();
+        let silent = || AudioFrame { samples: vec![0.0; 8_000], channels: 1, rate: 16_000 };
+        for _ in 0..60 {
+            p.handle_frame(&silent()).unwrap();
+            assert!(!p.take_silence_restart(), "real audio disarms the restart watchdog");
+        }
+        drop(rx);
+    }
+
+    #[test]
+    fn silence_warning_disarmed_by_audible_chunk() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let (tx, rx) = sync_channel(8);
+        let fired = Arc::new(AtomicUsize::new(0));
+        let f = Arc::clone(&fired);
+        let mut p = DrainPipeline::with_chunking(SOURCE_SYSTEM, tx, 1.0, 2.0)
+            .with_silence_warning(move || {
+                f.fetch_add(1, Ordering::SeqCst);
+            });
+
+        let audible = AudioFrame { samples: tone(16_000, 1.0), channels: 1, rate: 16_000 };
+        p.handle_frame(&audible).unwrap();
+        let silent = || AudioFrame { samples: vec![0.0; 8_000], channels: 1, rate: 16_000 };
+        for _ in 0..130 {
+            p.handle_frame(&silent()).unwrap();
+        }
+        assert_eq!(fired.load(Ordering::SeqCst), 0, "real audio disarms the warning");
+        drop(rx);
+    }
+
+    #[test]
     fn pipeline_stamps_chunks_with_start_offsets() {
         let (tx, rx) = sync_channel(8);
         let mut p = DrainPipeline::with_chunking(SOURCE_MIC, tx, 1.0, 2.0);
@@ -961,6 +1194,91 @@ mod tests {
         let jobs: Vec<ChunkJob> = rx.into_iter().collect();
         assert!(jobs.iter().all(|j| !is_silent_chunk(&j.samples_16k)), "silence never queued");
         assert_eq!(jobs[0].offset_ms, 2_000, "skipped silence still advances the offset");
+    }
+
+    /// Offset ground truth, computed independently of `OffsetTracker`:
+    /// at 16 kHz mono the pipeline is byte-exact passthrough (no downmix,
+    /// no resample), so every emitted chunk must be a contiguous slice of
+    /// the input and its true start position can be recovered by content
+    /// matching against unique noise. The stamped `offset_ms` must equal
+    /// that position for every emit path: the RMS-skipped all-silence
+    /// chunk (must still advance), the 28s max cut, the 20s silence-
+    /// boundary cut, and the flush remainder at stop.
+    #[test]
+    fn pipeline_offsets_match_true_sample_positions() {
+        const RATE: u32 = 16_000;
+        // Odd frame size so no cut lands on a "nice" boundary.
+        const FRAME: usize = 331;
+        const TOTAL_FRAMES: usize = 3_625; // ~75s
+
+        // Deterministic per-index noise: any 64-sample window is unique.
+        fn noise(i: usize) -> f32 {
+            (i as u32).wrapping_mul(2_654_435_761) as f32 / u32::MAX as f32 - 0.5
+        }
+        // 0–21s silence (one full skipped chunk), 21–50s speech (forces a
+        // max cut mid-speech), 50–68s silence (silence-boundary cut),
+        // 70–72s speech inside the flush remainder.
+        let speech =
+            |i: usize| (336_000..800_000).contains(&i) || (1_120_000..1_152_000).contains(&i);
+        let input: Vec<f32> = (0..TOTAL_FRAMES * FRAME)
+            .map(|i| if speech(i) { noise(i) } else { 0.0 })
+            .collect();
+
+        let (tx, rx) = sync_channel(64);
+        // Production chunking: 20s target / 28s max.
+        let mut p = DrainPipeline::new(SOURCE_MIC, tx);
+        for frame in input.chunks(FRAME) {
+            p.handle_frame(&AudioFrame { samples: frame.to_vec(), channels: 1, rate: RATE })
+                .unwrap();
+        }
+        p.flush().unwrap();
+        drop(p);
+
+        let jobs: Vec<ChunkJob> = rx.into_iter().collect();
+        assert_eq!(jobs.len(), 3, "max cut + silence cut + flush remainder");
+
+        let mut last_end = 0usize;
+        for (idx, job) in jobs.iter().enumerate() {
+            let k = job
+                .samples_16k
+                .iter()
+                .position(|s| s.abs() > 1e-6)
+                .expect("audible chunk has a non-silent sample");
+            let probe = &job.samples_16k[k..k + 64];
+            let hit = (0..=input.len() - probe.len())
+                .filter(|&q| input[q] == probe[0])
+                .find(|&q| input[q..q + probe.len()] == *probe)
+                .expect("probe window found in input");
+            let true_start = hit - k;
+            assert_eq!(
+                &input[true_start..true_start + job.samples_16k.len()],
+                &job.samples_16k[..],
+                "chunk {idx} is a contiguous input slice — the chunker held nothing back"
+            );
+            assert_eq!(
+                job.offset_ms,
+                true_start as u64 * 1000 / RATE as u64,
+                "chunk {idx} stamped offset == true position of its first sample"
+            );
+            if idx > 0 {
+                assert_eq!(true_start, last_end, "chunk {idx} starts where chunk {} ended", idx - 1);
+            }
+            last_end = true_start + job.samples_16k.len();
+        }
+
+        assert!(
+            jobs[0].offset_ms >= 20_000,
+            "the leading RMS-skipped silence chunk still advanced the clock, got {}ms",
+            jobs[0].offset_ms
+        );
+        assert!(
+            jobs[0].samples_16k.len() >= (RATE as f32 * CHUNK_MAX_SECS) as usize,
+            "chunk 0 was a max cut"
+        );
+        let target = (RATE as f32 * CHUNK_TARGET_SECS) as usize;
+        let len1 = jobs[1].samples_16k.len();
+        assert!(len1 >= target && len1 < target + FRAME, "chunk 1 cut at the silence boundary");
+        assert_eq!(last_end, input.len(), "flush remainder reaches the final input sample");
     }
 
     #[test]

@@ -352,6 +352,19 @@ export const workspaceMeetingDetectSetEnabled = (enabled: boolean) =>
   invoke<void>('workspace_meeting_detect_set_enabled', { enabled });
 export const workspaceMeetingDetectGetEnabled = () =>
   invoke<boolean>('workspace_meeting_detect_get_enabled');
+/** Auto-stop: end a detected-call recording once the call's app releases
+ *  the microphone. Never applies to manually started recordings. */
+export const workspaceMeetingAutostopSetEnabled = (enabled: boolean) =>
+  invoke<void>('workspace_meeting_autostop_set_enabled', { enabled });
+export const workspaceMeetingAutostopGetEnabled = () =>
+  invoke<boolean>('workspace_meeting_autostop_get_enabled');
+/** macOS one-time permission preflight: briefly opens mic + system-audio
+ *  capture so the TCC prompts appear now (when the user enables meeting
+ *  notes) instead of mid-meeting. No-op on other platforms and on every
+ *  call after the prompts were answered; never rejects on a denied prompt. */
+export const workspaceMeetingRequestPermissions = () =>
+  invoke<void>('workspace_meeting_request_permissions');
+
 export const workspaceMeetingDetectStatus = () =>
   invoke<MeetingDetectStatus>('workspace_meeting_detect_status');
 export const workspaceMeetingDetectDismiss = () =>

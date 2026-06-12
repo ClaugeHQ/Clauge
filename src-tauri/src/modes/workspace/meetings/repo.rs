@@ -134,6 +134,13 @@ pub async fn append_segments(
     let mut all: Vec<TranscriptSegment> =
         serde_json::from_str(&transcript).map_err(json_err)?;
     all.extend_from_slice(segments);
+    // Segments arrive in transcription-completion order: mic and system
+    // chunks covering the same 20s window finish back to back, so arrival
+    // order interleaves whole chunks. Keep the stored transcript in
+    // timeline order.
+    all.sort_by(|a, b| {
+        (a.start_ms, a.end_ms, a.source.as_str()).cmp(&(b.start_ms, b.end_ms, b.source.as_str()))
+    });
     let json = serde_json::to_string(&all).map_err(json_err)?;
     sqlx::query("UPDATE workspace_meetings SET transcript = ?, updated_at = ? WHERE id = ?")
         .bind(json)
@@ -306,6 +313,52 @@ mod tests {
         assert_eq!(got.notes_provider.as_deref(), Some("clauge"));
         assert_eq!(got.notes_model.as_deref(), Some("haiku"));
         assert!(got.notes_generated_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn meeting_append_sorts_interleaved_sources_by_time() {
+        let pool = test_pool().await;
+        let m = insert_meeting(&pool, "Sync", None, "auto").await.unwrap();
+
+        fn src(start_ms: u64, source: &str, text: &str) -> TranscriptSegment {
+            TranscriptSegment {
+                start_ms,
+                end_ms: start_ms + 1000,
+                source: source.into(),
+                text: text.into(),
+            }
+        }
+        // Arrival order: mic chunk 0, then system chunk 0 covering the
+        // same window, then mic chunk 1 — not timeline order.
+        append_segments(&pool, &m.id, &[src(0, "mic", "a"), src(15_000, "mic", "b")])
+            .await
+            .unwrap();
+        append_segments(
+            &pool,
+            &m.id,
+            &[src(5_000, "system", "c"), src(18_000, "system", "d")],
+        )
+        .await
+        .unwrap();
+        append_segments(&pool, &m.id, &[src(21_000, "mic", "e")])
+            .await
+            .unwrap();
+
+        let got = get_meeting(&pool, &m.id).await.unwrap().unwrap();
+        let order: Vec<(u64, String)> = parsed(&got)
+            .iter()
+            .map(|s| (s.start_ms, s.source.clone()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                (0, "mic".into()),
+                (5_000, "system".into()),
+                (15_000, "mic".into()),
+                (18_000, "system".into()),
+                (21_000, "mic".into()),
+            ]
+        );
     }
 
     #[tokio::test]

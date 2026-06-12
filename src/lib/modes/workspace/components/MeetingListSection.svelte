@@ -5,10 +5,16 @@
   // WorkspacePanel).
 
   import { get } from 'svelte/store';
-  import { meetings, recordingStatus, loadMeetings, openMeetingTab } from '../stores';
+  import {
+    meetings,
+    recordingStatus,
+    loadMeetings,
+    openMeetingTab,
+    stopActiveRecording,
+    generatingMeetings,
+  } from '../stores';
   import {
     workspaceMeetingStart,
-    workspaceMeetingStop,
     workspaceMeetingUpdateTitle,
     workspaceMeetingDelete,
     MEETING_MODEL_MISSING,
@@ -20,7 +26,7 @@
   import { errorToast } from '$lib/utils/errors';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import InlineInput from '$lib/components/nav/InlineInput.svelte';
-  import { tabs as sharedTabs, updateTab, closeTab } from '$lib/shared/stores/tabs';
+  import { tabs as sharedTabs, updateTab, closeTab, openSettingsTab } from '$lib/shared/stores/tabs';
 
   interface Props {
     searchQuery?: string;
@@ -79,9 +85,7 @@
     if (isRecording) {
       stopping = true;
       try {
-        await workspaceMeetingStop();
-      } catch (err) {
-        errorToast('Failed to stop recording', err);
+        await stopActiveRecording();
       } finally {
         stopping = false;
       }
@@ -97,6 +101,7 @@
     } catch (err) {
       if (String(err).includes(MEETING_MODEL_MISSING)) {
         showToast('Download a transcription model in Settings first', 'error');
+        openSettingsTab('workspace:meetings');
       } else {
         errorToast('Failed to start recording', err);
       }
@@ -123,6 +128,10 @@
     const rs = $recordingStatus;
     if (rs.meetingId === m.id && (rs.recording || rs.stopping)) {
       showToast('Stop the recording first', 'error');
+      return;
+    }
+    if (get(generatingMeetings).has(m.id)) {
+      showToast('Notes are being generated — wait for it to finish', 'error');
       return;
     }
     deleteTarget = m;

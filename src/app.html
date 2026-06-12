@@ -28,9 +28,13 @@
 	<body data-sveltekit-preload-data="hover">
 		<div id="clauge-splash"><img src="/clauge-icon-animated.svg" alt="" aria-hidden="true" /></div>
 		<script>
-			// The transparent widget window must never flash the dark splash.
-			if (location.pathname.startsWith("/widget"))
+			// The transparent widget window must never flash the dark splash,
+			// and needs a root class so its CSS can out-rank the opaque
+			// body background from app.css.
+			if (location.pathname.startsWith("/widget")) {
+				document.documentElement.classList.add("widget-window");
 				document.getElementById("clauge-splash").remove();
+			}
 		</script>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
