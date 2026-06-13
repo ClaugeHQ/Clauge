@@ -846,13 +846,13 @@
     return !!termId && $phoneOwnedTerminals.has(termId);
   });
 
-  // Adopt phone-driven sizes. When the phone owns a terminal's size, resize
-  // THAT terminal's xterm to the adopted cols×rows so the desktop renders a
-  // tidy narrow terminal matching the PTY instead of a garbled wide one. When
-  // a terminal stops being phone-owned, re-fit it to its pane and resume the
-  // normal desktop-driven path. Each sshTerminalMap entry carries its own
-  // terminalId, so we resolve phone-driven terminalIds directly to their
-  // xterm entry.
+  // Yield phone-owned terminals. While the phone owns a terminal's size, the
+  // desktop does NOTHING to that PTY — it neither resizes its xterm nor fits/
+  // drives the PTY (the phone is the sole renderer). The "Controlled from
+  // phone" panel covers the now-irrelevant desktop xterm. When a terminal
+  // stops being phone-owned, the desktop reclaims it: re-fit to its pane and
+  // resume driving. Each sshTerminalMap entry carries its own terminalId, so
+  // we resolve phone-driven terminalIds directly to their xterm entry.
   let _lastDrivenTermIds = new Set<string>();
   $effect(() => {
     const driven = $phoneDrivenSizes;
@@ -864,16 +864,10 @@
     }
 
     const nowDriven = new Set<string>();
-    for (const [termId, size] of driven) {
-      nowDriven.add(termId);
-      const entry = entryByTerm.get(termId);
-      if (entry?.term) {
-        try { entry.term.resize(size.cols, size.rows); } catch { /* ignore */ }
-      }
-    }
+    for (const termId of driven.keys()) nowDriven.add(termId);
 
     // Terminals that just stopped being phone-owned → re-fit to their pane and
-    // resume desktop driving.
+    // resume desktop driving (reclaim on detach).
     for (const termId of _lastDrivenTermIds) {
       if (nowDriven.has(termId)) continue;
       const entry = entryByTerm.get(termId);
@@ -892,12 +886,13 @@
 {#if $activeSshProfile}
   <div class="ssh-panel">
     {#if activePhoneOwned}
-      <div class="phone-owned-badge" title="This terminal's size is being driven by your phone">
-        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <div class="phone-owned-panel">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <rect x="6" y="2" width="12" height="20" rx="2.5"/>
           <line x1="11" y1="18" x2="13" y2="18"/>
         </svg>
-        <span>Controlled from phone</span>
+        <span class="phone-owned-title">Controlled from phone</span>
+        <span class="phone-owned-sub">This session is being driven from your mobile. It'll return when you detach.</span>
       </div>
     {/if}
     {#if spawning}
@@ -977,7 +972,7 @@
       </div>
     {/if}
 
-    <div class="ssh-terminal-container" class:term-hidden={!termReady && !activeIsExited} bind:this={terminalEl} style="background:{termBg}"></div>
+    <div class="ssh-terminal-container" class:term-hidden={(!termReady && !activeIsExited) || activePhoneOwned} bind:this={terminalEl} style="background:{termBg}"></div>
   </div>
 {:else}
   <div class="ssh-empty">
@@ -1002,30 +997,38 @@
     position: relative;
   }
 
-  .phone-owned-badge {
+  .phone-owned-panel {
     position: absolute;
-    top: 8px;
-    right: 10px;
+    inset: 0;
     z-index: 6;
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 5px;
-    padding: 3px 9px 3px 7px;
-    border-radius: 999px;
-    font-family: var(--ui);
-    font-size: 11px;
-    line-height: 1;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px;
+    background: var(--n);
     color: var(--acc);
-    background: color-mix(in srgb, var(--acc) 14%, var(--n));
-    border: 1px solid color-mix(in srgb, var(--acc) 38%, transparent);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
-    pointer-events: none;
     user-select: none;
-    opacity: 0.92;
   }
-  .phone-owned-badge svg {
+  .phone-owned-panel svg {
     flex: none;
-    opacity: 0.9;
+    opacity: 0.85;
+  }
+  .phone-owned-title {
+    font-family: var(--ui);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--acc);
+  }
+  .phone-owned-sub {
+    font-family: var(--ui);
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 320px;
+    color: var(--fg-muted, color-mix(in srgb, var(--fg) 55%, transparent));
   }
   .ssh-terminal-container {
     flex: 1;
