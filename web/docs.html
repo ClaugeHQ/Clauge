@@ -213,12 +213,13 @@
                     <a class="toc-link" href="#sql"><span class="toc-num">07</span>SQL</a>
                     <a class="toc-link" href="#nosql"><span class="toc-num">08</span>NoSQL</a>
                     <a class="toc-link" href="#ssh"><span class="toc-num">09</span>SSH</a>
-                    <a class="toc-link" href="#explorer"><span class="toc-num">10</span>Explorer</a>
-                    <a class="toc-link" href="#history"><span class="toc-num">11</span>History</a>
-                    <a class="toc-link" href="#mcp"><span class="toc-num">12</span>MCP setup</a>
-                    <a class="toc-link" href="#cloud-sync"><span class="toc-num">13</span>Cloud sync</a>
-                    <a class="toc-link" href="#shortcuts"><span class="toc-num">14</span>Shortcuts</a>
-                    <a class="toc-link" href="#faq"><span class="toc-num">15</span>FAQ</a>
+                    <a class="toc-link" href="#mobile"><span class="toc-num">10</span>Mobile</a>
+                    <a class="toc-link" href="#explorer"><span class="toc-num">11</span>Explorer</a>
+                    <a class="toc-link" href="#history"><span class="toc-num">12</span>History</a>
+                    <a class="toc-link" href="#mcp"><span class="toc-num">13</span>MCP setup</a>
+                    <a class="toc-link" href="#cloud-sync"><span class="toc-num">14</span>Cloud sync</a>
+                    <a class="toc-link" href="#shortcuts"><span class="toc-num">15</span>Shortcuts</a>
+                    <a class="toc-link" href="#faq"><span class="toc-num">16</span>FAQ</a>
                 </nav>
             </aside>
 
@@ -730,8 +731,60 @@
                 </section>
 
                 <!-- ─────────────────────────────────────────── -->
+                <section class="docs-section" id="mobile">
+                    <div class="docs-kicker"><span class="k-num">10</span><span>Mobile</span><span class="k-line"></span></div>
+                    <h2>Drive your desktop sessions from your phone.</h2>
+
+                    <h3>Turn it on (desktop)</h3>
+                    <p>
+                        Open Clauge desktop → <b>Settings → Mobile</b> and
+                        enable the companion server. It displays a pairing
+                        QR code that your phone scans to connect.
+                    </p>
+
+                    <h3>Install the app</h3>
+                    <p>
+                        The Clauge mobile app (Android) connects to your
+                        desktop and mirrors the sessions running there.
+                    </p>
+
+                    <h3>Pair</h3>
+                    <p>
+                        On the phone, scan the QR — or enter the host, port,
+                        and code manually. Approve the request on your
+                        desktop. Devices you pair appear in the app's device
+                        list.
+                    </p>
+
+                    <h3>Use a session</h3>
+                    <p>
+                        The app lists your existing Agent and SSH sessions —
+                        tap one to open and mirror it live. Closing with the
+                        <code>×</code> ends the session and its desktop tab;
+                        going back just detaches and leaves it running so you
+                        can reopen it later. The app attaches to existing
+                        sessions — it doesn't create new ones.
+                    </p>
+
+                    <h3>Remote access (different network)</h3>
+                    <p>
+                        To reach your desktop when you're not on the same
+                        Wi-Fi, use Tailscale:
+                    </p>
+                    <ol>
+                        <li>Install Tailscale on both your computer and your phone.</li>
+                        <li>Sign in to the same tailnet on both devices.</li>
+                        <li>Pair using the desktop's Tailscale address — it appears in the pairing QR when Tailscale is running.</li>
+                    </ol>
+                    <p>
+                        No relay, no extra Clauge account — the connection is
+                        direct and encrypted over your tailnet.
+                    </p>
+                </section>
+
+                <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="explorer">
-                    <div class="docs-kicker"><span class="k-num">10</span><span>Explorer</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">11</span><span>Explorer</span><span class="k-line"></span></div>
                     <h2>Every backend, one browser, one set of shortcuts.</h2>
 
                     <h3>Backends</h3>
@@ -780,7 +833,7 @@
 
                 <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="history">
-                    <div class="docs-kicker"><span class="k-num">11</span><span>History</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">12</span><span>History</span><span class="k-line"></span></div>
                     <h2>A queryable log of every session, request, query, and command.</h2>
 
                     <p>
@@ -795,7 +848,7 @@
 
                 <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="mcp">
-                    <div class="docs-kicker"><span class="k-num">12</span><span>MCP setup</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">13</span><span>MCP setup</span><span class="k-line"></span></div>
                     <h2>Connect Claude Desktop, Cursor, or any MCP client to your Clauge.</h2>
 
                     <p>
@@ -856,7 +909,7 @@
 
                 <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="cloud-sync">
-                    <div class="docs-kicker"><span class="k-num">13</span><span>Cloud sync</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">14</span><span>Cloud sync</span><span class="k-line"></span></div>
                     <h2>Sign in once, work from any machine.</h2>
 
                     <p>
@@ -879,7 +932,7 @@
 
                 <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="shortcuts">
-                    <div class="docs-kicker"><span class="k-num">14</span><span>Shortcuts</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">15</span><span>Shortcuts</span><span class="k-line"></span></div>
                     <h2>The keystrokes worth memorising.</h2>
 
                     <div class="table-scroll">
@@ -907,7 +960,7 @@
 
                 <!-- ─────────────────────────────────────────── -->
                 <section class="docs-section" id="faq">
-                    <div class="docs-kicker"><span class="k-num">15</span><span>FAQ</span><span class="k-line"></span></div>
+                    <div class="docs-kicker"><span class="k-num">16</span><span>FAQ</span><span class="k-line"></span></div>
                     <h2>Things people ask.</h2>
 
                     <h3>Is Clauge free?</h3>
