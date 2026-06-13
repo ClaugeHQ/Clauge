@@ -1139,7 +1139,7 @@
       let existingSessionIds: string[] = [];
       if (!session.claudeSessionId) {
         try {
-          const existing = await agentDiscoverSessions(spawnPath);
+          const existing = await agentDiscoverSessions(spawnPath, session.provider || 'claude');
           existingSessionIds = existing.map((s: any) => s.sessionId);
         } catch (_) {}
         const claimedBySiblings = get(agentSessions)
@@ -1294,7 +1294,7 @@
             attempts++;
             if (attempts > 10 || session.claudeSessionId) { clearInterval(captureInterval); return; }
             try {
-              const allSessions = await agentDiscoverSessions(spawnPath);
+              const allSessions = await agentDiscoverSessions(spawnPath, session.provider || 'claude');
               // Re-check the "claimed by siblings" set on every poll
               // tick — a concurrently-spawning session might have
               // claimed an id since we took the snapshot at spawn
