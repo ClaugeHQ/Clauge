@@ -713,29 +713,41 @@ pub fn hub_exists(terminal_id: &str) -> bool {
 /// came from a phone (or its detach-grace hold). All emits happen with the
 /// hubs lock DROPPED (never emit under the lock).
 pub fn reconcile_now(terminal_id: &str) {
-    let to_apply = {
+    // `resize`: Some only when the PTY dimensions actually change (apply +
+    // broadcast). `emit` fires whenever we must notify the desktop frontend —
+    // on a size change OR an ownership flip (phone<->desktop) even if the
+    // dimensions are identical. The latter is essential: when a phone detaches
+    // from a session whose desktop size matches the phone's (or that the desktop
+    // never sized), the dimensions don't change, but the "controlled from phone"
+    // panel must still clear — so we emit on the owner transition regardless.
+    let action = {
         let mut map = hubs().lock();
         let Some(hub) = map.get_mut(terminal_id) else {
             return;
         };
         let now = Instant::now();
         let (desired, phone_owned) = desired_size(hub, now);
+        let owner_changed = hub.size_owner != Some(phone_owned);
+        let new_size = desired.filter(|s| Some(*s) != hub.applied_size);
 
-        match desired {
-            Some(size) if Some(size) != hub.applied_size => {
-                hub.applied_size = Some(size);
-                hub.size_owner = Some(phone_owned);
-                Some((hub.kind, size, phone_owned))
-            }
-            // No desired size yet (no client reported one), or already
-            // applied — nothing to do.
-            _ => None,
+        if let Some(size) = new_size {
+            hub.applied_size = Some(size);
+            hub.size_owner = Some(phone_owned);
+            Some((hub.kind, Some(size), size, phone_owned))
+        } else if owner_changed {
+            hub.size_owner = Some(phone_owned);
+            let size = desired.or(hub.applied_size).unwrap_or((80, 24));
+            Some((hub.kind, None, size, phone_owned))
+        } else {
+            None
         }
     };
 
-    if let Some((kind, (cols, rows), phone_owned)) = to_apply {
-        apply_pty_resize(terminal_id, kind, cols, rows);
-        broadcast_size(terminal_id, cols, rows);
+    if let Some((kind, resize, (cols, rows), phone_owned)) = action {
+        if let Some((rc, rr)) = resize {
+            apply_pty_resize(terminal_id, kind, rc, rr);
+            broadcast_size(terminal_id, rc, rr);
+        }
         emit_terminal_size(terminal_id, cols, rows, phone_owned);
     }
 }
