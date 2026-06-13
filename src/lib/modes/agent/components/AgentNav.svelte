@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { agentSessions, activeAgentSession, agentContextUsage, agentSessionActivity, agentClaudePlan } from '../stores';
+  import { agentSessions, activeAgentSession, agentContextUsage, agentSessionActivity, agentSessionAwaiting, agentClaudePlan } from '../stores';
   import { mode } from '$lib/stores/app';
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import { showToast } from '$lib/shared/primitives/toast';
@@ -135,6 +135,12 @@
     return $agentSessionActivity.get(sessionId) ?? null;
   }
 
+  // Whether this session is currently waiting for the user's input. Shown for
+  // every provider (unlike the claude-only activity icon).
+  function isAwaiting(sessionId: string): boolean {
+    return $agentSessionAwaiting.has(sessionId);
+  }
+
   function relativeTime(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
     if (diff < 60000) return 'just now';
@@ -249,13 +255,18 @@
         {#each sessions as session (session.id)}
           {@const pct = contextPercent(session.id)}
           {@const activity = activityStatus(session.id)}
+          {@const awaiting = isAwaiting(session.id)}
           <button
             class="session-item"
             class:active={$activeAgentSession?.id === session.id}
+            class:awaiting
             onclick={() => handleSelectSession(session)}
             oncontextmenu={(e) => showSessionMenu(e, session)}
           >
             <span class="session-icon">
+              {#if awaiting}
+                <span class="awaiting-dot" title="Waiting for your input"></span>
+              {/if}
               {#if session.provider === 'codex'}
                 <img src="/codex.svg" alt="Codex" width="22" height="22" class="session-icon-img codex" />
               {:else if session.provider === 'gemini'}
@@ -456,9 +467,32 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
   }
   .session-icon img {
     display: block;
+  }
+
+  /* "Waiting for input" adornment — a small pulsing accent dot overlaid on the
+     top-right of the provider icon. Provider-agnostic (shows for claude/codex/
+     gemini/opencode alike) and laid on top of the existing icon so it never
+     disturbs the icon / activity layout. */
+  .awaiting-dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--acc, #d29922);
+    box-shadow: 0 0 0 2px var(--n0, var(--bg, #0d0d18));
+    animation: awaiting-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes awaiting-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.82); }
   }
 
   .session-body {
@@ -486,6 +520,7 @@
     min-width: 0;
   }
   .session-item.active .session-title { color: var(--t1); }
+  .session-item.awaiting .session-title { color: var(--t1); font-weight: 600; }
 
   .session-row-bot {
     display: flex;

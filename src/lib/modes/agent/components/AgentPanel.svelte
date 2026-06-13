@@ -7,6 +7,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { Channel } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import {
     activeAgentSession,
     agentTerminalMap,
@@ -15,6 +16,7 @@
     agentShellIds,
     agentShellOpen,
     agentSessionActivity,
+    agentSessionAwaiting,
     agentSessions,
     agentSoundEnabled,
     agentDockBounceEnabled,
@@ -53,7 +55,6 @@
   import { getPurposePrompt } from '../ai/prompt';
   import { AGENT_EVENT } from '$lib/shared/constants/events';
   import {
-    AGENT_NOTIFY_DEBOUNCE_MS,
     AGENT_NOTIFY_REPEAT_MS,
     AGENT_CHIME_STOP_MS,
     AGENT_ACTIVITY_WINDOW_MS,
@@ -306,13 +307,20 @@
   let showNotInstalled = $state(false);
   let notInstalledProvider = $state<'claude' | 'codex' | 'gemini' | 'opencode'>('claude');
 
-  // --- Notification system for action-required prompts ---
-  let notifyOutputBuffer = '';
-  let notifyLastTime = 0;
-  let notifyBufferTimer: ReturnType<typeof setTimeout> | null = null;
+  // --- Notification system for action-required prompts (per-session) ---
+  // Each session detects its own prompts and tracks its own re-alert guard so
+  // one session's output can never silence or storm another's. The dock-bounce
+  // + chime alert is shared (one window-level effect) but is driven by the
+  // union of awaiting sessions in `agentSessionAwaiting`.
   let notifySoundInterval: ReturnType<typeof setInterval> | null = null;
   let dockBounceActive = false;
   let unlistenFileDrop: (() => void) | null = null;
+  let unlistenAttentionCleared: UnlistenFn | null = null;
+
+  // Per-session rolling ANSI-stripped output buffer (for prompt detection).
+  const notifyBuffers = new Map<string, string>();
+  // Per-session last-notify timestamp (10s re-alert guard, per session).
+  const notifyLastTimes = new Map<string, number>();
 
   const actionPatterns = [
     /Do you want to proceed/i,
@@ -327,47 +335,36 @@
     /Yes, and don.t ask/i,
   ];
 
-  function checkNotifyBuffer() {
-    const buf = notifyOutputBuffer;
-    notifyOutputBuffer = '';
-    if (!buf) return;
-    if (Date.now() - notifyLastTime < 10000) return;
+  // Start (or refresh) the shared dock-bounce + chime alert. Called when any
+  // session enters the awaiting state while the window is unfocused. Both
+  // surfaces are gated by their settings and stop automatically once the
+  // window regains focus or no session is awaiting.
+  function startAlert() {
     if (document.hasFocus()) return;
 
-    if (actionPatterns.some(p => p.test(buf))) {
-      notifyLastTime = Date.now();
+    if (get(agentDockBounceEnabled) && !dockBounceActive) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow, UserAttentionType }) => {
+        getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
+      }).catch(() => {});
+      dockBounceActive = true;
+    }
 
-      // Dock bounce — Critical = persistent bounce until focus
-      if (get(agentDockBounceEnabled)) {
-        import('@tauri-apps/api/window').then(({ getCurrentWindow, UserAttentionType }) => {
-          getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
-        }).catch(() => {});
-        dockBounceActive = true;
-      }
-
-      // Sound chime + repeat
-      if (get(agentSoundEnabled)) {
+    if (get(agentSoundEnabled)) {
+      playChime();
+      if (notifySoundInterval) clearInterval(notifySoundInterval);
+      notifySoundInterval = setInterval(() => {
+        if (document.hasFocus() || get(agentSessionAwaiting).size === 0) {
+          stopAlert();
+          return;
+        }
         playChime();
-        if (notifySoundInterval) clearInterval(notifySoundInterval);
-        notifySoundInterval = setInterval(() => {
-          if (document.hasFocus()) {
-            clearInterval(notifySoundInterval!);
-            notifySoundInterval = null;
-            dockBounceActive = false;
-            return;
-          }
-          playChime();
-        }, AGENT_NOTIFY_REPEAT_MS);
-      }
+      }, AGENT_NOTIFY_REPEAT_MS);
     }
   }
 
-  // Stop an active action-required notification once the agent resumes. The
-  // desktop window clears it on focus, but when the user takes the action from
-  // the MOBILE companion app the window never refocuses — instead the agent's
-  // continuation output arrives over the shared PTY and lands here. Treat fresh,
-  // non-prompt output as "the action was taken" and silence the alert.
-  function clearActionNotification() {
+  // Stop the shared alert: clear the chime repeat and cancel any active dock
+  // bounce. Safe to call when nothing is active.
+  function stopAlert() {
     if (notifySoundInterval) { clearInterval(notifySoundInterval); notifySoundInterval = null; }
     if (dockBounceActive) {
       dockBounceActive = false;
@@ -375,17 +372,41 @@
         getCurrentWindow().requestUserAttention(null);
       }).catch(() => {});
     }
-    notifyLastTime = 0; // let a later prompt notify immediately
   }
 
-  function maybeClearNotification(text: string) {
-    if (!notifySoundInterval && !dockBounceActive) return;
-    // Ignore the prompt's own trailing chunks (they arrive within ~1s of firing);
-    // a real response only comes seconds later.
-    if (Date.now() - notifyLastTime < 1200) return;
-    // Prompt still on screen (being redrawn) — keep alerting.
-    if (actionPatterns.some(p => p.test(text))) return;
-    clearActionNotification();
+  // Mark a session as awaiting input. Adds it to the per-session store and, if
+  // the window is unfocused, raises the shared alert. The 10s per-session guard
+  // prevents a single redraw-happy session from re-firing the chime.
+  function markAwaiting(sessionId: string) {
+    const now = Date.now();
+    const last = notifyLastTimes.get(sessionId) ?? 0;
+    if (now - last < 10000) return;
+    notifyLastTimes.set(sessionId, now);
+    agentSessionAwaiting.update(s => {
+      if (s.has(sessionId)) return s;
+      const next = new Set(s);
+      next.add(sessionId);
+      return next;
+    });
+    startAlert();
+  }
+
+  // Clear a session's awaiting state. Removes it from the store, resets its
+  // re-alert guard, and stops the shared alert if no session is left awaiting.
+  // This is the per-session version of the old maybeClear backstop AND the
+  // landing point for the authoritative `agent-attention-cleared` event.
+  function clearAwaiting(sessionId: string) {
+    notifyLastTimes.set(sessionId, 0);
+    let removed = false;
+    agentSessionAwaiting.update(s => {
+      if (!s.has(sessionId)) return s;
+      removed = true;
+      const next = new Set(s);
+      next.delete(sessionId);
+      return next;
+    });
+    if (!removed) return;
+    if (get(agentSessionAwaiting).size === 0) stopAlert();
   }
 
   function playChime() {
@@ -409,21 +430,30 @@
     } catch (_) {}
   }
 
-  function handleTerminalOutput(base64Data: string) {
+  function handleTerminalOutput(sessionId: string, base64Data: string) {
     try {
       const raw = atob(base64Data);
       const text = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
-      notifyOutputBuffer += text;
 
-      // Silence an active alert as soon as the agent resumes (e.g. the user
-      // approved from mobile — the window never refocuses to clear it).
-      maybeClearNotification(text);
+      // Maintain a small rolling per-session buffer so a prompt split across
+      // chunks is still matched. Bounded so it can't grow unboundedly.
+      let buf = (notifyBuffers.get(sessionId) ?? '') + text;
+      if (buf.length > 2000) buf = buf.slice(-2000);
+      notifyBuffers.set(sessionId, buf);
 
-      // Check on every chunk if unfocused (timers may be throttled in background)
-      if (!document.hasFocus()) checkNotifyBuffer();
-      // Also debounce for when data arrives in small chunks
-      if (notifyBufferTimer) clearTimeout(notifyBufferTimer);
-      notifyBufferTimer = setTimeout(() => checkNotifyBuffer(), AGENT_NOTIFY_DEBOUNCE_MS);
+      const isPrompt = actionPatterns.some(p => p.test(buf));
+      if (isPrompt) {
+        // A prompt for THIS session — flag it and (if unfocused) alert. The
+        // buffer is reset so the same prompt text doesn't keep re-matching on
+        // every redraw chunk; markAwaiting's per-session guard handles storms.
+        notifyBuffers.set(sessionId, '');
+        markAwaiting(sessionId);
+      } else if (get(agentSessionAwaiting).has(sessionId) && text.trim().length > 8) {
+        // Backstop to the backend `agent-attention-cleared` event: if a session
+        // that was awaiting produces substantial non-prompt output, the agent
+        // has continued — clear it locally even if the event hasn't arrived.
+        clearAwaiting(sessionId);
+      }
     } catch (_) {}
   }
 
@@ -1113,6 +1143,11 @@
           }
           if (entry) entry._exitBuffer = '';
           agentSessionActivity.update(m => { m.set(sessionId, 'done'); return new Map(m); });
+          // Exited session can no longer be awaiting input (backend also emits
+          // agent-attention-cleared on exit; this is local cleanup).
+          clearAwaiting(sessionId);
+          notifyBuffers.delete(sessionId);
+          notifyLastTimes.delete(sessionId);
           // Always dispose the xterm entry on exit. Re-opening the session
           // from the sidebar will auto-spawn a fresh CLI (with --resume if
           // claudeSessionId is set), so preserving scrollback in a dead
@@ -1143,8 +1178,8 @@
           } catch (_) {}
         }
 
-        // Check for action-required prompts and notify
-        handleTerminalOutput(payload.data);
+        // Check for action-required prompts and notify (per-session)
+        handleTerminalOutput(sessionId, payload.data);
 
         // Accumulate raw output into a rolling 500-char buffer. Used at
         // PTY-close time to extract the "claude --resume <id>" token as
@@ -1655,6 +1690,26 @@
       agentDockBounceEnabled.set(dock !== 'false');
     } catch (_) {}
 
+    // Authoritative attention clear from the backend: emitted whenever input
+    // is sent to a session from ANY source (desktop or mobile) or it exits.
+    // Reverse-look the terminalId to our sessionId via agentTerminalIds
+    // (Map<sessionId, terminalId>) and clear that session's awaiting state.
+    try {
+      unlistenAttentionCleared = await listen<{ terminalId: string }>(
+        'agent-attention-cleared',
+        (event) => {
+          const terminalId = event.payload?.terminalId;
+          if (!terminalId) return;
+          const tIds = get(agentTerminalIds);
+          let matchedSessionId: string | null = null;
+          for (const [sid, tid] of tIds) {
+            if (tid === terminalId) { matchedSessionId = sid; break; }
+          }
+          if (matchedSessionId) clearAwaiting(matchedSessionId);
+        },
+      );
+    } catch (_) {}
+
     // Listen for reset-session, delete-session, and close-tab-session events
     window.addEventListener(AGENT_EVENT.RESET_SESSION, handleResetSession);
     window.addEventListener(AGENT_EVENT.DELETE_SESSION, handleDeleteSession);
@@ -1710,13 +1765,15 @@
     unsubShell();
     unsubAppearance();
     stopContextUsagePolling();
-    if (notifyBufferTimer) clearTimeout(notifyBufferTimer);
-    if (notifySoundInterval) clearInterval(notifySoundInterval);
+    // Stop the chime repeat and cancel any in-flight dock bounce so a bounce
+    // doesn't linger after the panel unmounts.
+    stopAlert();
     window.removeEventListener(AGENT_EVENT.RESET_SESSION, handleResetSession);
     window.removeEventListener(AGENT_EVENT.DELETE_SESSION, handleDeleteSession);
     window.removeEventListener(AGENT_EVENT.CLOSE_TAB_SESSION, handleCloseTabSession);
     window.removeEventListener(AGENT_EVENT.RELAUNCH_SESSION, handleRelaunchSession);
     if (unlistenFileDrop) unlistenFileDrop();
+    if (unlistenAttentionCleared) unlistenAttentionCleared();
   });
 </script>
 

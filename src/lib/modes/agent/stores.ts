@@ -32,6 +32,13 @@ export const agentContexts = writable<AgentContext[]>([]);
 // Session activity tracking
 export const agentSessionActivity = writable<Map<string, 'running' | 'done'>>(new Map());
 
+// Per-session "awaiting input" tracking. Holds the sessionIds currently
+// waiting on the user (a prompt was detected and not yet answered). This is
+// the inverse of agentSessionActivity and drives the AgentNav badge plus the
+// dock-bounce/chime alert. Cleared authoritatively by the backend
+// `agent-attention-cleared` event when input is sent from any source.
+export const agentSessionAwaiting = writable<Set<string>>(new Set());
+
 // Notification preferences (loaded from settings)
 export const agentSoundEnabled = writable<boolean>(true);
 export const agentDockBounceEnabled = writable<boolean>(true);
