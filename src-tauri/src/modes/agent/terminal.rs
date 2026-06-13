@@ -173,6 +173,36 @@ pub(crate) async fn spawn_agent_terminal_impl(
             session_ref.as_deref().unwrap_or(""),
         );
         cmd.env("CLAUGE_AGENT_ID", &provider);
+
+        // Provider-specific authoritative hooks (Phase 2). The CLAUGE_* env
+        // above is shared by all providers; each provider below opts into its
+        // own delivery mechanism without ever mutating the user's global agent
+        // config. claude/codex completion already arrive via notify.sh (Phase 1).
+        match provider.as_str() {
+            // OpenCode loads our notify plugin from a Clauge-scoped config dir.
+            // OPENCODE_CONFIG_DIR is *merged* with the user's real config, so
+            // ~/.config/opencode and auth are untouched. The plugin POSTs
+            // permission.ask / session.status events to CLAUGE_HOOK_URL.
+            "opencode" => {
+                if let Some(oc_dir) = crate::modes::agent::hooks::opencode_config_dir_path() {
+                    cmd.env("OPENCODE_CONFIG_DIR", oc_dir);
+                }
+            }
+            // Codex: record a per-spawn TUI session log to a unique temp file
+            // and tail it for permission/start events (the -c notify flag from
+            // Phase 1 still handles completion; both coexist). The watcher is
+            // torn down on terminal exit (see reader thread + agent_kill_terminal).
+            "codex" => {
+                let log_path = crate::modes::agent::hooks::codex_session_log_path(&terminal_id);
+                cmd.env("CODEX_TUI_RECORD_SESSION", "1");
+                cmd.env("CODEX_TUI_SESSION_LOG_PATH", &log_path);
+                crate::modes::agent::hooks::start_codex_log_watcher(terminal_id.clone(), log_path);
+            }
+            // gemini (binary `agy`): no per-session-injectable hook exists (its
+            // hooks have a known path bug), so it stays on the output heuristic
+            // by design — we inject no hook config for it here.
+            _ => {}
+        }
     }
 
     // Codex registers the workspace MCP with `--bearer-token-env-var
@@ -242,6 +272,9 @@ pub(crate) async fn spawn_agent_terminal_impl(
         // PTY closed — signal mirrors and the frontend so both clean up
         // without waiting for a stray write.
         fanout::publish_exit(&tid_clone);
+        // Tear down the codex log watcher + temp log (no-op for other
+        // providers / when no watcher is registered).
+        crate::modes::agent::hooks::stop_codex_watcher(&tid_clone);
         if let Some(ch) = &on_output {
             let _ = ch.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
         }
@@ -358,5 +391,8 @@ pub fn agent_resize_terminal(state: State<'_, TerminalState>, terminal_id: Strin
 pub fn agent_kill_terminal(state: State<'_, TerminalState>, terminal_id: String) -> Result<(), String> {
     let mut terminals = state.terminals.lock();
     if let Some(mut entry) = terminals.remove(&terminal_id) { let _ = entry.child.kill(); }
+    drop(terminals);
+    // Tear down any codex log watcher + its temp log for this terminal.
+    crate::modes::agent::hooks::stop_codex_watcher(&terminal_id);
     Ok(())
 }
