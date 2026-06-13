@@ -1191,10 +1191,11 @@
                 console.warn("[companion] lifecycle listeners failed:", e),
             );
 
-        // ── Companion: phone-authoritative size ownership ─────────────
-        // Single listener for `terminal-size-owner`; populates
-        // phoneOwnedTerminals so the Agent/SSH panels can show the
-        // ambient "Controlled from phone" hint on the on-screen terminal.
+        // ── Companion: phone-authoritative size ───────────────────────
+        // Single listener for `terminal-size`; populates phoneOwnedTerminals
+        // (drives the ambient "Controlled from phone" hint) and
+        // phoneDrivenSizes (the adopted cols/rows the Agent/SSH panels apply
+        // to their own xterm so the desktop matches the phone-driven PTY).
         sizeOwnerUnlisten = startSizeOwnerListener();
 
         // ── REST: refresh on MCP-driven mutations ─────────────────────

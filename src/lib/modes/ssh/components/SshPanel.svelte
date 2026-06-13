@@ -21,8 +21,7 @@
     sshKillTerminal,
     sshTouchProfile,
   } from '../commands';
-  import { setTerminalFocus } from '$lib/commands/companion';
-  import { phoneOwnedTerminals } from '$lib/stores/sizeOwner';
+  import { phoneOwnedTerminals, phoneDrivenSizes } from '$lib/stores/sizeOwner';
   import { tabs as tabsStore, activeTabId, addTab, activateTab, closeTab } from '$lib/shared/stores/tabs';
   import { newSshTabKey, profileIdFromTabKey } from '../tabkey';
   import { getTerminalTheme } from '$lib/utils/theme';
@@ -103,52 +102,6 @@
 
   // Track which tabs have an exited terminal (for reconnect banner).
   let exitedTabs = $state<Set<string>>(new Set());
-
-  // Desktop terminal-focus reporting for phone-authoritative sizing. The
-  // backend reclaims the desktop's size when focused and lets the phone take
-  // over (after its own blur debounce) when not. We track which terminalId we
-  // last reported as focused so we only emit on real transitions. SSH terminals
-  // register companion fanout hubs just like agent terminals, so the same
-  // best-effort command applies.
-  let focusedTerminalId: string | null = null;
-
-  function reportTerminalFocus(terminalId: string | null, focused: boolean) {
-    if (focused) {
-      if (!terminalId || focusedTerminalId === terminalId) return;
-      if (focusedTerminalId) setTerminalFocus(focusedTerminalId, false);
-      focusedTerminalId = terminalId;
-      setTerminalFocus(terminalId, true);
-    } else {
-      const target = terminalId ?? focusedTerminalId;
-      // Only emit blur for the terminal we currently hold focus on — avoids
-      // spamming the backend for terminals we never claimed.
-      if (!target || focusedTerminalId !== target) return;
-      focusedTerminalId = null;
-      setTerminalFocus(target, false);
-    }
-  }
-
-  // Resolve the on-screen active SSH terminalId and report focus for it, gating
-  // on real window focus so a blurred desktop never claims the size. The
-  // visible terminal is keyed by `currentTabKey` (multi-tab-per-profile), not
-  // by profile id — so resolve through the terminal map for that tab key.
-  function syncActiveTerminalFocus() {
-    const termId = currentTabKey
-      ? get(sshTerminalMap).get(currentTabKey)?.terminalId ?? null
-      : null;
-    if (termId && document.hasFocus()) {
-      reportTerminalFocus(termId, true);
-    } else {
-      reportTerminalFocus(focusedTerminalId, false);
-    }
-  }
-
-  function onWindowFocus() {
-    syncActiveTerminalFocus();
-  }
-  function onWindowBlur() {
-    reportTerminalFocus(focusedTerminalId, false);
-  }
 
   // Loading state — gated by first-data-received flag for current spawn.
   let spawning = $state(false);
@@ -346,6 +299,10 @@
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         try {
+          // Phone-owned: the phone drives this terminal's size. Adopt it
+          // (handled by the adopt $effect) and skip the local fit + PTY-resize
+          // drive so the desktop doesn't fight the phone (no resize war).
+          if (entry.terminalId && get(phoneDrivenSizes).has(entry.terminalId)) return;
           fitAddon.fit();
           if (entry.terminalId) {
             const dims = fitAddon.proposeDimensions();
@@ -391,9 +348,6 @@
 
   function markExited(tabKey: string) {
     const entry = get(sshTerminalMap).get(tabKey);
-    // Release desktop focus if this is the terminal we currently claim — the
-    // PTY is dead, so the phone should be free to size.
-    if (entry?.terminalId) reportTerminalFocus(entry.terminalId, false);
     if (entry) entry.terminalId = null;
     sshTerminalIds.update((m) => {
       m.delete(tabKey);
@@ -497,9 +451,6 @@
         m.set(entry.tabKey, terminalId);
         return new Map(m);
       });
-      // Now that this tab has a terminalId, claim desktop focus for it if it's
-      // the on-screen active tab and the window is focused.
-      if (currentTabKey === entry.tabKey) syncActiveTerminalFocus();
       // sshConnStates is NOT set to 'connected' here. ssh_spawn_terminal
       // resolves before the SSH handshake even begins (it just pre-mints a
       // UUID and spawns a background task). 'connected' is now set inside
@@ -510,8 +461,10 @@
       // the SshNav list reflects the new "Xs ago" instead of "never".
       loadSshProfiles().catch(() => {});
 
-      // Send initial fit
+      // Send initial fit — unless the phone already drives this terminal's
+      // size, in which case the adopt $effect owns it.
       requestAnimationFrame(() => {
+        if (get(phoneDrivenSizes).has(terminalId)) return;
         try {
           entry.fitAddon.fit();
           const dims = entry.fitAddon.proposeDimensions();
@@ -575,8 +528,6 @@
       spawning = false;
       termReady = true;
       showEntry(entry);
-      // Switched onto a live tab — hand desktop focus to its terminal.
-      syncActiveTerminalFocus();
       return;
     }
 
@@ -588,10 +539,6 @@
     }
 
     currentTabKey = tabKey;
-    // Release the previously-focused terminal now; the new tab has no
-    // terminalId yet — spawnFor claims it via syncActiveTerminalFocus once
-    // the spawn completes.
-    reportTerminalFocus(focusedTerminalId, false);
     entry = createEntry(tabKey, profile);
     showEntry(entry);
     await spawnFor(entry, profile);
@@ -621,7 +568,6 @@
     if (entry) entry.generation = nextGen;
 
     if (entry?.terminalId) {
-      reportTerminalFocus(entry.terminalId, false);
       sshKillTerminal(entry.terminalId).catch(() => {});
     }
     if (entry) {
@@ -656,7 +602,6 @@
     }
     // Kill any lingering remote terminal first
     if (entry.terminalId) {
-      reportTerminalFocus(entry.terminalId, false);
       sshKillTerminal(entry.terminalId).catch(() => {});
       entry.terminalId = null;
     }
@@ -715,7 +660,6 @@
     const entry = get(sshTerminalMap).get(tabKey);
     if (entry) {
       if (entry.terminalId) {
-        reportTerminalFocus(entry.terminalId, false);
         sshKillTerminal(entry.terminalId).catch(() => {});
       }
       try { entry.container.remove(); } catch { /* ignore */ }
@@ -789,9 +733,6 @@
   // last SSH tab). The activeTabId subscriber handles the "switch in" case.
   const unsubProfile = activeSshProfile.subscribe((profile) => {
     if (!profile) {
-      // No active SSH profile (last tab closed) — release desktop focus so the
-      // phone can take over.
-      reportTerminalFocus(focusedTerminalId, false);
       currentTabKey = null;
       if (activeEntry) {
         activeEntry.container.style.display = 'none';
@@ -854,12 +795,6 @@
     window.addEventListener(SSH_EVENT.INSERT_COMMAND, handleInsertCommand);
     window.addEventListener(SSH_EVENT.EXECUTE_CAPTURE_REQUEST, handleExecuteCaptureRequest);
 
-    // Report desktop terminal focus so phone-authoritative sizing can reclaim
-    // the desktop's size while the user is looking at this SSH session.
-    window.addEventListener('focus', onWindowFocus);
-    window.addEventListener('blur', onWindowBlur);
-    syncActiveTerminalFocus();
-
     // First mount: load profiles + auto-attach if there's a tab waiting.
     await loadSshProfiles();
 
@@ -889,10 +824,6 @@
     window.removeEventListener(SSH_EVENT.DUPLICATE_SESSION, handleDuplicateSession);
     window.removeEventListener(SSH_EVENT.INSERT_COMMAND, handleInsertCommand);
     window.removeEventListener(SSH_EVENT.EXECUTE_CAPTURE_REQUEST, handleExecuteCaptureRequest);
-    window.removeEventListener('focus', onWindowFocus);
-    window.removeEventListener('blur', onWindowBlur);
-    // Release desktop focus on unmount so the phone can take over.
-    reportTerminalFocus(focusedTerminalId, false);
     rejectAllSshCaptures('SSH panel unmounted');
   });
 
@@ -913,6 +844,48 @@
       ? $sshTerminalMap.get(currentTabKey)?.terminalId ?? null
       : null;
     return !!termId && $phoneOwnedTerminals.has(termId);
+  });
+
+  // Adopt phone-driven sizes. When the phone owns a terminal's size, resize
+  // THAT terminal's xterm to the adopted cols×rows so the desktop renders a
+  // tidy narrow terminal matching the PTY instead of a garbled wide one. When
+  // a terminal stops being phone-owned, re-fit it to its pane and resume the
+  // normal desktop-driven path. Each sshTerminalMap entry carries its own
+  // terminalId, so we resolve phone-driven terminalIds directly to their
+  // xterm entry.
+  let _lastDrivenTermIds = new Set<string>();
+  $effect(() => {
+    const driven = $phoneDrivenSizes;
+    const termMap = $sshTerminalMap;
+    // terminalId → entry lookup.
+    const entryByTerm = new Map<string, TermEntry>();
+    for (const entry of termMap.values()) {
+      if (entry.terminalId) entryByTerm.set(entry.terminalId, entry);
+    }
+
+    const nowDriven = new Set<string>();
+    for (const [termId, size] of driven) {
+      nowDriven.add(termId);
+      const entry = entryByTerm.get(termId);
+      if (entry?.term) {
+        try { entry.term.resize(size.cols, size.rows); } catch { /* ignore */ }
+      }
+    }
+
+    // Terminals that just stopped being phone-owned → re-fit to their pane and
+    // resume desktop driving.
+    for (const termId of _lastDrivenTermIds) {
+      if (nowDriven.has(termId)) continue;
+      const entry = entryByTerm.get(termId);
+      if (entry?.fitAddon && entry.terminalId) {
+        try {
+          entry.fitAddon.fit();
+          const dims = entry.fitAddon.proposeDimensions();
+          if (dims) sshResizeTerminal(entry.terminalId, dims.cols, dims.rows).catch(() => {});
+        } catch { /* ignore */ }
+      }
+    }
+    _lastDrivenTermIds = nowDriven;
   });
 </script>
 

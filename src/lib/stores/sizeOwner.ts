@@ -8,29 +8,48 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
  */
 export const phoneOwnedTerminals = writable<Set<string>>(new Set());
 
+/**
+ * Map of terminalId → the size (cols × rows) the phone is currently driving.
+ * Populated while a terminal is phone-owned and cleared when it stops being
+ * phone-owned. The Agent/SSH panels adopt this size onto their own xterm so
+ * the desktop renders a tidy narrow terminal that matches the PTY, and gate
+ * their fit-addon PTY-resize drive on `!phoneDrivenSizes.has(terminalId)` so
+ * the desktop never fights the phone (no resize war).
+ */
+export const phoneDrivenSizes = writable<Map<string, { cols: number; rows: number }>>(new Map());
+
 let unlisten: UnlistenFn | null = null;
 let started = false;
 
 /**
- * Register the single `terminal-size-owner` listener. The backend emits this
- * whenever a terminal's size ownership flips between phone-driven and
- * desktop-driven. Guarded so repeated calls (HMR, double-mount) don't stack
- * listeners. Returns a teardown that removes the listener.
+ * Register the single `terminal-size` listener. The backend emits this on
+ * every applied size change with the resulting cols/rows and whether the
+ * phone owns the size. Guarded so repeated calls (HMR, double-mount) don't
+ * stack listeners. Returns a teardown that removes the listener.
  */
 export function startSizeOwnerListener(): () => void {
   if (started) return () => {};
   started = true;
 
-  listen<{ terminalId: string; phoneOwned: boolean }>('terminal-size-owner', (event) => {
-    const { terminalId, phoneOwned } = event.payload;
-    if (!terminalId) return;
-    phoneOwnedTerminals.update((set) => {
-      const next = new Set(set);
-      if (phoneOwned) next.add(terminalId);
-      else next.delete(terminalId);
-      return next;
-    });
-  })
+  listen<{ terminalId: string; cols: number; rows: number; phoneOwned: boolean }>(
+    'terminal-size',
+    (event) => {
+      const { terminalId, cols, rows, phoneOwned } = event.payload;
+      if (!terminalId) return;
+      phoneOwnedTerminals.update((set) => {
+        const next = new Set(set);
+        if (phoneOwned) next.add(terminalId);
+        else next.delete(terminalId);
+        return next;
+      });
+      phoneDrivenSizes.update((map) => {
+        const next = new Map(map);
+        if (phoneOwned) next.set(terminalId, { cols, rows });
+        else next.delete(terminalId);
+        return next;
+      });
+    },
+  )
     .then((fn) => {
       unlisten = fn;
     })
@@ -41,5 +60,6 @@ export function startSizeOwnerListener(): () => void {
     unlisten = null;
     started = false;
     phoneOwnedTerminals.set(new Set());
+    phoneDrivenSizes.set(new Map());
   };
 }

@@ -22,8 +22,7 @@
     agentDockBounceEnabled,
   } from '../stores';
   import { getSetting, setSetting } from '$lib/commands/settings';
-  import { setTerminalFocus } from '$lib/commands/companion';
-  import { phoneOwnedTerminals } from '$lib/stores/sizeOwner';
+  import { phoneOwnedTerminals, phoneDrivenSizes } from '$lib/stores/sizeOwner';
   import { tabs as tabsStore, closeTab, activateTab } from '$lib/shared/stores/tabs';
   import {
     agentSpawnTerminal,
@@ -304,6 +303,51 @@
     return !!termId && $phoneOwnedTerminals.has(termId);
   });
 
+  // Adopt phone-driven sizes. When the phone owns a terminal's size, resize
+  // THAT terminal's xterm to the adopted cols×rows so the desktop renders a
+  // tidy narrow terminal matching the PTY instead of a garbled wide one. When
+  // a terminal stops being phone-owned, re-fit it to its pane and resume the
+  // normal desktop-driven path. Keyed off agentTerminalIds (sessionId →
+  // terminalId) so we can resolve each phone-driven terminalId back to its
+  // xterm entry in agentTerminalMap (keyed by sessionId).
+  let _lastDrivenTermIds = new Set<string>();
+  $effect(() => {
+    const driven = $phoneDrivenSizes;
+    const idMap = $agentTerminalIds;
+    const termMap = get(agentTerminalMap);
+    // termId → sessionId reverse lookup.
+    const sessionByTerm = new Map<string, string>();
+    for (const [sid, tid] of idMap) sessionByTerm.set(tid, sid);
+
+    const nowDriven = new Set<string>();
+    for (const [termId, size] of driven) {
+      nowDriven.add(termId);
+      const sid = sessionByTerm.get(termId);
+      const entry = sid ? termMap.get(sid) : undefined;
+      if (entry?.term) {
+        try { entry.term.resize(size.cols, size.rows); } catch (_) {}
+      }
+    }
+
+    // Terminals that just stopped being phone-owned → re-fit to their pane and
+    // resume desktop driving.
+    for (const termId of _lastDrivenTermIds) {
+      if (nowDriven.has(termId)) continue;
+      const sid = sessionByTerm.get(termId);
+      const entry = sid ? termMap.get(sid) : undefined;
+      if (entry?.fitAddon) {
+        try {
+          entry.fitAddon.fit();
+          if (entry.terminalId) {
+            const dims = entry.fitAddon.proposeDimensions();
+            if (dims) agentResizeTerminal(entry.terminalId, dims.cols, dims.rows).catch(() => {});
+          }
+        } catch (_) {}
+      }
+    }
+    _lastDrivenTermIds = nowDriven;
+  });
+
   // Context usage polling interval
   let contextUsageInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -328,47 +372,6 @@
   let dockBounceActive = false;
   let unlistenFileDrop: (() => void) | null = null;
   let unlistenAttentionCleared: UnlistenFn | null = null;
-
-  // Desktop terminal-focus reporting for phone-authoritative sizing. The
-  // backend reclaims the desktop's size when focused and lets the phone take
-  // over (after its own 3s blur debounce) when not. We track which terminalId
-  // we last reported as focused so we only emit on real transitions.
-  let focusedTerminalId: string | null = null;
-
-  function reportTerminalFocus(terminalId: string | null, focused: boolean) {
-    if (focused) {
-      if (!terminalId || focusedTerminalId === terminalId) return;
-      if (focusedTerminalId) setTerminalFocus(focusedTerminalId, false);
-      focusedTerminalId = terminalId;
-      setTerminalFocus(terminalId, true);
-    } else {
-      const target = terminalId ?? focusedTerminalId;
-      // Only emit blur for the terminal we currently hold focus on — avoids
-      // spamming the backend for terminals we never claimed.
-      if (!target || focusedTerminalId !== target) return;
-      focusedTerminalId = null;
-      setTerminalFocus(target, false);
-    }
-  }
-
-  // Resolve the active session's terminalId and report focus for it, gating
-  // on real window focus so a blurred desktop never claims the size.
-  function syncActiveTerminalFocus() {
-    const session = get(activeAgentSession);
-    const termId = session ? get(agentTerminalIds).get(session.id) ?? null : null;
-    if (termId && document.hasFocus()) {
-      reportTerminalFocus(termId, true);
-    } else {
-      reportTerminalFocus(focusedTerminalId, false);
-    }
-  }
-
-  function onWindowFocus() {
-    syncActiveTerminalFocus();
-  }
-  function onWindowBlur() {
-    reportTerminalFocus(focusedTerminalId, false);
-  }
 
   // Per-session rolling ANSI-stripped output buffer (for prompt detection).
   const notifyBuffers = new Map<string, string>();
@@ -642,11 +645,15 @@
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         try {
+          const tIds = get(agentTerminalIds);
+          const termId = tIds.get(sessionId);
+          // Phone-owned: the phone drives the size. Adopt it onto our xterm
+          // (handled by the adopt $effect) and skip both the local fit and
+          // the PTY-resize drive so the desktop doesn't fight the phone.
+          if (termId && get(phoneDrivenSizes).has(termId)) return;
           fa.fit();
           // Skip PTY resize during drag — only resize on mouseup via refitAll
           if (dragging) return;
-          const tIds = get(agentTerminalIds);
-          const termId = tIds.get(sessionId);
           if (termId) {
             const dims = fa.proposeDimensions();
             if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
@@ -810,12 +817,21 @@
   // Belt-and-suspenders on top of the per-entry ResizeObservers — those
   // observe the inner xterm container; this one fires when the outer wrapper
   // (terminalEl / shellEl) changes size, e.g. when agentShellOpen closes.
+  // True when the active session's terminal is being size-driven by the phone.
+  // While so, the desktop must NOT re-fit the main xterm to the pane (that
+  // would undo the adopted narrow size); the adopt $effect owns its size.
+  function activeTermPhoneOwned(): boolean {
+    const session = get(activeAgentSession);
+    const termId = session ? get(agentTerminalIds).get(session.id) ?? null : null;
+    return !!termId && get(phoneDrivenSizes).has(termId);
+  }
+
   let _fitTimer: ReturnType<typeof setTimeout> | null = null;
   function scheduleFit() {
     if (_fitTimer !== null) clearTimeout(_fitTimer);
     _fitTimer = setTimeout(() => {
       _fitTimer = null;
-      try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
       try { activeShellEntry?.fitAddon?.fit(); } catch (_) {}
     }, 60);
   }
@@ -825,11 +841,11 @@
     // mode-switch with animations, etc.).
     scheduleFit(); // 60ms default
     setTimeout(() => {
-      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon.fit(); } catch {}
       try { activeShellEntry?.fitAddon.fit(); } catch {}
     }, 200);
     setTimeout(() => {
-      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon.fit(); } catch {}
       try { activeShellEntry?.fitAddon.fit(); } catch {}
     }, 500);
   }
@@ -838,16 +854,16 @@
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         try {
-          activeTermEntry?.fitAddon?.fit();
-          if (sendPtyResize && activeTermEntry?.fitAddon) {
-            const tIds = get(agentTerminalIds);
-            const session = get(activeAgentSession);
-            if (session) {
-              const termId = tIds.get(session.id);
-              if (termId) {
-                const dims = activeTermEntry.fitAddon.proposeDimensions();
-                if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
-              }
+          const tIds = get(agentTerminalIds);
+          const session = get(activeAgentSession);
+          const termId = session ? tIds.get(session.id) ?? null : null;
+          // Phone-owned: the phone drives the size; don't refit or drive the
+          // PTY (the adopt $effect keeps our xterm matching the phone).
+          if (!(termId && get(phoneDrivenSizes).has(termId))) {
+            activeTermEntry?.fitAddon?.fit();
+            if (sendPtyResize && activeTermEntry?.fitAddon && termId) {
+              const dims = activeTermEntry.fitAddon.proposeDimensions();
+              if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
             }
           }
         } catch (_) {}
@@ -1390,10 +1406,6 @@
       console.log(`[TERM] Spawn complete: termId=${termId}, gen=${myGeneration}`);
       agentTerminalIds.update(m => { m.set(session.id, termId); return new Map(m); });
 
-      // Now that this session has a terminalId, claim desktop focus for it if
-      // it's the on-screen active session and the window is focused.
-      if (get(activeAgentSession)?.id === session.id) syncActiveTerminalFocus();
-
       // Start context usage polling (Feature 2)
       startContextUsagePolling(session);
 
@@ -1460,11 +1472,6 @@
   // React to session changes
   const unsubSession = activeAgentSession.subscribe((session) => {
     console.log(`[TERM] SUBSCRIBER: session=${session?.id || 'null'}, currentSessionId=${currentSessionId}, match=${session?.id === currentSessionId}`);
-    // Hand desktop focus to the newly-active session's terminal (and release
-    // the previously-active one). selectSession runs on a later frame, so the
-    // new terminalId may not exist yet — spawnTerminal calls syncActiveTerminalFocus
-    // once it does. This also covers the no-session case (release only).
-    syncActiveTerminalFocus();
     if (session && session.id !== currentSessionId) {
       console.log(`[TERM] SUBSCRIBER: triggering selectSession via rAF`);
       // Sync tab activation
@@ -1528,7 +1535,6 @@
     const tIds = get(agentTerminalIds);
     const termId = tIds.get(session.id);
     if (termId) {
-      reportTerminalFocus(termId, false);
       _suppressedTerminalIds.add(termId);
       agentKillTerminal(termId).catch(() => {});
     }
@@ -1586,7 +1592,6 @@
     const tIds = get(agentTerminalIds);
     const termId = tIds.get(session.id);
     if (termId) {
-      reportTerminalFocus(termId, false);
       _suppressedTerminalIds.add(termId);
       agentKillTerminal(termId).catch(() => {});
     }
@@ -1637,7 +1642,6 @@
     const tIdsClose = get(agentTerminalIds);
     const closingTermId = tIdsClose.get(sessionId);
     if (closingTermId) {
-      reportTerminalFocus(closingTermId, false);
       _suppressedTerminalIds.add(closingTermId);
     }
 
@@ -1677,7 +1681,6 @@
     const tIds = get(agentTerminalIds);
     const termId = tIds.get(session.id);
     if (termId) {
-      reportTerminalFocus(termId, false);
       _suppressedTerminalIds.add(termId);
       await agentKillTerminal(termId).catch(() => {});
     }
@@ -1784,12 +1787,6 @@
     window.addEventListener(AGENT_EVENT.CLOSE_TAB_SESSION, handleCloseTabSession);
     window.addEventListener(AGENT_EVENT.RELAUNCH_SESSION, handleRelaunchSession);
 
-    // Report desktop terminal focus so phone-authoritative sizing can reclaim
-    // the desktop's size while the user is looking at this session.
-    window.addEventListener('focus', onWindowFocus);
-    window.addEventListener('blur', onWindowBlur);
-    syncActiveTerminalFocus();
-
     // File drag-and-drop: write dropped file paths into the active terminal
     try {
       const win = getCurrentWindow();
@@ -1846,10 +1843,6 @@
     window.removeEventListener(AGENT_EVENT.DELETE_SESSION, handleDeleteSession);
     window.removeEventListener(AGENT_EVENT.CLOSE_TAB_SESSION, handleCloseTabSession);
     window.removeEventListener(AGENT_EVENT.RELAUNCH_SESSION, handleRelaunchSession);
-    window.removeEventListener('focus', onWindowFocus);
-    window.removeEventListener('blur', onWindowBlur);
-    // Release desktop focus on unmount so the phone can take over.
-    reportTerminalFocus(focusedTerminalId, false);
     if (unlistenFileDrop) unlistenFileDrop();
     if (unlistenAttentionCleared) unlistenAttentionCleared();
   });
