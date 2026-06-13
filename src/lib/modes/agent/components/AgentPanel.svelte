@@ -23,6 +23,7 @@
   } from '../stores';
   import { getSetting, setSetting } from '$lib/commands/settings';
   import { setTerminalFocus } from '$lib/commands/companion';
+  import { phoneOwnedTerminals } from '$lib/stores/sizeOwner';
   import { tabs as tabsStore, closeTab, activateTab } from '$lib/shared/stores/tabs';
   import {
     agentSpawnTerminal,
@@ -292,6 +293,16 @@
   let activeShellLoading = $derived(
     $activeAgentSession ? shellLoadingSessions.includes($activeAgentSession.id) : false
   );
+
+  // Ambient "Controlled from phone" hint: true while the on-screen session's
+  // terminal is being size-driven by a paired phone (phone-authoritative
+  // sizing). Resolves the visible terminalId the same way focus-reporting does.
+  let activePhoneOwned = $derived.by(() => {
+    const termId = $activeAgentSession
+      ? $agentTerminalIds.get($activeAgentSession.id) ?? null
+      : null;
+    return !!termId && $phoneOwnedTerminals.has(termId);
+  });
 
   // Context usage polling interval
   let contextUsageInterval: ReturnType<typeof setInterval> | null = null;
@@ -1849,6 +1860,15 @@
 {#if $activeAgentSession}
   <div class="agent-panel" bind:this={wrapperEl}>
     <div class="agent-terminal-main" style="width:{$agentShellOpen ? mainWidth + '%' : '100%'}">
+      {#if activePhoneOwned}
+        <div class="phone-owned-badge" title="This terminal's size is being driven by your phone">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="2" width="12" height="20" rx="2.5"/>
+            <line x1="11" y1="18" x2="13" y2="18"/>
+          </svg>
+          <span>Controlled from phone</span>
+        </div>
+      {/if}
       {#if spawning}
         {@const _prov = $activeAgentSession?.provider ?? 'claude'}
         {@const _src = _prov === 'codex' ? '/codex.svg'
@@ -1991,6 +2011,32 @@
     overflow: hidden;
     min-width: 200px;
     position: relative;
+  }
+
+  .phone-owned-badge {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px 3px 7px;
+    border-radius: 999px;
+    font-family: var(--ui);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--acc);
+    background: color-mix(in srgb, var(--acc) 14%, var(--n));
+    border: 1px solid color-mix(in srgb, var(--acc) 38%, transparent);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.92;
+  }
+  .phone-owned-badge svg {
+    flex: none;
+    opacity: 0.9;
   }
 
   .agent-terminal-container {
