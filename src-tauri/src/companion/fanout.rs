@@ -138,6 +138,12 @@ struct TermHub {
     /// The size currently pushed to the PTY master. `reconcile` is a no-op
     /// when the desired size already equals this.
     applied_size: Option<(u16, u16)>,
+    /// Who is driving the PTY size right now.
+    /// `None` = unknown/initial (no reconcile has run yet).
+    /// `Some(true)` = a phone is the active size driver.
+    /// `Some(false)` = the desktop is the active size driver.
+    /// Written only by `reconcile_now`; read by `publish_exit` for teardown.
+    size_owner: Option<bool>,
 }
 
 /// Everything a WS connection needs at attach time, captured under one
@@ -209,6 +215,27 @@ fn emit_cleared(terminal_id: &str) {
             "agent-attention-cleared",
             ClearedPayload {
                 terminal_id: terminal_id.to_string(),
+            },
+        );
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SizeOwnerPayload {
+    terminal_id: String,
+    phone_owned: bool,
+}
+
+/// Emit `terminal-size-owner` to the frontend. MUST be called with the
+/// hubs lock dropped — never while holding it.
+fn emit_size_owner(terminal_id: &str, phone_owned: bool) {
+    if let Some(handle) = app_handle().lock().as_ref() {
+        let _ = handle.emit(
+            "terminal-size-owner",
+            SizeOwnerPayload {
+                terminal_id: terminal_id.to_string(),
+                phone_owned,
             },
         );
     }
@@ -451,7 +478,11 @@ fn min_phone_size(hub: &TermHub) -> Option<(u16, u16)> {
 ///
 /// Mutates `last_phone_size` / honours `last_phone_detach_at`, so it takes
 /// `&mut TermHub`. Result is clamped to the safe floor.
-fn desired_size(hub: &mut TermHub, now: Instant) -> Option<(u16, u16)> {
+///
+/// Returns `(desired_size, phone_owned)`. `phone_owned` is `true` when the
+/// result came from a live phone or the detach-grace hold of a phone size
+/// (i.e. the desktop did NOT win the size decision).
+fn desired_size(hub: &mut TermHub, now: Instant) -> (Option<(u16, u16)>, bool) {
     let desktop = hub.sizes.get(DESKTOP_CLIENT).copied();
 
     let effective_focused = hub.desktop_focused
@@ -460,12 +491,12 @@ fn desired_size(hub: &mut TermHub, now: Instant) -> Option<(u16, u16)> {
             .map_or(false, |t| now < t + BLUR_DEBOUNCE);
 
     if effective_focused {
-        return desktop.map(clamp_size);
+        return (desktop.map(clamp_size), false);
     }
 
     if let Some(phone) = min_phone_size(hub) {
         hub.last_phone_size = Some(phone);
-        return Some(clamp_size(phone));
+        return (Some(clamp_size(phone)), true);
     }
 
     let in_grace = hub
@@ -473,11 +504,11 @@ fn desired_size(hub: &mut TermHub, now: Instant) -> Option<(u16, u16)> {
         .map_or(false, |t| now < t + DETACH_GRACE);
     if in_grace {
         if let Some(held) = hub.last_phone_size {
-            return Some(clamp_size(held));
+            return (Some(clamp_size(held)), true);
         }
     }
 
-    desktop.map(clamp_size)
+    (desktop.map(clamp_size), false)
 }
 
 /// Read-only desired size for snapshot callers (attach). Mirrors
@@ -525,6 +556,7 @@ pub fn register(terminal_id: &str, kind: TermKind, title: &str) {
             last_phone_size: None,
             last_phone_detach_at: None,
             applied_size: None,
+            size_owner: None,
         },
     );
 }
@@ -569,8 +601,7 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
 /// detached thread for the timer because callers include the PTY
 /// reader thread, which has no tokio runtime context.
 pub fn publish_exit(terminal_id: &str) {
-    let mut was_notified = false;
-    {
+    let (was_notified, was_phone_owned) = {
         let mut map = hubs().lock();
         let Some(hub) = map.get_mut(terminal_id) else {
             return;
@@ -586,12 +617,19 @@ pub fn publish_exit(terminal_id: &str) {
         }
         // Clear attention so the post-exit sweep can't fire a spurious
         // Attention during the 30s lingering window (B7 double-notify).
-        was_notified = hub.notified;
+        let was_notified = hub.notified;
         hub.prompt_flag = false;
         hub.notified = false;
-    }
+        // If the terminal was phone-owned, clear the size-owner badge.
+        let was_phone_owned = hub.size_owner == Some(true);
+        hub.size_owner = Some(false);
+        (was_notified, was_phone_owned)
+    };
     if was_notified {
         emit_cleared(terminal_id);
+    }
+    if was_phone_owned {
+        emit_size_owner(terminal_id, false);
     }
     let id = terminal_id.to_string();
     std::thread::spawn(move || {
@@ -685,16 +723,27 @@ pub fn hub_exists(terminal_id: &str) -> bool {
 /// size currently applied to the PTY, push the resize and broadcast the
 /// new size to every client. Idempotent: desired == applied → no-op.
 ///
-/// The PTY resize and the broadcast are performed with the hubs lock
-/// DROPPED — only the desired/applied diff happens under the lock.
+/// Also tracks size ownership (phone-driven vs desktop-driven) and emits
+/// a `terminal-size-owner` Tauri event on every ownership transition —
+/// with the hubs lock DROPPED (never emit under the lock).
 pub fn reconcile_now(terminal_id: &str) {
-    let to_apply = {
+    let (to_apply, owner_changed) = {
         let mut map = hubs().lock();
         let Some(hub) = map.get_mut(terminal_id) else {
             return;
         };
-        let desired = desired_size(hub, Instant::now());
-        match desired {
+        let now = Instant::now();
+        let (desired, phone_owned) = desired_size(hub, now);
+
+        // Detect ownership transition (only when we have a usable size).
+        let owner_changed = if desired.is_some() && hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+            Some(phone_owned)
+        } else {
+            None
+        };
+
+        let to_apply = match desired {
             Some(size) if Some(size) != hub.applied_size => {
                 hub.applied_size = Some(size);
                 Some((hub.kind, size))
@@ -702,8 +751,15 @@ pub fn reconcile_now(terminal_id: &str) {
             // No desired size yet (no client reported one), or already
             // applied — nothing to do.
             _ => None,
-        }
+        };
+        (to_apply, owner_changed)
     };
+
+    // Emit size-owner transition event (lock already dropped).
+    if let Some(phone_owned) = owner_changed {
+        emit_size_owner(terminal_id, phone_owned);
+    }
+
     if let Some((kind, (cols, rows))) = to_apply {
         apply_pty_resize(terminal_id, kind, cols, rows);
         broadcast_size(terminal_id, cols, rows);
@@ -874,6 +930,7 @@ mod tests {
             last_phone_size: None,
             last_phone_detach_at: None,
             applied_size: None,
+            size_owner: None,
         }
     }
 
@@ -889,10 +946,10 @@ mod tests {
         let now = Instant::now();
         let mut hub = test_hub();
         // No client reported a size yet.
-        assert_eq!(desired_size(&mut hub, now), None);
+        assert_eq!(desired_size(&mut hub, now), (None, false));
         // Desktop reports → desktop drives the PTY (today's behavior).
         hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
-        assert_eq!(desired_size(&mut hub, now), Some((120, 40)));
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
     }
 
     #[test]
@@ -902,7 +959,7 @@ mod tests {
         hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
         attach_phone(&mut hub, "phone-1", 80, 24);
         // Desktop unfocused → the phone's (smaller) size owns the PTY.
-        assert_eq!(desired_size(&mut hub, now), Some((80, 24)));
+        assert_eq!(desired_size(&mut hub, now), (Some((80, 24)), true));
         // And it's cached for the detach grace.
         assert_eq!(hub.last_phone_size, Some((80, 24)));
     }
@@ -915,7 +972,7 @@ mod tests {
         attach_phone(&mut hub, "phone-1", 80, 24);
         // Desktop focused on the session → it reclaims (scenario 8).
         hub.desktop_focused = true;
-        assert_eq!(desired_size(&mut hub, now), Some((120, 40)));
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
     }
 
     #[test]
@@ -926,7 +983,7 @@ mod tests {
         // phone-1=(80,24), phone-2=(60,30) → min cols/rows = (60,24).
         attach_phone(&mut hub, "phone-1", 80, 24);
         attach_phone(&mut hub, "phone-2", 60, 30);
-        assert_eq!(desired_size(&mut hub, now), Some((60, 24)));
+        assert_eq!(desired_size(&mut hub, now), (Some((60, 24)), true));
     }
 
     #[test]
@@ -938,10 +995,11 @@ mod tests {
         hub.last_phone_size = Some((80, 24));
         hub.last_phone_detach_at = Some(now);
         // Within the grace → hold the phone size (quick reconnect = no churn).
-        assert_eq!(desired_size(&mut hub, now), Some((80, 24)));
-        // Past the grace → desktop reclaims.
+        // Ownership is still phone-owned during the grace.
+        assert_eq!(desired_size(&mut hub, now), (Some((80, 24)), true));
+        // Past the grace → desktop reclaims, ownership flips.
         let later = now + DETACH_GRACE + Duration::from_secs(1);
-        assert_eq!(desired_size(&mut hub, later), Some((120, 40)));
+        assert_eq!(desired_size(&mut hub, later), (Some((120, 40)), false));
     }
 
     #[test]
@@ -954,10 +1012,10 @@ mod tests {
         hub.desktop_focused = false;
         hub.blur_at = Some(now);
         // Within the debounce → desktop keeps ownership despite the phone.
-        assert_eq!(desired_size(&mut hub, now), Some((120, 40)));
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
         // Past the debounce → the still-attached phone takes over.
         let later = now + BLUR_DEBOUNCE + Duration::from_secs(1);
-        assert_eq!(desired_size(&mut hub, later), Some((80, 24)));
+        assert_eq!(desired_size(&mut hub, later), (Some((80, 24)), true));
     }
 
     #[test]
@@ -967,10 +1025,10 @@ mod tests {
         hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
         // A phone reporting a zero dimension is ignored → desktop stays.
         attach_phone(&mut hub, "phone-bad", 0, 24);
-        assert_eq!(desired_size(&mut hub, now), Some((120, 40)));
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
         // A tiny-but-valid phone size is clamped to the safe floor.
         attach_phone(&mut hub, "phone-tiny", 2, 1);
-        assert_eq!(desired_size(&mut hub, now), Some((MIN_COLS, MIN_ROWS)));
+        assert_eq!(desired_size(&mut hub, now), (Some((MIN_COLS, MIN_ROWS)), true));
     }
 
     #[test]
@@ -1113,5 +1171,63 @@ mod tests {
 
         clear_push_sink();
         unregister(id);
+    }
+
+    /// Verify that `size_owner` transitions correctly as ownership changes:
+    /// None on fresh register, Some(true) once phone drives, Some(false)
+    /// when phone leaves. Pure state test via `desired_size` on a local hub.
+    #[test]
+    fn size_owner_tracks_phone_transitions() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        // Fresh hub: no owner yet.
+        assert_eq!(hub.size_owner, None);
+
+        // Desktop-only — no phones. Apply desired_size as reconcile would.
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        let (size, phone_owned) = desired_size(&mut hub, now);
+        assert_eq!(size, Some((120, 40)));
+        assert!(!phone_owned);
+        // Simulate the reconcile transition logic.
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(false));
+
+        // Phone attaches.
+        attach_phone(&mut hub, "phone-1", 80, 24);
+        let (size, phone_owned) = desired_size(&mut hub, now);
+        assert_eq!(size, Some((80, 24)));
+        assert!(phone_owned);
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(true));
+
+        // Desktop focused → reclaims ownership.
+        hub.desktop_focused = true;
+        let (_, phone_owned) = desired_size(&mut hub, now);
+        assert!(!phone_owned);
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(false));
+    }
+
+    /// Verify detach-grace is phone_owned=true (ownership stays until grace ends).
+    #[test]
+    fn size_owner_detach_grace_is_phone_owned() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        hub.last_phone_size = Some((80, 24));
+        hub.last_phone_detach_at = Some(now);
+        // In-grace: still phone-owned.
+        let (_, phone_owned) = desired_size(&mut hub, now);
+        assert!(phone_owned, "grace period must remain phone-owned");
+        // Post-grace: desktop reclaims.
+        let later = now + DETACH_GRACE + Duration::from_secs(1);
+        let (_, phone_owned) = desired_size(&mut hub, later);
+        assert!(!phone_owned, "after grace desktop must own");
     }
 }
