@@ -13,6 +13,7 @@
 
 pub mod commands;
 pub mod git;
+pub mod hooks;
 pub mod models;
 pub mod plugins;
 pub mod terminal;

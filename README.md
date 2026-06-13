@@ -215,6 +215,12 @@ Opt-in, encrypted.Agent Context, Co-Worker Profil, REST collections,SQL/NoSQL an
 
 ---
 
+## Mobile
+
+Drive your desktop sessions from your phone. The **[Clauge for Android](https://github.com/ClaugeHQ/clauge-android)** companion attaches to any running Agent or SSH session — watch it live, send prompts, approve actions — over your local network or Tailscale. Also on **[iOS](https://github.com/ClaugeHQ/clauge-ios)**.
+
+---
+
 ## Built with
 
 - **Frontend** — SvelteKit + Svelte 5

@@ -113,6 +113,25 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           echo "Certificate imported successfully"
 
+      - name: Drop stale whisper CMake cache (Windows x64)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # windows-latest's Visual Studio version can change between cache
+          # save and restore (e.g. VS 17 2022 -> VS 18 2026). cmake-rs reuses
+          # the cached whisper-rs-sys build dir and aborts on a generator
+          # mismatch, so drop its build + fingerprint and let it regenerate.
+          # (windows-11-arm is immune — it builds whisper with Ninja.)
+          foreach ($profile in @("debug", "release")) {
+            foreach ($sub in @("build", ".fingerprint")) {
+              $dir = "src-tauri/target/$profile/$sub"
+              if (Test-Path $dir) {
+                Get-ChildItem $dir -Directory -Filter "whisper-rs-sys-*" -ErrorAction SilentlyContinue |
+                  ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+              }
+            }
+          }
+
       - name: Build, sign and upload
         uses: tauri-apps/tauri-action@v0
         env:

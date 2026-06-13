@@ -49,3 +49,11 @@ export const companionApprovePair = (requestId: string) =>
 
 export const companionDenyPair = (requestId: string) =>
   invoke<void>('companion_deny_pair', { requestId });
+
+// Report whether the desktop is actively presenting a given terminal so the
+// phone-authoritative sizing can reclaim the desktop's size on focus. No-ops
+// in the backend when no hub exists, so this is best-effort: errors are
+// swallowed because the companion may be off.
+export function setTerminalFocus(terminalId: string, focused: boolean): void {
+  invoke('companion_set_terminal_focus', { terminalId, focused }).catch(() => {});
+}

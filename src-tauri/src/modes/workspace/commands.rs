@@ -1104,10 +1104,10 @@ pub async fn workspace_mcp_start(
             &bound_port.to_string(),
         )
         .await;
-        // ~/.claude.json was registered (or will be) against the
-        // requested port; rewrite it with the bound port if a
-        // claude-code entry already exists.
-        let _ = sync_claude_code_registration(bound_port, &token);
+        // Configs were registered (or will be) against the requested
+        // port; rewrite every provider that has a Clauge entry so none
+        // strands at the old port.
+        sync_all_registrations(bound_port, &token);
     }
     Ok(McpStatus { running: true, port: Some(bound_port) })
 }
@@ -1601,6 +1601,33 @@ fn sync_claude_code_registration(port: u16, token: &str) -> Result<(), String> {
     register_claude_code(port, token)
 }
 
+/// Re-point codex's registration at `port` if a Clauge entry exists in
+/// `~/.codex/config.toml`. `codex mcp add` overwrites in place.
+fn sync_codex_registration(port: u16, token: &str) -> Result<(), String> {
+    let path = match dirs::home_dir() {
+        Some(h) => h.join(".codex").join("config.toml"),
+        None => return Ok(()),
+    };
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    if !raw.contains("clauge-workspace") {
+        return Ok(());
+    }
+    register_codex(port, token)
+}
+
+/// Re-point every provider that already has a Clauge entry at `port`.
+/// Called after the bound port changes so a fallback never strands an
+/// agent at the old port. Each step is best-effort.
+fn sync_all_registrations(port: u16, token: &str) {
+    let _ = sync_claude_code_registration(port, token);
+    let _ = sync_gemini_registration(port, token);
+    let _ = sync_opencode_registration(port, token);
+    let _ = sync_codex_registration(port, token);
+}
+
 /// Best-effort auto-start, called from `lib.rs setup()` on app boot.
 /// Reads persisted port + token, generates a token on first run,
 /// starts the MCP server, persists the bound port if fallback kicked
@@ -1643,6 +1670,10 @@ pub async fn maybe_autostart_mcp(app: tauri::AppHandle, pool: SqlitePool) {
             drop(g);
             if bound != port {
                 let _ = settings_repo::upsert(&pool, "workspace_mcp_port", &bound.to_string()).await;
+                // Re-point any already-registered provider configs at the
+                // bound port so a fallback doesn't break Codex/Gemini/
+                // OpenCode (Claude is force-registered just below).
+                sync_all_registrations(bound, &token);
             }
             // Register Claude on first boot so a fresh install picks
             // up the entry without the user opening Settings. We DO

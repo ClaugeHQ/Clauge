@@ -81,7 +81,7 @@ azure_core = "0.21"
 # FTP backend (plain). FTPS-explicit deferred — suppaftp's tokio
 # `into_secure` flow has typing friction we'll resolve in v2.
 suppaftp = { version = "8", features = ["tokio"] }
-axum = { version = "0.8.4", default-features = false, features = ["tokio", "http1", "json", "ws"] }
+axum = { version = "0.8.4", default-features = false, features = ["tokio", "http1", "json", "ws", "query"] }
 # Companion server (src/companion/): device-token entropy + pair codes,
 # and LAN/tailnet interface enumeration for the pairing QR's hosts list.
 rand = "0.10"

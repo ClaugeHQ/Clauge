@@ -100,6 +100,7 @@
     } from "$lib/commands/cloud";
     import { decideFirstSync } from "$lib/services/firstSync";
     import { setupCompanionLifecycle } from "$lib/services/companionLifecycle";
+    import { startSizeOwnerListener } from "$lib/stores/sizeOwner";
     import DeviceSetupModal from "$lib/components/cloud/DeviceSetupModal.svelte";
     import { listen } from "@tauri-apps/api/event";
     import { cloudConflicts } from "$lib/stores/cloud";
@@ -179,6 +180,7 @@
     let backgroundPullInterval: ReturnType<typeof setInterval> | null = null;
     let deepLinkUnlisten: (() => void) | null = null;
     let companionLifecycleUnlisten: (() => void) | null = null;
+    let sizeOwnerUnlisten: (() => void) | null = null;
     // Tracks the last dispatched OAuth token to prevent double-firing
     // (getCurrent() and onOpenUrl can both return the same startup URL).
     let lastDispatchedToken = "";
@@ -639,6 +641,7 @@
     onDestroy(() => {
         teardownGlobalShortcuts();
         companionLifecycleUnlisten?.();
+        sizeOwnerUnlisten?.();
         window.removeEventListener(
             APP_EVENT.SAVE_NEW_REQUEST,
             handleSaveNewRequest,
@@ -1187,6 +1190,13 @@
             .catch((e) =>
                 console.warn("[companion] lifecycle listeners failed:", e),
             );
+
+        // ── Companion: phone-authoritative size ───────────────────────
+        // Single listener for `terminal-size`; populates phoneOwnedTerminals
+        // (drives the ambient "Controlled from phone" hint) and
+        // phoneDrivenSizes (the adopted cols/rows the Agent/SSH panels apply
+        // to their own xterm so the desktop matches the phone-driven PTY).
+        sizeOwnerUnlisten = startSizeOwnerListener();
 
         // ── REST: refresh on MCP-driven mutations ─────────────────────
         // Existing Tauri commands don't emit events because the frontend

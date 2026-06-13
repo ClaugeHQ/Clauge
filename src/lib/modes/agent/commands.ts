@@ -64,6 +64,10 @@ export const agentInjectPurpose = (projectPath: string, provider: string, purpos
 // Terminal
 export const agentSpawnTerminal = (params: {
   sessionId?: string;
+  /** Canonical session row id. Stamped as the terminal's session_ref so
+   *  the mobile companion can match this live terminal to its row for
+   *  every provider (codex/opencode produce no resume id). */
+  rowId?: string;
   projectPath: string;
   contextPrompt?: string;
   skipPermissions?: boolean;

@@ -39,6 +39,16 @@ pub struct SpawnOpts {
     /// to shell-quote it appropriately before splicing into the spawn
     /// command — see [`shell_quote_path`] for the canonical helper.
     pub binary_path_override: Option<String>,
+    /// Hook-driven attention (Phase 1): absolute path to the Clauge-owned
+    /// Claude `--settings` file. When set, the Claude runner appends
+    /// `--settings <path>` so the agent registers our notify hooks. An
+    /// additive settings source — the user's own settings.json (auth/MCP)
+    /// is untouched. `None` = hooks disabled / unavailable.
+    pub claude_settings_path: Option<String>,
+    /// Hook-driven attention (Phase 1): absolute path to the Clauge-owned
+    /// `notify.sh`. When set, the Codex runner appends `-c
+    /// notify=["bash","<path>"]`. `None` = hooks disabled / unavailable.
+    pub notify_script_path: Option<String>,
 }
 
 /// Shell-quote a binary path for safe inclusion in a spawn command

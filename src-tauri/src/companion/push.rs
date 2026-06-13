@@ -93,7 +93,11 @@ async fn handle_trigger(app: &tauri::AppHandle, trigger: PushTrigger) {
             ("Needs your input", title, KIND_ATTENTION, terminal_id)
         }
     };
-    let data = json!({ "kind": kind, "terminalId": terminal_id });
+    let hostname = tauri_plugin_os::hostname();
+    let mut data = json!({ "kind": kind, "terminalId": terminal_id });
+    if !hostname.is_empty() {
+        data["serverName"] = json!(hostname);
+    }
     notify_devices(app, title, &body, data).await;
 }
 

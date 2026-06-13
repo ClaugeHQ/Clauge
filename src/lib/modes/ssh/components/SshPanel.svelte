@@ -21,6 +21,7 @@
     sshKillTerminal,
     sshTouchProfile,
   } from '../commands';
+  import { phoneOwnedTerminals, phoneDrivenSizes } from '$lib/stores/sizeOwner';
   import { tabs as tabsStore, activeTabId, addTab, activateTab, closeTab } from '$lib/shared/stores/tabs';
   import { newSshTabKey, profileIdFromTabKey } from '../tabkey';
   import { getTerminalTheme } from '$lib/utils/theme';
@@ -298,6 +299,10 @@
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         try {
+          // Phone-owned: the phone drives this terminal's size. Adopt it
+          // (handled by the adopt $effect) and skip the local fit + PTY-resize
+          // drive so the desktop doesn't fight the phone (no resize war).
+          if (entry.terminalId && get(phoneDrivenSizes).has(entry.terminalId)) return;
           fitAddon.fit();
           if (entry.terminalId) {
             const dims = fitAddon.proposeDimensions();
@@ -456,8 +461,10 @@
       // the SshNav list reflects the new "Xs ago" instead of "never".
       loadSshProfiles().catch(() => {});
 
-      // Send initial fit
+      // Send initial fit — unless the phone already drives this terminal's
+      // size, in which case the adopt $effect owns it.
       requestAnimationFrame(() => {
+        if (get(phoneDrivenSizes).has(terminalId)) return;
         try {
           entry.fitAddon.fit();
           const dims = entry.fitAddon.proposeDimensions();
@@ -652,7 +659,9 @@
 
     const entry = get(sshTerminalMap).get(tabKey);
     if (entry) {
-      if (entry.terminalId) sshKillTerminal(entry.terminalId).catch(() => {});
+      if (entry.terminalId) {
+        sshKillTerminal(entry.terminalId).catch(() => {});
+      }
       try { entry.container.remove(); } catch { /* ignore */ }
       try { entry.term.dispose(); } catch { /* ignore */ }
       sshTerminalMap.update((m) => { const next = new Map(m); next.delete(tabKey); return next; });
@@ -825,10 +834,67 @@
   let activeIsExited = $derived(
     !!currentTabKey && exitedTabs.has(currentTabKey),
   );
+
+  // Ambient "Controlled from phone" hint: true while the on-screen tab's
+  // terminal is being size-driven by a paired phone. Resolves the visible
+  // terminalId through sshTerminalMap keyed by currentTabKey, the same way
+  // focus-reporting does.
+  let activePhoneOwned = $derived.by(() => {
+    const termId = currentTabKey
+      ? $sshTerminalMap.get(currentTabKey)?.terminalId ?? null
+      : null;
+    return !!termId && $phoneOwnedTerminals.has(termId);
+  });
+
+  // Yield phone-owned terminals. While the phone owns a terminal's size, the
+  // desktop does NOTHING to that PTY — it neither resizes its xterm nor fits/
+  // drives the PTY (the phone is the sole renderer). The "Controlled from
+  // phone" panel covers the now-irrelevant desktop xterm. When a terminal
+  // stops being phone-owned, the desktop reclaims it: re-fit to its pane and
+  // resume driving. Each sshTerminalMap entry carries its own terminalId, so
+  // we resolve phone-driven terminalIds directly to their xterm entry.
+  let _lastDrivenTermIds = new Set<string>();
+  $effect(() => {
+    const driven = $phoneDrivenSizes;
+    const termMap = $sshTerminalMap;
+    // terminalId → entry lookup.
+    const entryByTerm = new Map<string, TermEntry>();
+    for (const entry of termMap.values()) {
+      if (entry.terminalId) entryByTerm.set(entry.terminalId, entry);
+    }
+
+    const nowDriven = new Set<string>();
+    for (const termId of driven.keys()) nowDriven.add(termId);
+
+    // Terminals that just stopped being phone-owned → re-fit to their pane and
+    // resume desktop driving (reclaim on detach).
+    for (const termId of _lastDrivenTermIds) {
+      if (nowDriven.has(termId)) continue;
+      const entry = entryByTerm.get(termId);
+      if (entry?.fitAddon && entry.terminalId) {
+        try {
+          entry.fitAddon.fit();
+          const dims = entry.fitAddon.proposeDimensions();
+          if (dims) sshResizeTerminal(entry.terminalId, dims.cols, dims.rows).catch(() => {});
+        } catch { /* ignore */ }
+      }
+    }
+    _lastDrivenTermIds = nowDriven;
+  });
 </script>
 
 {#if $activeSshProfile}
   <div class="ssh-panel">
+    {#if activePhoneOwned}
+      <div class="phone-owned-panel">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2" width="12" height="20" rx="2.5"/>
+          <line x1="11" y1="18" x2="13" y2="18"/>
+        </svg>
+        <span class="phone-owned-title">Controlled from phone</span>
+        <span class="phone-owned-sub">This session is being driven from your mobile. It'll return when you detach.</span>
+      </div>
+    {/if}
     {#if spawning}
       <div class="ssh-loading">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--ssh)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -906,7 +972,7 @@
       </div>
     {/if}
 
-    <div class="ssh-terminal-container" class:term-hidden={!termReady && !activeIsExited} bind:this={terminalEl} style="background:{termBg}"></div>
+    <div class="ssh-terminal-container" class:term-hidden={(!termReady && !activeIsExited) || activePhoneOwned} bind:this={terminalEl} style="background:{termBg}"></div>
   </div>
 {:else}
   <div class="ssh-empty">
@@ -929,6 +995,40 @@
     min-height: 0;
     overflow: hidden;
     position: relative;
+  }
+
+  .phone-owned-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px;
+    background: var(--n);
+    color: var(--acc);
+    user-select: none;
+  }
+  .phone-owned-panel svg {
+    flex: none;
+    opacity: 0.85;
+  }
+  .phone-owned-title {
+    font-family: var(--ui);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--acc);
+  }
+  .phone-owned-sub {
+    font-family: var(--ui);
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 320px;
+    color: var(--fg-muted, color-mix(in srgb, var(--fg) 55%, transparent));
   }
   .ssh-terminal-container {
     flex: 1;

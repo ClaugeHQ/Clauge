@@ -164,12 +164,16 @@ pub fn run() {
             // frontend without threading AppHandle through every connect
             // entry point (terminal, tunnel, explorer all already exist).
             modes::ssh::ssh_session::set_app_handle(app.handle().clone());
+            // Stash the AppHandle so fanout can emit attention-cleared
+            // events to the frontend without routing through the
+            // companion-only push sink (clears even when companion is off).
+            companion::fanout::set_app_handle(app.handle().clone());
             app.manage(modes::explorer::session::ExplorerSessions::default());
             app.manage(modes::explorer::transfers::Transfers::default());
             app.manage(shared::ai::types::PendingFrontendTools::default());
             app.manage(shared::updater::state::PendingUpdate::default());
-            // Companion (mobile) server state. The server itself stays
-            // OFF until companion_start — no autostart by design.
+            // Companion (mobile) server state. Auto-starts below if the user
+            // had it enabled last session (persisted via `companion_enabled`).
             app.manage(companion::CompanionState::default());
 
             // ── Cloud auth + sync scheduler ──────────────────────────
@@ -253,6 +257,14 @@ pub fn run() {
             app.manage(modes::workspace::meetings::detect::DetectState::default());
             modes::workspace::meetings::detect::start_poller(app.handle().clone());
 
+            // Generate the agent hook assets (notify.sh + the Claude
+            // --settings file) under ~/.clauge/hooks once at boot. The
+            // spawn path injects them per-launch when agent_hooks_enabled.
+            // Best-effort: log + continue so a write failure can't block boot.
+            if let Err(e) = modes::agent::hooks::ensure_hook_assets() {
+                log::warn!(target: "agent::hooks", "ensure_hook_assets failed: {e}");
+            }
+
             // Auto-start the workspace MCP server in the background so
             // agents can connect without the user opening Settings.
             // Opt-out via the `workspace_mcp_enabled = "false"` setting.
@@ -263,6 +275,15 @@ pub fn run() {
                 let pool_for_autostart = app.state::<sqlx::SqlitePool>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     modes::workspace::commands::maybe_autostart_mcp(app_handle, pool_for_autostart).await;
+                });
+            }
+
+            // Auto-start the companion (mobile) server if the user left it on.
+            {
+                let app_handle = app.handle().clone();
+                let pool_for_companion = app.state::<sqlx::SqlitePool>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    companion::server::maybe_autostart_companion(app_handle, pool_for_companion).await;
                 });
             }
 
@@ -656,6 +677,7 @@ pub fn run() {
             companion::devices::companion_purge_revoked,
             companion::companion_report_opened,
             companion::companion_report_open_failed,
+            companion::companion_set_terminal_focus,
 
             // Canvas mode
             modes::canvas::commands::canvas_resolve_tiles,

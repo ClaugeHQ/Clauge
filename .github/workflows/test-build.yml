@@ -70,6 +70,24 @@ jobs:
           # Do NOT set CMAKE_GENERATOR_TOOLSET — Ninja rejects toolset specs.
           Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_GENERATOR=Ninja"
 
+      - name: Drop stale whisper CMake cache (Windows x64)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # windows-latest's Visual Studio version can change between cache
+          # save and restore (e.g. VS 17 2022 -> VS 18 2026). cmake-rs reuses
+          # the cached whisper-rs-sys build dir and aborts on a generator
+          # mismatch, so drop its build + fingerprint and let it regenerate.
+          # (windows-11-arm is immune — it builds whisper with Ninja.)
+          $base = "src-tauri/target/debug"
+          foreach ($sub in @("build", ".fingerprint")) {
+            $dir = Join-Path $base $sub
+            if (Test-Path $dir) {
+              Get-ChildItem $dir -Directory -Filter "whisper-rs-sys-*" -ErrorAction SilentlyContinue |
+                ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+            }
+          }
+
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 

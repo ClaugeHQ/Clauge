@@ -32,6 +32,11 @@ pub async fn agent_spawn_terminal(
     state: State<'_, TerminalState>,
     pool: State<'_, SqlitePool>,
     session_id: Option<String>,
+    // Canonical session row id. Used as the entry's `session_ref` so the
+    // companion can match this live terminal to its row for ALL providers
+    // (codex/opencode never produce a resume id, so `session_id` is null
+    // for them — without this they'd show as idle on mobile).
+    row_id: Option<String>,
     project_path: String,
     context_prompt: Option<String>,
     skip_permissions: Option<bool>,
@@ -49,12 +54,15 @@ pub async fn agent_spawn_terminal(
     workspace_mcp_token: Option<String>,
     on_output: Channel<TerminalOutputPayload>,
 ) -> Result<String, String> {
-    // The desktop only knows the claude resume id at this point, so
-    // that doubles as the entry's session_ref (see TerminalEntry).
+    // Stamp the canonical row id as session_ref when supplied (every
+    // provider), and pass the resume id (claude/antigravity only)
+    // separately for `--resume`. Fall back to the resume id for the ref
+    // so legacy callers that omit row_id keep matching as before.
+    let session_ref = row_id.or_else(|| session_id.clone());
     spawn_agent_terminal_impl(
         &state,
         pool.inner(),
-        session_id.clone(),
+        session_ref,
         session_id,
         project_path,
         context_prompt,
@@ -101,6 +109,31 @@ pub(crate) async fn spawn_agent_terminal_impl(
     // session row). Unknown / missing → Claude via runner_for's default.
     let provider = provider.unwrap_or_else(|| "claude".to_string());
     let cli: &dyn CliRunner = runner_for(&provider);
+
+    // Hook-driven attention. OFF by default — injecting hook flags/env
+    // (codex `-c notify`/TUI-log, opencode config-dir) was observed to break
+    // session resume, so we no longer alter agent spawn unless the user
+    // explicitly opts in with `agent_hooks_enabled = "true"`. When off, every
+    // agent spawns clean and attention falls back to the output heuristic.
+    let hooks_enabled = match settings_repo::get_by_key(pool, "agent_hooks_enabled").await {
+        Ok(Some(s)) => s.value.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
+    let hook_url = if hooks_enabled {
+        crate::modes::agent::hooks::hook_url()
+    } else {
+        None
+    };
+
+    let cli_settings_path = hook_url
+        .as_ref()
+        .filter(|_| provider == "claude")
+        .and_then(|_| crate::modes::agent::hooks::claude_settings_path());
+    let cli_notify_path = hook_url
+        .as_ref()
+        .filter(|_| provider == "codex")
+        .and_then(|_| crate::modes::agent::hooks::notify_script_path());
+
     let spawn_cmd = cli.build_spawn_command(&SpawnOpts {
         resume_session_id,
         system_prompt: context_prompt,
@@ -110,6 +143,8 @@ pub(crate) async fn spawn_agent_terminal_impl(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        claude_settings_path: cli_settings_path,
+        notify_script_path: cli_notify_path,
     });
 
     let (shell_path, shell_kind) = default_user_shell();
@@ -126,6 +161,52 @@ pub(crate) async fn spawn_agent_terminal_impl(
     cmd.env("TERM", "xterm-256color");
     if let Some(ref name) = git_name { cmd.env("GIT_AUTHOR_NAME", name); cmd.env("GIT_COMMITTER_NAME", name); }
     if let Some(ref email) = git_email { cmd.env("GIT_AUTHOR_EMAIL", email); cmd.env("GIT_COMMITTER_EMAIL", email); }
+
+    // Codex log watcher is started only after a successful spawn (below) so
+    // a failed spawn can't leave a thread tailing a log that never appears.
+    let mut codex_log_path: Option<std::path::PathBuf> = None;
+
+    // Hook-driven attention identity. notify.sh reads these to POST the
+    // agent's lifecycle events to the always-on local endpoint, which sets
+    // this terminal's awaiting state authoritatively (claude/codex). Only
+    // injected when hooks are enabled AND the endpoint has bound.
+    if let Some(ref url) = hook_url {
+        cmd.env("CLAUGE_HOOK_URL", url);
+        cmd.env("CLAUGE_TERMINAL_ID", &terminal_id);
+        cmd.env(
+            "CLAUGE_SESSION_REF",
+            session_ref.as_deref().unwrap_or(""),
+        );
+        cmd.env("CLAUGE_AGENT_ID", &provider);
+
+        // Provider-specific authoritative hooks (Phase 2). The CLAUGE_* env
+        // above is shared by all providers; each provider below opts into its
+        // own delivery mechanism without ever mutating the user's global agent
+        // config. claude/codex completion already arrive via notify.sh (Phase 1).
+        match provider.as_str() {
+            // OpenCode: do NOT redirect OPENCODE_CONFIG_DIR. Pointing it at a
+            // Clauge-scoped dir was observed to break session resume (OpenCode
+            // did not merge the user's real config as expected), so OpenCode runs
+            // with its own config untouched and falls back to the output-heuristic
+            // for attention. (Revisit only if config-dir merge is confirmed safe.)
+            "opencode" => {}
+            // Codex: record a per-spawn TUI session log to a unique temp file
+            // and tail it for permission/start events (the -c notify flag from
+            // Phase 1 still handles completion; both coexist). The watcher is
+            // torn down on terminal exit (see reader thread + agent_kill_terminal).
+            "codex" => {
+                let log_path = crate::modes::agent::hooks::codex_session_log_path(&terminal_id);
+                cmd.env("CODEX_TUI_RECORD_SESSION", "1");
+                cmd.env("CODEX_TUI_SESSION_LOG_PATH", &log_path);
+                // Defer the watcher to after the spawn succeeds (see below).
+                codex_log_path = Some(log_path);
+            }
+            // gemini (binary `agy`): no per-session-injectable hook exists (its
+            // hooks have a known path bug), so it stays on the output heuristic
+            // by design — we inject no hook config for it here.
+            _ => {}
+        }
+    }
 
     // Codex registers the workspace MCP with `--bearer-token-env-var
     // CLAUGE_WORKSPACE_TOKEN` (see modes/workspace/commands.rs
@@ -161,6 +242,10 @@ pub(crate) async fn spawn_agent_terminal_impl(
     }
 
     let child = pty_pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn {}: {}", cli.id(), e))?;
+    // Spawn succeeded — now safe to tail codex's session log.
+    if let Some(log_path) = codex_log_path {
+        crate::modes::agent::hooks::start_codex_log_watcher(terminal_id.clone(), log_path);
+    }
     let writer = pty_pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
     let reader = pty_pair.master.try_clone_reader().map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
@@ -194,6 +279,9 @@ pub(crate) async fn spawn_agent_terminal_impl(
         // PTY closed — signal mirrors and the frontend so both clean up
         // without waiting for a stray write.
         fanout::publish_exit(&tid_clone);
+        // Tear down the codex log watcher + temp log (no-op for other
+        // providers / when no watcher is registered).
+        crate::modes::agent::hooks::stop_codex_watcher(&tid_clone);
         if let Some(ch) = &on_output {
             let _ = ch.send(TerminalOutputPayload { terminal_id: tid_clone.clone(), data: String::new(), exit: Some(true) });
         }
@@ -283,23 +371,24 @@ pub fn agent_write_to_terminal(state: State<'_, TerminalState>, terminal_id: Str
     let entry = terminals.get_mut(&terminal_id).ok_or("Terminal not found")?;
     entry.writer.write_all(data.as_bytes()).map_err(|e| format!("Write error: {}", e))?;
     entry.writer.flush().map_err(|e| format!("Flush error: {}", e))?;
+    drop(terminals);
+    // Desktop keystrokes clear attention from any source (B1).
+    fanout::note_input(&terminal_id);
     Ok(())
 }
 
 #[tauri::command]
 pub fn agent_resize_terminal(state: State<'_, TerminalState>, terminal_id: String, cols: u32, rows: u32) -> Result<(), String> {
-    let terminals = state.terminals.lock();
-    let entry = terminals.get(&terminal_id).ok_or("Terminal not found")?;
-    // The desktop is one mirror client among potentially many: record
-    // its viewport and drive the PTY at the effective (min) size, which
-    // is exactly the desktop size while no phone is attached. None =
-    // effective size unchanged → nothing to apply.
-    if let Some((c, r)) =
-        fanout::set_client_size(&terminal_id, fanout::DESKTOP_CLIENT, cols as u16, rows as u16)
     {
-        entry.master.resize(PtySize { rows: r, cols: c, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| format!("Resize error: {}", e))?;
+        let terminals = state.terminals.lock();
+        terminals.get(&terminal_id).ok_or("Terminal not found")?;
     }
+    // The desktop is one mirror client among potentially many: record its
+    // viewport, then let the reconcile chokepoint drive the PTY. While no
+    // phone owns the size this equals the desktop size (today's behavior);
+    // while phone-owned the reconcile keeps the phone size (resize ignored).
+    fanout::set_client_size(&terminal_id, fanout::DESKTOP_CLIENT, cols as u16, rows as u16);
+    fanout::reconcile_now(&terminal_id);
     Ok(())
 }
 
@@ -307,5 +396,8 @@ pub fn agent_resize_terminal(state: State<'_, TerminalState>, terminal_id: Strin
 pub fn agent_kill_terminal(state: State<'_, TerminalState>, terminal_id: String) -> Result<(), String> {
     let mut terminals = state.terminals.lock();
     if let Some(mut entry) = terminals.remove(&terminal_id) { let _ = entry.child.kill(); }
+    drop(terminals);
+    // Tear down any codex log watcher + its temp log for this terminal.
+    crate::modes::agent::hooks::stop_codex_watcher(&terminal_id);
     Ok(())
 }

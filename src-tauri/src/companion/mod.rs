@@ -86,3 +86,15 @@ pub fn companion_report_open_failed(
 ) -> Result<(), String> {
     state.lifecycle.resolve(&request_id, Err(error))
 }
+
+/// Desktop focus signal — retained so the frontend/IPC contract doesn't
+/// break, but the sizing engine is now phone-always-wins-while-attached:
+/// desktop focus no longer influences the PTY size. This is a harmless
+/// no-op (it records the flag, which `desired_size` ignores).
+#[tauri::command]
+pub fn companion_set_terminal_focus(terminal_id: String, focused: bool) {
+    if !fanout::hub_exists(&terminal_id) {
+        return;
+    }
+    fanout::set_desktop_focused(&terminal_id, focused);
+}

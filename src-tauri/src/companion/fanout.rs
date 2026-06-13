@@ -4,23 +4,30 @@
 // statics (same shape as cloud/scheduler.rs) because the publishers are
 // the PTY reader threads / russh tasks, which have no AppHandle.
 //
-// Resize rule (the mirror invariant): the desktop is authoritative for
-// the PTY size. Every attached client — the desktop counts as client
-// "desktop" — records its viewport here, but when a desktop client is
-// registered the PTY is driven at ITS size and phone sizes are ignored,
-// so a phone attaching can never shrink the desktop TUI. Only when no
-// desktop client is present (a phone-only session with no desktop tab)
-// does the PTY fall back to the element-wise minimum (min cols, min
-// rows) over the remaining clients, giving that session a usable size.
-// Recomputed on attach/detach/resize; `set_client_size`/`remove_client`
-// return the new effective size only when it actually changed, so
-// callers never fire redundant resizes.
+// Resize rule (phone-always-wins while attached): whenever a phone is
+// attached and has reported a valid size, the shared PTY adopts the
+// PHONE's fit size (smallest fits all phones). Desktop focus does NOT
+// influence the size. The desktop reclaims its size only when every phone
+// has left (after a detach grace that holds the last phone size so a quick
+// reconnect doesn't churn). All size application + the client size-echo
+// flow through `reconcile`, the single chokepoint: it diffs the desired
+// size against the applied size and, when they differ, resizes the real
+// PTY master through the terminal registry, broadcasts a `FanoutEvent::Size`
+// so every client renders at it, and emits a `terminal-size` Tauri event so
+// the desktop frontend adopts the applied size. The PTY resize + broadcasts
+// NEVER run under the hubs lock.
 
 use parking_lot::Mutex;
-use std::collections::{HashMap, VecDeque};
+use portable_pty::PtySize;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{broadcast, mpsc};
+
+use crate::modes::agent::models::TerminalState;
+use crate::modes::ssh::models::{SshCommand, SshTerminalState};
 
 /// Client id the desktop registers its viewport under.
 pub const DESKTOP_CLIENT: &str = "desktop";
@@ -59,7 +66,21 @@ pub enum TermKind {
 pub enum FanoutEvent {
     Out(Vec<u8>),
     Exit,
+    /// The reconcile chokepoint resized the PTY: every client must render
+    /// at this (cols, rows). ws.rs forwards it as a `{t:"size"}` message —
+    /// the same wire shape the desktop emits on its own resizes.
+    Size(u16, u16),
 }
+
+/// Grace after the last phone detaches before the desktop reclaims its
+/// size — absorbs network blips and quick app-switches without flapping.
+/// Public so ws.rs can schedule the post-grace reconcile with it.
+pub const DETACH_GRACE: Duration = Duration::from_secs(4);
+
+/// Safe floor for any size we push to a PTY. Phones reporting zero/garbage
+/// dimensions are ignored upstream; this clamps the rest.
+const MIN_COLS: u16 = 10;
+const MIN_ROWS: u16 = 4;
 
 /// Push-dispatch signals fanout hands to `push.rs`. Kept minimal so
 /// fanout stays decoupled from the Worker/cloud plumbing: it reports
@@ -89,6 +110,31 @@ struct TermHub {
     /// Reset whenever new output arrives so each fresh prompt notifies
     /// at most once.
     notified: bool,
+    /// Client ids of WS connections currently mirroring this terminal —
+    /// i.e. phones actively viewing. Tracked separately from `sizes` so
+    /// attach/detach gates push without touching the desktop-authoritative
+    /// sizing logic.
+    viewers: HashSet<String>,
+    /// This terminal's agent reports lifecycle hooks (claude/codex Phase 1).
+    /// Set on the first `set_hook_event`; once true the output heuristic is
+    /// disabled for this hub (the hook is authoritative — the heuristic must
+    /// not fight it). Reset to false on `register` for a fresh hub.
+    hook_driven: bool,
+    /// The most recent phone-owned size, held through the detach grace so a
+    /// reconnecting phone re-adopts it instantly (no wide→narrow churn).
+    last_phone_size: Option<(u16, u16)>,
+    /// When the last phone detached (no phones remaining). The detach grace
+    /// runs from here.
+    last_phone_detach_at: Option<Instant>,
+    /// The size currently pushed to the PTY master. `reconcile` is a no-op
+    /// when the desired size already equals this.
+    applied_size: Option<(u16, u16)>,
+    /// Who is driving the PTY size right now.
+    /// `None` = unknown/initial (no reconcile has run yet).
+    /// `Some(true)` = a phone is the active size driver.
+    /// `Some(false)` = the desktop is the active size driver.
+    /// Written only by `reconcile_now`; read by `publish_exit` for teardown.
+    size_owner: Option<bool>,
 }
 
 /// Everything a WS connection needs at attach time, captured under one
@@ -131,10 +177,206 @@ fn emit_push(trigger: PushTrigger) {
     }
 }
 
-/// True if any non-desktop (i.e. phone) client is currently attached.
+/// The desktop AppHandle, stashed in `setup` so fanout can emit
+/// frontend events (attention-cleared) WITHOUT routing through the
+/// companion-only PUSH_SINK — the desktop dock-bounce/chime must clear
+/// even when the companion server is off.
+static APP_HANDLE: OnceLock<Mutex<Option<AppHandle>>> = OnceLock::new();
+
+fn app_handle() -> &'static Mutex<Option<AppHandle>> {
+    APP_HANDLE.get_or_init(|| Mutex::new(None))
+}
+
+/// Install the desktop AppHandle. Called once from the Tauri `setup` hook.
+pub fn set_app_handle(app: AppHandle) {
+    *app_handle().lock() = Some(app);
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearedPayload {
+    terminal_id: String,
+}
+
+/// Emit `agent-attention-cleared` to the frontend. MUST be called with
+/// the hubs lock dropped — never while holding it.
+fn emit_cleared(terminal_id: &str) {
+    if let Some(handle) = app_handle().lock().as_ref() {
+        let _ = handle.emit(
+            "agent-attention-cleared",
+            ClearedPayload {
+                terminal_id: terminal_id.to_string(),
+            },
+        );
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalSizePayload {
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+    phone_owned: bool,
+}
+
+/// Emit `terminal-size` to the desktop frontend so it adopts the applied
+/// PTY size (cols/rows) — `phone_owned` tells it whether the size came
+/// from a phone (true) or is the desktop fallback (false). MUST be called
+/// with the hubs lock dropped — never while holding it.
+fn emit_terminal_size(terminal_id: &str, cols: u16, rows: u16, phone_owned: bool) {
+    if let Some(handle) = app_handle().lock().as_ref() {
+        let _ = handle.emit(
+            "terminal-size",
+            TerminalSizePayload {
+                terminal_id: terminal_id.to_string(),
+                cols,
+                rows,
+                phone_owned,
+            },
+        );
+    }
+}
+
+/// True if any phone is currently mirroring this terminal over a WS.
 /// Used to suppress push when the user is already looking at the term.
+/// The desktop never opens a companion WS to itself, so any viewer is a
+/// phone. Tracked independently of `sizes` (a phone only enters `sizes`
+/// once it sends a resize, which is too late for gating).
 fn phone_attached(hub: &TermHub) -> bool {
-    hub.sizes.keys().any(|k| k != DESKTOP_CLIENT)
+    !hub.viewers.is_empty()
+}
+
+/// Register a WS viewer (phone) on attach. No-op if the hub is gone.
+/// Pure state mutation — the caller fires `reconcile_now` so the PTY
+/// adopts the new phone's size.
+pub fn add_viewer(terminal_id: &str, client_id: &str) {
+    let mut map = hubs().lock();
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.viewers.insert(client_id.to_string());
+    }
+}
+
+/// Forget a WS viewer on every detach path. If no phone remains, stamp
+/// `last_phone_detach_at` so the detach grace runs (keeping
+/// `last_phone_size` for an instant reconnect). No-op if the hub is gone.
+/// The caller fires `reconcile_now` + `reconcile_after(DETACH_GRACE)`.
+pub fn remove_viewer(terminal_id: &str, client_id: &str) {
+    let mut map = hubs().lock();
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.viewers.remove(client_id);
+        let phones_left = hub
+            .viewers
+            .iter()
+            .any(|c| c.as_str() != DESKTOP_CLIENT);
+        if !phones_left {
+            hub.last_phone_detach_at = Some(Instant::now());
+        }
+    }
+}
+
+/// Clear the attention state when input arrives from ANY source
+/// (desktop keystroke, mobile keystroke, SSH write). Edge-triggered:
+/// emits `agent-attention-cleared` only when the hub was actually in an
+/// awaiting/notified state, so a stream of keystrokes after it's cleared
+/// does not spam events. No-op if the hub is gone.
+pub fn note_input(terminal_id: &str) {
+    let was_awaiting = {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
+            return;
+        };
+        let was_awaiting = hub.prompt_flag || hub.notified;
+        hub.prompt_flag = false;
+        hub.notified = false;
+        hub.last_output = Instant::now();
+        was_awaiting
+    };
+    if was_awaiting {
+        emit_cleared(terminal_id);
+    }
+}
+
+/// Whether this terminal is genuinely waiting for the user: its tail
+/// looked like a prompt and it has been idle ≥ ATTENTION_IDLE. No
+/// phone-attached / notified gating — this reflects the real waiting
+/// state for the mobile list dot. False if the hub is gone.
+pub fn is_awaiting(terminal_id: &str) -> bool {
+    let map = hubs().lock();
+    match map.get(terminal_id) {
+        // Hook-driven hubs carry an authoritative signal — no idle debounce.
+        // The agent told us it's waiting, so reflect it the instant the dot
+        // is queried rather than waiting out ATTENTION_IDLE.
+        Some(hub) if hub.hook_driven => hub.prompt_flag,
+        Some(hub) => hub.prompt_flag && hub.last_output.elapsed() >= ATTENTION_IDLE,
+        None => false,
+    }
+}
+
+/// Apply an authoritative agent lifecycle event to a terminal's awaiting
+/// state (Phase 1: claude/codex). Marks the hub `hook_driven` (which
+/// disables the output heuristic for it) and then maps the event:
+///   - needs-user events  → awaiting ON  (`prompt_flag = true`)
+///   - clear events       → awaiting OFF (like `note_input`)
+/// Unknown events are ignored (no state change). Case-insensitive.
+/// `agent-attention-cleared` is emitted only on a real awaiting→clear
+/// transition, with the hubs lock dropped.
+pub fn set_hook_event(terminal_id: &str, event: &str) {
+    #[derive(PartialEq)]
+    enum Kind {
+        NeedsUser,
+        Clear,
+        Unknown,
+    }
+    let lower = event.trim().to_ascii_lowercase();
+    let kind = match lower.as_str() {
+        // Claude: Notification + PreToolUse mean the agent is asking the
+        // user (permission prompt / idle notification). Codex emits
+        // *_approval_request / request_user_input.
+        "notification" | "pretooluse" | "permissionrequest" | "request_user_input" => {
+            Kind::NeedsUser
+        }
+        // Claude lifecycle resume/turn boundaries + Codex task lifecycle —
+        // all mean "not waiting on the user".
+        "stop" | "start" | "userpromptsubmit" | "posttooluse" | "sessionstart"
+        | "sessionend" | "task_complete" | "task_started" => Kind::Clear,
+        other => {
+            // Codex approval requests carry an agent-specific prefix
+            // (`exec_approval_request`, `apply_patch_approval_request`, …).
+            if other.ends_with("_approval_request") {
+                Kind::NeedsUser
+            } else {
+                Kind::Unknown
+            }
+        }
+    };
+    if kind == Kind::Unknown {
+        return;
+    }
+    let cleared = {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
+            return;
+        };
+        hub.hook_driven = true;
+        match kind {
+            Kind::NeedsUser => {
+                hub.prompt_flag = true;
+                hub.last_output = Instant::now();
+                false
+            }
+            Kind::Clear => {
+                let was_awaiting = hub.prompt_flag || hub.notified;
+                hub.prompt_flag = false;
+                hub.notified = false;
+                was_awaiting
+            }
+            Kind::Unknown => false,
+        }
+    };
+    if cleared {
+        emit_cleared(terminal_id);
+    }
 }
 
 /// Pure prompt detector: does the output tail look like the terminal is
@@ -150,36 +392,127 @@ pub fn looks_like_prompt(tail: &[u8]) -> bool {
     // an otherwise-matching prompt.
     let text = String::from_utf8_lossy(tail);
     let trimmed = text.trim_end_matches([' ', '\t', '\r', '\n']);
-    if trimmed.is_empty() {
-        return false;
+    if !trimmed.is_empty() {
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.ends_with("[y/n]") || lower.ends_with("[y/n]?") {
+            return true;
+        }
+        if trimmed.ends_with('?') {
+            return true;
+        }
+        // A bare prompt sigil with the question mark already consumed:
+        // the last visual char (pre-trim) was a space following one of
+        // these.
+        let last = trimmed.chars().last().unwrap();
+        if matches!(last, '❯' | '$' | '#' | '>' | ':') {
+            return true;
+        }
     }
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.ends_with("[y/n]") || lower.ends_with("[y/n]?") {
-        return true;
-    }
-    if trimmed.ends_with('?') {
-        return true;
-    }
-    // A bare prompt sigil with the question mark already consumed: the
-    // last visual char (pre-trim) was a space following one of these.
-    let last = trimmed.chars().last().unwrap();
-    matches!(last, '❯' | '$' | '#' | '>' | ':')
+    // Superset: match the desktop frontend's proven patterns against an
+    // ANSI-stripped copy of the tail, so the backend's awaiting state is
+    // at least as sensitive as the desktop UI (TUI agents paint prompts
+    // with cursor moves, so the raw tail heuristic above misses them).
+    matches_prompt_phrases(&strip_ansi(&text))
 }
 
-/// The PTY size the hub should be driven at, given every client's
-/// reported viewport. The desktop is authoritative: if a `"desktop"`
-/// client is registered, its size wins outright and phone sizes are
-/// ignored, so a phone can never shrink the desktop terminal. With no
-/// desktop client (a phone-only session) it falls back to the
-/// element-wise minimum over the remaining clients.
-fn effective(sizes: &HashMap<String, (u16, u16)>) -> Option<(u16, u16)> {
-    if let Some(&desktop) = sizes.get(DESKTOP_CLIENT) {
-        return Some(desktop);
+/// Strip ANSI CSI sequences (`\x1b[…<letter>`) and OSC sequences
+/// (`\x1b]…\x07`) so phrase matching sees the visible text.
+fn strip_ansi(s: &str) -> String {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07").unwrap()
+    });
+    re.replace_all(s, "").into_owned()
+}
+
+/// Case-insensitive match on the desktop frontend's proven approval /
+/// input-waiting phrases.
+fn matches_prompt_phrases(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let has_allow_deny = lower.contains("allow") && lower.contains("deny");
+    has_allow_deny
+        || lower.contains("do you want to proceed")
+        || lower.contains("(y/n)")
+        || lower.contains("[y/n]")
+        || lower.contains("press enter")
+        || lower.contains("approve this")
+        || lower.contains("permission")
+        || lower.contains("yes, and don")
+}
+
+/// Clamp a candidate size to the safe PTY floor.
+fn clamp_size((c, r): (u16, u16)) -> (u16, u16) {
+    (c.max(MIN_COLS), r.max(MIN_ROWS))
+}
+
+/// A size is usable only if both dimensions are non-zero — phones can
+/// briefly report a 0 fit before their container has real width.
+fn valid_size((c, r): (u16, u16)) -> bool {
+    c > 0 && r > 0
+}
+
+/// The min (cols, rows) across every attached phone with a reported,
+/// non-garbage size. None if no phone qualifies.
+fn min_phone_size(hub: &TermHub) -> Option<(u16, u16)> {
+    hub.viewers
+        .iter()
+        .filter(|c| c.as_str() != DESKTOP_CLIENT)
+        .filter_map(|c| hub.sizes.get(c).copied())
+        .filter(|&s| valid_size(s))
+        .reduce(|(ac, ar), (c, r)| (ac.min(c), ar.min(r)))
+}
+
+/// The PTY size the hub should be driven at right now — phone-always-wins
+/// while attached. Desktop focus does NOT influence the result.
+///
+/// - If any attached phone has a valid size → the min over all phones, so
+///   the smallest viewport fits all. Phone wins. Cached in `last_phone_size`.
+/// - Else if within the detach grace and a `last_phone_size` is held → the
+///   held phone size (a quick reconnect re-adopts it instantly, no churn).
+/// - Else → the desktop's size drives the PTY (default / fully restored).
+///
+/// Mutates `last_phone_size` / honours `last_phone_detach_at`, so it takes
+/// `&mut TermHub`. Result is clamped to the safe floor.
+///
+/// Returns `(desired_size, phone_owned)`. `phone_owned` is `true` when the
+/// result came from a live phone or the detach-grace hold of a phone size
+/// (i.e. the desktop fallback was NOT used).
+fn desired_size(hub: &mut TermHub, now: Instant) -> (Option<(u16, u16)>, bool) {
+    let desktop = hub.sizes.get(DESKTOP_CLIENT).copied();
+
+    if let Some(phone) = min_phone_size(hub) {
+        hub.last_phone_size = Some(phone);
+        return (Some(clamp_size(phone)), true);
     }
-    sizes.values().fold(None, |acc, &(c, r)| match acc {
-        None => Some((c, r)),
-        Some((mc, mr)) => Some((mc.min(c), mr.min(r))),
-    })
+
+    let in_grace = hub
+        .last_phone_detach_at
+        .map_or(false, |t| now < t + DETACH_GRACE);
+    if in_grace {
+        if let Some(held) = hub.last_phone_size {
+            return (Some(clamp_size(held)), true);
+        }
+    }
+
+    (desktop.map(clamp_size), false)
+}
+
+/// Read-only desired size for snapshot callers (attach). Mirrors
+/// `desired_size` but without mutating `last_phone_size`.
+fn desired_size_readonly(hub: &TermHub, now: Instant) -> Option<(u16, u16)> {
+    let desktop = hub.sizes.get(DESKTOP_CLIENT).copied();
+    if let Some(phone) = min_phone_size(hub) {
+        return Some(clamp_size(phone));
+    }
+    let in_grace = hub
+        .last_phone_detach_at
+        .map_or(false, |t| now < t + DETACH_GRACE);
+    if in_grace {
+        if let Some(held) = hub.last_phone_size {
+            return Some(clamp_size(held));
+        }
+    }
+    desktop.map(clamp_size)
 }
 
 /// Create the hub for a freshly spawned terminal. Must run before the
@@ -197,6 +530,12 @@ pub fn register(terminal_id: &str, kind: TermKind, title: &str) {
             last_output: Instant::now(),
             prompt_flag: false,
             notified: false,
+            viewers: HashSet::new(),
+            hook_driven: false,
+            last_phone_size: None,
+            last_phone_detach_at: None,
+            applied_size: None,
+            size_owner: None,
         },
     );
 }
@@ -221,13 +560,19 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
         hub.scrollback.drain(..len - SCROLLBACK_CAP);
     }
     // Attention bookkeeping: fresh output resets the idle clock and the
-    // notified latch, and re-evaluates the prompt flag against the tail.
+    // notified latch. For heuristic-driven hubs it also re-evaluates the
+    // prompt flag against the tail. Hook-driven hubs (claude/codex) own
+    // their awaiting state via `set_hook_event` / `note_input` / exit, so
+    // the heuristic must NOT recompute `prompt_flag` here — otherwise it
+    // would fight the authoritative signal and resurrect false positives.
     hub.last_output = Instant::now();
     hub.notified = false;
-    let (a, b) = hub.scrollback.as_slices();
-    let combined = [a, b].concat();
-    let tail = &combined[combined.len().saturating_sub(PROMPT_TAIL_BYTES)..];
-    hub.prompt_flag = looks_like_prompt(tail);
+    if !hub.hook_driven {
+        let (a, b) = hub.scrollback.as_slices();
+        let combined = [a, b].concat();
+        let tail = &combined[combined.len().saturating_sub(PROMPT_TAIL_BYTES)..];
+        hub.prompt_flag = looks_like_prompt(tail);
+    }
     let _ = hub.tx.send(FanoutEvent::Out(bytes.to_vec()));
 }
 
@@ -235,9 +580,9 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
 /// detached thread for the timer because callers include the PTY
 /// reader thread, which has no tokio runtime context.
 pub fn publish_exit(terminal_id: &str) {
-    {
-        let map = hubs().lock();
-        let Some(hub) = map.get(terminal_id) else {
+    let (was_awaiting, restore_size) = {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
             return;
         };
         let _ = hub.tx.send(FanoutEvent::Exit);
@@ -249,6 +594,35 @@ pub fn publish_exit(terminal_id: &str) {
                 title: hub.title.clone(),
             });
         }
+        // Clear attention so the post-exit sweep can't fire a spurious
+        // Attention during the 30s lingering window (B7 double-notify).
+        // Match note_input: an awaiting hub (hook-set prompt_flag) that
+        // never got as far as a push (notified) must still emit the clear,
+        // or the desktop dot lingers after the agent exits.
+        let was_awaiting = hub.prompt_flag || hub.notified;
+        hub.prompt_flag = false;
+        hub.notified = false;
+        // If the terminal was phone-owned, emit a final `terminal-size` with
+        // phoneOwned=false so the desktop stops adopting and resumes fitting.
+        // Use the desktop's known size, falling back to the last applied size
+        // when the desktop size is unknown.
+        let restore_size = if hub.size_owner == Some(true) {
+            hub.sizes
+                .get(DESKTOP_CLIENT)
+                .copied()
+                .map(clamp_size)
+                .or(hub.applied_size)
+        } else {
+            None
+        };
+        hub.size_owner = Some(false);
+        (was_awaiting, restore_size)
+    };
+    if was_awaiting {
+        emit_cleared(terminal_id);
+    }
+    if let Some((cols, rows)) = restore_size {
+        emit_terminal_size(terminal_id, cols, rows, false);
     }
     let id = terminal_id.to_string();
     std::thread::spawn(move || {
@@ -282,7 +656,7 @@ pub fn attach(terminal_id: &str) -> Option<Attached> {
         scrollback: [a, b].concat(),
         rx: hub.tx.subscribe(),
         kind: hub.kind,
-        effective_size: effective(&hub.sizes),
+        effective_size: desired_size_readonly(hub, Instant::now()),
     })
 }
 
@@ -292,39 +666,148 @@ pub fn attach(terminal_id: &str) -> Option<Attached> {
 #[allow(dead_code)]
 pub fn effective_size(terminal_id: &str) -> Option<(u16, u16)> {
     let map = hubs().lock();
-    effective(&map.get(terminal_id)?.sizes)
+    desired_size_readonly(map.get(terminal_id)?, Instant::now())
 }
 
-/// Record a client's viewport. Returns the new effective size only if
-/// it differs from the previous effective size — the caller applies
-/// the PTY resize exactly then, so a desktop-only terminal sees the
-/// same resize cadence it does today.
-pub fn set_client_size(terminal_id: &str, client: &str, cols: u16, rows: u16) -> Option<(u16, u16)> {
+/// Record a client's viewport. Pure state mutation — application of the
+/// PTY resize is the caller's `reconcile_now` (the single chokepoint).
+/// No-op if the hub is gone.
+pub fn set_client_size(terminal_id: &str, client: &str, cols: u16, rows: u16) {
     let mut map = hubs().lock();
-    let hub = map.get_mut(terminal_id)?;
-    let before = effective(&hub.sizes);
-    hub.sizes.insert(client.to_string(), (cols, rows));
-    let after = effective(&hub.sizes);
-    if after != before {
-        after
-    } else {
-        None
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.sizes.insert(client.to_string(), (cols, rows));
     }
 }
 
-/// Forget a detached client. Returns the new effective size only if it
-/// changed AND at least one client remains (nothing to apply when the
-/// last client leaves).
-pub fn remove_client(terminal_id: &str, client: &str) -> Option<(u16, u16)> {
+/// Forget a detached client's recorded viewport. Pure state mutation;
+/// the caller fires `reconcile_now`. No-op if the hub is gone.
+pub fn remove_client(terminal_id: &str, client: &str) {
     let mut map = hubs().lock();
-    let hub = map.get_mut(terminal_id)?;
-    let before = effective(&hub.sizes);
-    hub.sizes.remove(client);
-    let after = effective(&hub.sizes);
-    if after != before {
-        after
-    } else {
-        None
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.sizes.remove(client);
+    }
+}
+
+/// Retained so the `companion_set_terminal_focus` IPC command doesn't
+/// break, but a no-op: the sizing engine is phone-always-wins-while-attached
+/// and desktop focus no longer influences the PTY size. Kept as a stub so
+/// the frontend can keep calling it without effect.
+pub fn set_desktop_focused(_terminal_id: &str, _focused: bool) {}
+
+/// True if the hub exists (so a command can skip its reconcile/spawn for a
+/// stale terminal id).
+pub fn hub_exists(terminal_id: &str) -> bool {
+    hubs().lock().contains_key(terminal_id)
+}
+
+// ---------------------------------------------------------------------------
+// reconcile — the single size-application chokepoint.
+// ---------------------------------------------------------------------------
+
+/// Compute the desired size for a terminal and, if it differs from the
+/// size currently applied to the PTY, push the resize, broadcast the new
+/// size to every WS client, and emit a `terminal-size` Tauri event so the
+/// desktop frontend adopts the applied size. Idempotent: desired == applied
+/// → no-op.
+///
+/// The `terminal-size` event fires on EVERY applied-size change (attach,
+/// detach, rotate, two-phone min shifts), not just ownership flips, so the
+/// desktop stays in sync. `phoneOwned` reflects whether the applied size
+/// came from a phone (or its detach-grace hold). All emits happen with the
+/// hubs lock DROPPED (never emit under the lock).
+pub fn reconcile_now(terminal_id: &str) {
+    // `resize`: Some only when the PTY dimensions actually change (apply +
+    // broadcast). `emit` fires whenever we must notify the desktop frontend —
+    // on a size change OR an ownership flip (phone<->desktop) even if the
+    // dimensions are identical. The latter is essential: when a phone detaches
+    // from a session whose desktop size matches the phone's (or that the desktop
+    // never sized), the dimensions don't change, but the "controlled from phone"
+    // panel must still clear — so we emit on the owner transition regardless.
+    let action = {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
+            return;
+        };
+        let now = Instant::now();
+        let (desired, phone_owned) = desired_size(hub, now);
+        let owner_changed = hub.size_owner != Some(phone_owned);
+        let new_size = desired.filter(|s| Some(*s) != hub.applied_size);
+
+        if let Some(size) = new_size {
+            hub.applied_size = Some(size);
+            hub.size_owner = Some(phone_owned);
+            Some((hub.kind, Some(size), size, phone_owned))
+        } else if owner_changed {
+            hub.size_owner = Some(phone_owned);
+            let size = desired.or(hub.applied_size).unwrap_or((80, 24));
+            Some((hub.kind, None, size, phone_owned))
+        } else {
+            None
+        }
+    };
+
+    if let Some((kind, resize, (cols, rows), phone_owned)) = action {
+        if let Some((rc, rr)) = resize {
+            apply_pty_resize(terminal_id, kind, rc, rr);
+            broadcast_size(terminal_id, rc, rr);
+        }
+        emit_terminal_size(terminal_id, cols, rows, phone_owned);
+    }
+}
+
+/// `reconcile_now` after `delay`. Spawns a tokio task on the companion
+/// runtime (mirrors how push.rs spawns). Used for the detach grace and
+/// the blur debounce, where the desired size only changes once a timer
+/// elapses. No-op if no tokio runtime / hub is gone by then.
+pub fn reconcile_after(terminal_id: &str, delay: Duration) {
+    let id = terminal_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        reconcile_now(&id);
+    });
+}
+
+/// Resize the real PTY master through the terminal registry — the same
+/// path the desktop resize commands use (agent: `master.resize`; ssh:
+/// `SshCommand::Resize`). Reaches the registries via the desktop
+/// AppHandle stashed in `set_app_handle`. No-op if the handle/entry is
+/// gone. MUST be called with the hubs lock dropped.
+fn apply_pty_resize(terminal_id: &str, kind: TermKind, cols: u16, rows: u16) {
+    let guard = app_handle().lock();
+    let Some(app) = guard.as_ref() else {
+        return;
+    };
+    match kind {
+        TermKind::Agent => {
+            let state = app.state::<TerminalState>();
+            let map = state.terminals.lock();
+            if let Some(entry) = map.get(terminal_id) {
+                let _ = entry.master.resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                });
+            }
+        }
+        TermKind::Ssh => {
+            let state = app.state::<SshTerminalState>();
+            let map = state.terminals.lock();
+            if let Some(entry) = map.get(terminal_id) {
+                let _ = entry.handle_tx.send(SshCommand::Resize { cols, rows });
+            }
+        }
+    }
+}
+
+/// Broadcast the applied size to every WS client through the fan-out
+/// channel; ws.rs turns it into a `{t:"size"}` message (the same wire
+/// shape the desktop already emits). MUST be called with the hubs lock
+/// dropped (broadcast::send never blocks, but we keep the invariant).
+fn broadcast_size(terminal_id: &str, cols: u16, rows: u16) {
+    let map = hubs().lock();
+    if let Some(hub) = map.get(terminal_id) {
+        let _ = hub.tx.send(FanoutEvent::Size(cols, rows));
     }
 }
 
@@ -337,11 +820,10 @@ pub fn remove_client(terminal_id: &str, client: &str) -> Option<(u16, u16)> {
 pub fn sweep_attention() {
     let mut map = hubs().lock();
     for (id, hub) in map.iter_mut() {
-        if hub.prompt_flag
-            && !hub.notified
-            && !phone_attached(hub)
-            && hub.last_output.elapsed() >= ATTENTION_IDLE
-        {
+        // Hook-driven hubs skip the idle debounce: the agent's event is
+        // authoritative, so a pending prompt should push on the next sweep.
+        let idle_ok = hub.hook_driven || hub.last_output.elapsed() >= ATTENTION_IDLE;
+        if hub.prompt_flag && !hub.notified && !phone_attached(hub) && idle_ok {
             hub.notified = true;
             emit_push(PushTrigger::Attention {
                 terminal_id: id.clone(),
@@ -417,82 +899,132 @@ mod tests {
         unregister(id);
     }
 
-    #[test]
-    fn effective_size_desktop_is_authoritative() {
-        let id = "fanout-test-size";
-        register(id, TermKind::Ssh, "test");
-        assert_eq!(effective_size(id), None);
+    /// Build a bare in-memory hub for pure `desired_size` testing — no
+    /// global map, no runtime, no PTY. Just the fields the resolver reads.
+    fn test_hub() -> TermHub {
+        let (tx, _) = broadcast::channel(BROADCAST_CAP);
+        TermHub {
+            tx,
+            scrollback: VecDeque::new(),
+            sizes: HashMap::new(),
+            kind: TermKind::Agent,
+            title: String::new(),
+            last_output: Instant::now(),
+            prompt_flag: false,
+            notified: false,
+            viewers: HashSet::new(),
+            hook_driven: false,
+            last_phone_size: None,
+            last_phone_detach_at: None,
+            applied_size: None,
+            size_owner: None,
+        }
+    }
 
-        // First client defines the size (None → Some = change).
-        assert_eq!(
-            set_client_size(id, DESKTOP_CLIENT, 120, 40),
-            Some((120, 40))
-        );
-        // Same size again → no change → no resize to fire.
-        assert_eq!(set_client_size(id, DESKTOP_CLIENT, 120, 40), None);
-
-        // A smaller phone must NOT shrink the desktop — effective stays
-        // at the desktop size and no resize fires.
-        assert_eq!(set_client_size(id, "phone-1", 80, 24), None);
-        assert_eq!(effective_size(id), Some((120, 40)));
-
-        // A second, larger phone: still desktop-authoritative, no change.
-        assert_eq!(set_client_size(id, "phone-2", 200, 50), None);
-        assert_eq!(effective_size(id), Some((120, 40)));
-
-        // Phones leaving never changes the size while desktop is present.
-        assert_eq!(remove_client(id, "phone-1"), None);
-        assert_eq!(remove_client(id, "ghost"), None);
-        assert_eq!(remove_client(id, "phone-2"), None);
-        assert_eq!(effective_size(id), Some((120, 40)));
-
-        // The desktop's own resize still drives the PTY exactly.
-        assert_eq!(set_client_size(id, DESKTOP_CLIENT, 100, 30), Some((100, 30)));
-
-        // Desktop leaves last → empty, nothing to apply.
-        assert_eq!(remove_client(id, DESKTOP_CLIENT), None);
-        assert_eq!(effective_size(id), None);
-
-        // Unknown terminal → None everywhere.
-        assert_eq!(set_client_size("nope", "x", 1, 1), None);
-        unregister(id);
+    /// Record a phone as both a viewer and a sized client (what attach +
+    /// resize do together).
+    fn attach_phone(hub: &mut TermHub, id: &str, cols: u16, rows: u16) {
+        hub.viewers.insert(id.to_string());
+        hub.sizes.insert(id.to_string(), (cols, rows));
     }
 
     #[test]
-    fn effective_size_falls_back_to_phone_when_no_desktop() {
-        let id = "fanout-test-size-phone-only";
-        register(id, TermKind::Ssh, "test");
+    fn desired_desktop_only() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        // No client reported a size yet.
+        assert_eq!(desired_size(&mut hub, now), (None, false));
+        // Desktop reports → desktop drives the PTY (today's behavior).
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
+    }
 
-        // No desktop tab: the phone's size defines the PTY so a
-        // phone-spawned session is still usable.
-        assert_eq!(set_client_size(id, "phone-1", 80, 24), Some((80, 24)));
+    #[test]
+    fn desired_phone_attached_owns_size() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        attach_phone(&mut hub, "phone-1", 80, 24);
+        // Desktop unfocused → the phone's (smaller) size owns the PTY.
+        assert_eq!(desired_size(&mut hub, now), (Some((80, 24)), true));
+        // And it's cached for the detach grace.
+        assert_eq!(hub.last_phone_size, Some((80, 24)));
+    }
+
+    #[test]
+    fn desired_two_phones_min() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (200, 60));
+        // phone-1=(80,24), phone-2=(60,30) → min cols/rows = (60,24).
+        attach_phone(&mut hub, "phone-1", 80, 24);
+        attach_phone(&mut hub, "phone-2", 60, 30);
+        assert_eq!(desired_size(&mut hub, now), (Some((60, 24)), true));
+    }
+
+    #[test]
+    fn desired_detach_grace_holds_phone_size() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        // A phone owned the PTY, then detached just now (no phones left).
+        hub.last_phone_size = Some((80, 24));
+        hub.last_phone_detach_at = Some(now);
+        // Within the grace → hold the phone size (quick reconnect = no churn).
+        // Ownership is still phone-owned during the grace.
+        assert_eq!(desired_size(&mut hub, now), (Some((80, 24)), true));
+        // Past the grace → desktop reclaims, ownership flips.
+        let later = now + DETACH_GRACE + Duration::from_secs(1);
+        assert_eq!(desired_size(&mut hub, later), (Some((120, 40)), false));
+    }
+
+    #[test]
+    fn desired_phone_always_wins_regardless_of_focus() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        attach_phone(&mut hub, "phone-1", 80, 24);
+        // Focus no longer exists as an input: an attached phone always owns
+        // the size while attached.
+        assert_eq!(desired_size(&mut hub, now), (Some((80, 24)), true));
+    }
+
+    #[test]
+    fn desired_clamps_and_ignores_garbage() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        // A phone reporting a zero dimension is ignored → desktop stays.
+        attach_phone(&mut hub, "phone-bad", 0, 24);
+        assert_eq!(desired_size(&mut hub, now), (Some((120, 40)), false));
+        // A tiny-but-valid phone size is clamped to the safe floor.
+        attach_phone(&mut hub, "phone-tiny", 2, 1);
+        assert_eq!(desired_size(&mut hub, now), (Some((MIN_COLS, MIN_ROWS)), true));
+    }
+
+    #[test]
+    fn effective_size_reflects_phone_when_attached() {
+        let id = "fanout-test-size-eff";
+        register(id, TermKind::Ssh, "test");
+        assert_eq!(effective_size(id), None);
+
+        // Desktop-only → desktop size.
+        set_client_size(id, DESKTOP_CLIENT, 120, 40);
+        assert_eq!(effective_size(id), Some((120, 40)));
+
+        // Phone attaches (viewer + size) → phone owns the size.
+        add_viewer(id, "phone-1");
+        set_client_size(id, "phone-1", 80, 24);
         assert_eq!(effective_size(id), Some((80, 24)));
 
-        // A second phone: fall back to the element-wise minimum.
-        assert_eq!(set_client_size(id, "phone-2", 60, 30), Some((60, 24)));
-        assert_eq!(effective_size(id), Some((60, 24)));
-
-        // Larger phone leaves → min relaxes.
-        assert_eq!(remove_client(id, "phone-2"), Some((80, 24)));
-        unregister(id);
-    }
-
-    #[test]
-    fn phone_churn_never_changes_size_while_desktop_present() {
-        let id = "fanout-test-size-churn";
-        register(id, TermKind::Agent, "test");
-
-        assert_eq!(set_client_size(id, DESKTOP_CLIENT, 150, 45), Some((150, 45)));
-
-        // Add, resize, and remove phones repeatedly — desktop wins every
-        // time, so set/remove all report "no change".
-        assert_eq!(set_client_size(id, "phone-1", 40, 20), None);
-        assert_eq!(set_client_size(id, "phone-1", 200, 80), None);
-        assert_eq!(set_client_size(id, "phone-2", 30, 10), None);
-        assert_eq!(effective_size(id), Some((150, 45)));
-        assert_eq!(remove_client(id, "phone-1"), None);
-        assert_eq!(remove_client(id, "phone-2"), None);
-        assert_eq!(effective_size(id), Some((150, 45)));
+        // Phone leaves (viewer + size gone). `last_phone_size` is only
+        // cached by the mutating reconcile path, not the read-only
+        // `effective_size`, so with no phone present the desktop size is
+        // the snapshot value here (the grace-hold is covered by the pure
+        // `desired_detach_grace_holds_phone_size` test).
+        remove_viewer(id, "phone-1");
+        remove_client(id, "phone-1");
+        assert_eq!(effective_size(id), Some((120, 40)));
 
         unregister(id);
     }
@@ -533,6 +1065,15 @@ mod tests {
         assert!(looks_like_prompt("~/proj ❯ ".as_bytes()));
         assert!(looks_like_prompt(b" pick one: "));
         assert!(looks_like_prompt(b"beep\x07"));
+
+        // Superset phrase matches (desktop-frontend parity), including
+        // ANSI-painted TUI prompts whose raw tail wouldn't match.
+        assert!(looks_like_prompt(b"Do you want to proceed with this edit"));
+        assert!(looks_like_prompt(b"Continue (y/n)"));
+        assert!(looks_like_prompt(b"This action requires permission to run"));
+        assert!(looks_like_prompt(b"Press Enter to continue"));
+        assert!(looks_like_prompt(b"\x1b[1m1. Allow once\x1b[0m   2. Deny"));
+        assert!(looks_like_prompt(b"Yes, and don't ask again this session"));
 
         // Negative: mid-stream output, blank tails, plain text.
         assert!(!looks_like_prompt(b"Building project...\n"));
@@ -590,14 +1131,77 @@ mod tests {
         sweep_attention();
         assert_eq!(attention_count_for(&mut rx, id), 0, "non-prompt tail must not notify");
 
-        // A phone attached suppresses the notification entirely.
+        // A phone attached (a WS viewer) suppresses the notification
+        // entirely. Viewer tracking is independent of `sizes`.
         publish(id, b"Retry? ");
-        set_client_size(id, "phone-1", 80, 24);
+        add_viewer(id, "phone-1");
         backdate_last_output_for_test(id, ATTENTION_IDLE + Duration::from_secs(1));
         sweep_attention();
         assert_eq!(attention_count_for(&mut rx, id), 0, "phone attached suppresses push");
+        remove_viewer(id, "phone-1");
 
         clear_push_sink();
         unregister(id);
+    }
+
+    /// Verify that `size_owner` transitions correctly as ownership changes:
+    /// None on fresh register, Some(true) once phone drives, Some(false)
+    /// when phone leaves. Pure state test via `desired_size` on a local hub.
+    #[test]
+    fn size_owner_tracks_phone_transitions() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        // Fresh hub: no owner yet.
+        assert_eq!(hub.size_owner, None);
+
+        // Desktop-only — no phones. Apply desired_size as reconcile would.
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        let (size, phone_owned) = desired_size(&mut hub, now);
+        assert_eq!(size, Some((120, 40)));
+        assert!(!phone_owned);
+        // Simulate the reconcile transition logic.
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(false));
+
+        // Phone attaches.
+        attach_phone(&mut hub, "phone-1", 80, 24);
+        let (size, phone_owned) = desired_size(&mut hub, now);
+        assert_eq!(size, Some((80, 24)));
+        assert!(phone_owned);
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(true));
+
+        // Phone detaches (no viewers, no held size, past any grace) → the
+        // desktop reclaims ownership. Focus is no longer an input.
+        hub.viewers.clear();
+        hub.sizes.remove("phone-1");
+        hub.last_phone_size = None;
+        let (_, phone_owned) = desired_size(&mut hub, now);
+        assert!(!phone_owned);
+        if hub.size_owner != Some(phone_owned) {
+            hub.size_owner = Some(phone_owned);
+        }
+        assert_eq!(hub.size_owner, Some(false));
+    }
+
+    /// Verify detach-grace is phone_owned=true (ownership stays until grace ends).
+    #[test]
+    fn size_owner_detach_grace_is_phone_owned() {
+        let now = Instant::now();
+        let mut hub = test_hub();
+        hub.sizes.insert(DESKTOP_CLIENT.to_string(), (120, 40));
+        hub.last_phone_size = Some((80, 24));
+        hub.last_phone_detach_at = Some(now);
+        // In-grace: still phone-owned.
+        let (_, phone_owned) = desired_size(&mut hub, now);
+        assert!(phone_owned, "grace period must remain phone-owned");
+        // Post-grace: desktop reclaims.
+        let later = now + DETACH_GRACE + Duration::from_secs(1);
+        let (_, phone_owned) = desired_size(&mut hub, later);
+        assert!(!phone_owned, "after grace desktop must own");
     }
 }

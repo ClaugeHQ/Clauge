@@ -60,13 +60,27 @@ pub async fn start(
             None => break, // overflowed past u16::MAX
         };
         let addr = format!("127.0.0.1:{}", port);
-        match tokio::net::TcpListener::bind(&addr).await {
+        match bind_reuse(&addr).await {
             Ok(listener) => {
                 let state = McpAppState { pool, token, app };
                 let router = Router::new()
                     .route("/mcp", post(handle_mcp))
-                    .route("/healthz", axum::routing::get(|| async { "ok" }))
+                    .route("/agent-hook", post(handle_agent_hook))
+                    // The `x-clauge-mcp` marker lets a restarting instance
+                    // tell our own server apart from a foreign port squatter
+                    // (see `is_our_mcp`) before adopting the port.
+                    .route(
+                        "/healthz",
+                        axum::routing::get(|| async { ([("x-clauge-mcp", "1")], "ok") }),
+                    )
                     .with_state(Arc::new(state));
+
+                // Publish the loopback hook endpoint so the agent spawn path
+                // can inject `CLAUGE_HOOK_URL`. Localhost-only; no auth.
+                crate::modes::agent::hooks::set_hook_url(format!(
+                    "http://127.0.0.1:{}/agent-hook",
+                    port
+                ));
 
                 let (tx, rx) = oneshot::channel::<()>();
                 tokio::spawn(async move {
@@ -82,6 +96,25 @@ pub async fn start(
                 });
             }
             Err(e) => {
+                // Port is taken. If it's already one of our own MCP
+                // servers (a prior instance still exiting during a
+                // self-update, or a second app window), adopt it instead
+                // of walking to a new port — moving would strand agent
+                // configs pinned to the old port.
+                if is_our_mcp(port).await {
+                    // The adopted server serves /agent-hook, but set_hook_url
+                    // is a per-process global the bind path never reached in
+                    // this instance — publish it so agent spawns get a hook.
+                    crate::modes::agent::hooks::set_hook_url(format!(
+                        "http://127.0.0.1:{}/agent-hook",
+                        port
+                    ));
+                    log::info!(
+                        target: "workspace::mcp",
+                        "adopting existing server on 127.0.0.1:{port}"
+                    );
+                    return Ok(McpHandle { port, shutdown: None });
+                }
                 last_err = Some(format!("{}: {}", addr, e));
             }
         }
@@ -92,6 +125,40 @@ pub async fn start(
         requested_port.saturating_add(PORT_FALLBACK_RANGE),
         last_err.unwrap_or_default(),
     ))
+}
+
+/// Bind with SO_REUSEADDR so a socket left in TIME_WAIT by a
+/// just-exited instance (the common self-update restart) doesn't force
+/// a needless port walk.
+async fn bind_reuse(addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+    let sa: std::net::SocketAddr = addr
+        .parse()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
+    let socket = if sa.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(sa)?;
+    socket.listen(1024)
+}
+
+/// Best-effort identity probe: is a live Clauge MCP server already
+/// holding this port? Decides adopt-vs-walk when a bind fails.
+async fn is_our_mcp(port: u16) -> bool {
+    let url = format!("http://127.0.0.1:{port}/healthz");
+    match reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_millis(400))
+        .send()
+        .await
+    {
+        // Require the marker header — a foreign process answering 200 on
+        // /healthz must not be mistaken for our MCP and adopted.
+        Ok(r) => r.status().is_success() && r.headers().contains_key("x-clauge-mcp"),
+        Err(_) => false,
+    }
 }
 
 /// Single JSON-RPC POST handler. We dispatch on `method` and respond
@@ -171,4 +238,29 @@ async fn handle_mcp(
         }
     };
     (StatusCode::OK, JsonResponse(response)).into_response()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentHookBody {
+    terminal_id: String,
+    event_type: String,
+    #[serde(default)]
+    session_ref: Option<String>,
+}
+
+/// Always-on, unauthenticated loopback endpoint that the per-launch
+/// `notify.sh` POSTs agent lifecycle events to. It hands the (normalized
+/// downstream) event to fanout, which owns the per-terminal awaiting state.
+/// Localhost-bound; no auth is needed and a missing/garbage body is a no-op.
+async fn handle_agent_hook(Json(body): Json<AgentHookBody>) -> impl IntoResponse {
+    if !body.terminal_id.is_empty() && !body.event_type.is_empty() {
+        log::debug!(
+            target: "agent::hooks",
+            "hook event terminal={} type={} ref={:?}",
+            body.terminal_id, body.event_type, body.session_ref
+        );
+        crate::companion::fanout::set_hook_event(&body.terminal_id, &body.event_type);
+    }
+    (StatusCode::OK, JsonResponse(json!({ "ok": true })))
 }

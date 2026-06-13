@@ -7,6 +7,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { Channel } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import {
     activeAgentSession,
     agentTerminalMap,
@@ -15,11 +16,13 @@
     agentShellIds,
     agentShellOpen,
     agentSessionActivity,
+    agentSessionAwaiting,
     agentSessions,
     agentSoundEnabled,
     agentDockBounceEnabled,
   } from '../stores';
   import { getSetting, setSetting } from '$lib/commands/settings';
+  import { phoneOwnedTerminals, phoneDrivenSizes } from '$lib/stores/sizeOwner';
   import { tabs as tabsStore, closeTab, activateTab } from '$lib/shared/stores/tabs';
   import {
     agentSpawnTerminal,
@@ -53,7 +56,6 @@
   import { getPurposePrompt } from '../ai/prompt';
   import { AGENT_EVENT } from '$lib/shared/constants/events';
   import {
-    AGENT_NOTIFY_DEBOUNCE_MS,
     AGENT_NOTIFY_REPEAT_MS,
     AGENT_CHIME_STOP_MS,
     AGENT_ACTIVITY_WINDOW_MS,
@@ -291,6 +293,55 @@
     $activeAgentSession ? shellLoadingSessions.includes($activeAgentSession.id) : false
   );
 
+  // Ambient "Controlled from phone" hint: true while the on-screen session's
+  // terminal is being size-driven by a paired phone (phone-authoritative
+  // sizing). Resolves the visible terminalId the same way focus-reporting does.
+  let activePhoneOwned = $derived.by(() => {
+    const termId = $activeAgentSession
+      ? $agentTerminalIds.get($activeAgentSession.id) ?? null
+      : null;
+    return !!termId && $phoneOwnedTerminals.has(termId);
+  });
+
+  // Yield phone-owned terminals. While the phone owns a terminal's size, the
+  // desktop does NOTHING to that PTY — it neither resizes its xterm nor fits/
+  // drives the PTY (the phone is the sole renderer). The "Controlled from
+  // phone" panel covers the now-irrelevant desktop xterm. When a terminal
+  // stops being phone-owned, the desktop reclaims it: re-fit to its pane and
+  // resume driving. Keyed off agentTerminalIds (sessionId → terminalId) so we
+  // can resolve each phone-driven terminalId back to its xterm entry in
+  // agentTerminalMap (keyed by sessionId).
+  let _lastDrivenTermIds = new Set<string>();
+  $effect(() => {
+    const driven = $phoneDrivenSizes;
+    const idMap = $agentTerminalIds;
+    const termMap = get(agentTerminalMap);
+    // termId → sessionId reverse lookup.
+    const sessionByTerm = new Map<string, string>();
+    for (const [sid, tid] of idMap) sessionByTerm.set(tid, sid);
+
+    const nowDriven = new Set<string>();
+    for (const termId of driven.keys()) nowDriven.add(termId);
+
+    // Terminals that just stopped being phone-owned → re-fit to their pane and
+    // resume desktop driving (reclaim on detach).
+    for (const termId of _lastDrivenTermIds) {
+      if (nowDriven.has(termId)) continue;
+      const sid = sessionByTerm.get(termId);
+      const entry = sid ? termMap.get(sid) : undefined;
+      if (entry?.fitAddon) {
+        try {
+          entry.fitAddon.fit();
+          if (entry.terminalId) {
+            const dims = entry.fitAddon.proposeDimensions();
+            if (dims) agentResizeTerminal(entry.terminalId, dims.cols, dims.rows).catch(() => {});
+          }
+        } catch (_) {}
+      }
+    }
+    _lastDrivenTermIds = nowDriven;
+  });
+
   // Context usage polling interval
   let contextUsageInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -306,12 +357,20 @@
   let showNotInstalled = $state(false);
   let notInstalledProvider = $state<'claude' | 'codex' | 'gemini' | 'opencode'>('claude');
 
-  // --- Notification system for action-required prompts ---
-  let notifyOutputBuffer = '';
-  let notifyLastTime = 0;
-  let notifyBufferTimer: ReturnType<typeof setTimeout> | null = null;
+  // --- Notification system for action-required prompts (per-session) ---
+  // Each session detects its own prompts and tracks its own re-alert guard so
+  // one session's output can never silence or storm another's. The dock-bounce
+  // + chime alert is shared (one window-level effect) but is driven by the
+  // union of awaiting sessions in `agentSessionAwaiting`.
   let notifySoundInterval: ReturnType<typeof setInterval> | null = null;
+  let dockBounceActive = false;
   let unlistenFileDrop: (() => void) | null = null;
+  let unlistenAttentionCleared: UnlistenFn | null = null;
+
+  // Per-session rolling ANSI-stripped output buffer (for prompt detection).
+  const notifyBuffers = new Map<string, string>();
+  // Per-session last-notify timestamp (10s re-alert guard, per session).
+  const notifyLastTimes = new Map<string, number>();
 
   const actionPatterns = [
     /Do you want to proceed/i,
@@ -326,37 +385,78 @@
     /Yes, and don.t ask/i,
   ];
 
-  function checkNotifyBuffer() {
-    const buf = notifyOutputBuffer;
-    notifyOutputBuffer = '';
-    if (!buf) return;
-    if (Date.now() - notifyLastTime < 10000) return;
+  // Start (or refresh) the shared dock-bounce + chime alert. Called when any
+  // session enters the awaiting state while the window is unfocused. Both
+  // surfaces are gated by their settings and stop automatically once the
+  // window regains focus or no session is awaiting.
+  function startAlert() {
     if (document.hasFocus()) return;
 
-    if (actionPatterns.some(p => p.test(buf))) {
-      notifyLastTime = Date.now();
-
-      // Dock bounce — Critical = persistent bounce until focus
-      if (get(agentDockBounceEnabled)) {
-        import('@tauri-apps/api/window').then(({ getCurrentWindow, UserAttentionType }) => {
-          getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
-        }).catch(() => {});
-      }
-
-      // Sound chime + repeat
-      if (get(agentSoundEnabled)) {
-        playChime();
-        if (notifySoundInterval) clearInterval(notifySoundInterval);
-        notifySoundInterval = setInterval(() => {
-          if (document.hasFocus()) {
-            clearInterval(notifySoundInterval!);
-            notifySoundInterval = null;
-            return;
-          }
-          playChime();
-        }, AGENT_NOTIFY_REPEAT_MS);
-      }
+    if (get(agentDockBounceEnabled) && !dockBounceActive) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow, UserAttentionType }) => {
+        getCurrentWindow().requestUserAttention(UserAttentionType.Critical);
+      }).catch(() => {});
+      dockBounceActive = true;
     }
+
+    if (get(agentSoundEnabled)) {
+      playChime();
+      if (notifySoundInterval) clearInterval(notifySoundInterval);
+      notifySoundInterval = setInterval(() => {
+        if (document.hasFocus() || get(agentSessionAwaiting).size === 0) {
+          stopAlert();
+          return;
+        }
+        playChime();
+      }, AGENT_NOTIFY_REPEAT_MS);
+    }
+  }
+
+  // Stop the shared alert: clear the chime repeat and cancel any active dock
+  // bounce. Safe to call when nothing is active.
+  function stopAlert() {
+    if (notifySoundInterval) { clearInterval(notifySoundInterval); notifySoundInterval = null; }
+    if (dockBounceActive) {
+      dockBounceActive = false;
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        getCurrentWindow().requestUserAttention(null);
+      }).catch(() => {});
+    }
+  }
+
+  // Mark a session as awaiting input. Adds it to the per-session store and, if
+  // the window is unfocused, raises the shared alert. The 10s per-session guard
+  // prevents a single redraw-happy session from re-firing the chime.
+  function markAwaiting(sessionId: string) {
+    const now = Date.now();
+    const last = notifyLastTimes.get(sessionId) ?? 0;
+    if (now - last < 10000) return;
+    notifyLastTimes.set(sessionId, now);
+    agentSessionAwaiting.update(s => {
+      if (s.has(sessionId)) return s;
+      const next = new Set(s);
+      next.add(sessionId);
+      return next;
+    });
+    startAlert();
+  }
+
+  // Clear a session's awaiting state. Removes it from the store, resets its
+  // re-alert guard, and stops the shared alert if no session is left awaiting.
+  // This is the per-session version of the old maybeClear backstop AND the
+  // landing point for the authoritative `agent-attention-cleared` event.
+  function clearAwaiting(sessionId: string) {
+    notifyLastTimes.set(sessionId, 0);
+    let removed = false;
+    agentSessionAwaiting.update(s => {
+      if (!s.has(sessionId)) return s;
+      removed = true;
+      const next = new Set(s);
+      next.delete(sessionId);
+      return next;
+    });
+    if (!removed) return;
+    if (get(agentSessionAwaiting).size === 0) stopAlert();
   }
 
   function playChime() {
@@ -380,17 +480,30 @@
     } catch (_) {}
   }
 
-  function handleTerminalOutput(base64Data: string) {
+  function handleTerminalOutput(sessionId: string, base64Data: string) {
     try {
       const raw = atob(base64Data);
       const text = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
-      notifyOutputBuffer += text;
 
-      // Check on every chunk if unfocused (timers may be throttled in background)
-      if (!document.hasFocus()) checkNotifyBuffer();
-      // Also debounce for when data arrives in small chunks
-      if (notifyBufferTimer) clearTimeout(notifyBufferTimer);
-      notifyBufferTimer = setTimeout(() => checkNotifyBuffer(), AGENT_NOTIFY_DEBOUNCE_MS);
+      // Maintain a small rolling per-session buffer so a prompt split across
+      // chunks is still matched. Bounded so it can't grow unboundedly.
+      let buf = (notifyBuffers.get(sessionId) ?? '') + text;
+      if (buf.length > 2000) buf = buf.slice(-2000);
+      notifyBuffers.set(sessionId, buf);
+
+      const isPrompt = actionPatterns.some(p => p.test(buf));
+      if (isPrompt) {
+        // A prompt for THIS session — flag it and (if unfocused) alert. The
+        // buffer is reset so the same prompt text doesn't keep re-matching on
+        // every redraw chunk; markAwaiting's per-session guard handles storms.
+        notifyBuffers.set(sessionId, '');
+        markAwaiting(sessionId);
+      } else if (get(agentSessionAwaiting).has(sessionId) && text.trim().length > 8) {
+        // Backstop to the backend `agent-attention-cleared` event: if a session
+        // that was awaiting produces substantial non-prompt output, the agent
+        // has continued — clear it locally even if the event hasn't arrived.
+        clearAwaiting(sessionId);
+      }
     } catch (_) {}
   }
 
@@ -526,11 +639,15 @@
       resizeTimer = setTimeout(() => {
         resizeTimer = null;
         try {
+          const tIds = get(agentTerminalIds);
+          const termId = tIds.get(sessionId);
+          // Phone-owned: the phone drives the size. Adopt it onto our xterm
+          // (handled by the adopt $effect) and skip both the local fit and
+          // the PTY-resize drive so the desktop doesn't fight the phone.
+          if (termId && get(phoneDrivenSizes).has(termId)) return;
           fa.fit();
           // Skip PTY resize during drag — only resize on mouseup via refitAll
           if (dragging) return;
-          const tIds = get(agentTerminalIds);
-          const termId = tIds.get(sessionId);
           if (termId) {
             const dims = fa.proposeDimensions();
             if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
@@ -694,12 +811,21 @@
   // Belt-and-suspenders on top of the per-entry ResizeObservers — those
   // observe the inner xterm container; this one fires when the outer wrapper
   // (terminalEl / shellEl) changes size, e.g. when agentShellOpen closes.
+  // True when the active session's terminal is being size-driven by the phone.
+  // While so, the desktop must NOT re-fit the main xterm to the pane (that
+  // would undo the adopted narrow size); the adopt $effect owns its size.
+  function activeTermPhoneOwned(): boolean {
+    const session = get(activeAgentSession);
+    const termId = session ? get(agentTerminalIds).get(session.id) ?? null : null;
+    return !!termId && get(phoneDrivenSizes).has(termId);
+  }
+
   let _fitTimer: ReturnType<typeof setTimeout> | null = null;
   function scheduleFit() {
     if (_fitTimer !== null) clearTimeout(_fitTimer);
     _fitTimer = setTimeout(() => {
       _fitTimer = null;
-      try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon?.fit(); } catch (_) {}
       try { activeShellEntry?.fitAddon?.fit(); } catch (_) {}
     }, 60);
   }
@@ -709,11 +835,11 @@
     // mode-switch with animations, etc.).
     scheduleFit(); // 60ms default
     setTimeout(() => {
-      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon.fit(); } catch {}
       try { activeShellEntry?.fitAddon.fit(); } catch {}
     }, 200);
     setTimeout(() => {
-      try { activeTermEntry?.fitAddon.fit(); } catch {}
+      if (!activeTermPhoneOwned()) try { activeTermEntry?.fitAddon.fit(); } catch {}
       try { activeShellEntry?.fitAddon.fit(); } catch {}
     }, 500);
   }
@@ -722,16 +848,16 @@
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         try {
-          activeTermEntry?.fitAddon?.fit();
-          if (sendPtyResize && activeTermEntry?.fitAddon) {
-            const tIds = get(agentTerminalIds);
-            const session = get(activeAgentSession);
-            if (session) {
-              const termId = tIds.get(session.id);
-              if (termId) {
-                const dims = activeTermEntry.fitAddon.proposeDimensions();
-                if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
-              }
+          const tIds = get(agentTerminalIds);
+          const session = get(activeAgentSession);
+          const termId = session ? tIds.get(session.id) ?? null : null;
+          // Phone-owned: the phone drives the size; don't refit or drive the
+          // PTY (the adopt $effect keeps our xterm matching the phone).
+          if (!(termId && get(phoneDrivenSizes).has(termId))) {
+            activeTermEntry?.fitAddon?.fit();
+            if (sendPtyResize && activeTermEntry?.fitAddon && termId) {
+              const dims = activeTermEntry.fitAddon.proposeDimensions();
+              if (dims) agentResizeTerminal(termId, dims.cols, dims.rows).catch(() => {});
             }
           }
         } catch (_) {}
@@ -1013,7 +1139,7 @@
       let existingSessionIds: string[] = [];
       if (!session.claudeSessionId) {
         try {
-          const existing = await agentDiscoverSessions(spawnPath);
+          const existing = await agentDiscoverSessions(spawnPath, session.provider || 'claude');
           existingSessionIds = existing.map((s: any) => s.sessionId);
         } catch (_) {}
         const claimedBySiblings = get(agentSessions)
@@ -1080,6 +1206,11 @@
           }
           if (entry) entry._exitBuffer = '';
           agentSessionActivity.update(m => { m.set(sessionId, 'done'); return new Map(m); });
+          // Exited session can no longer be awaiting input (backend also emits
+          // agent-attention-cleared on exit; this is local cleanup).
+          clearAwaiting(sessionId);
+          notifyBuffers.delete(sessionId);
+          notifyLastTimes.delete(sessionId);
           // Always dispose the xterm entry on exit. Re-opening the session
           // from the sidebar will auto-spawn a fresh CLI (with --resume if
           // claudeSessionId is set), so preserving scrollback in a dead
@@ -1110,8 +1241,8 @@
           } catch (_) {}
         }
 
-        // Check for action-required prompts and notify
-        handleTerminalOutput(payload.data);
+        // Check for action-required prompts and notify (per-session)
+        handleTerminalOutput(sessionId, payload.data);
 
         // Accumulate raw output into a rolling 500-char buffer. Used at
         // PTY-close time to extract the "claude --resume <id>" token as
@@ -1163,7 +1294,7 @@
             attempts++;
             if (attempts > 10 || session.claudeSessionId) { clearInterval(captureInterval); return; }
             try {
-              const allSessions = await agentDiscoverSessions(spawnPath);
+              const allSessions = await agentDiscoverSessions(spawnPath, session.provider || 'claude');
               // Re-check the "claimed by siblings" set on every poll
               // tick — a concurrently-spawning session might have
               // claimed an id since we took the snapshot at spawn
@@ -1247,6 +1378,7 @@
       spawning = true;
       const termId = await agentSpawnTerminal({
         sessionId: resumeId,
+        rowId: session.id,
         projectPath: spawnPath,
         contextPrompt: purposePrompt || undefined,
         skipPermissions: session.skipPermissions === 1 || undefined,
@@ -1503,7 +1635,9 @@
     // instead of trying to close a tab that no longer exists.
     const tIdsClose = get(agentTerminalIds);
     const closingTermId = tIdsClose.get(sessionId);
-    if (closingTermId) _suppressedTerminalIds.add(closingTermId);
+    if (closingTermId) {
+      _suppressedTerminalIds.add(closingTermId);
+    }
 
     // Cleanup terminal entry
     const tMap = get(agentTerminalMap);
@@ -1621,6 +1755,26 @@
       agentDockBounceEnabled.set(dock !== 'false');
     } catch (_) {}
 
+    // Authoritative attention clear from the backend: emitted whenever input
+    // is sent to a session from ANY source (desktop or mobile) or it exits.
+    // Reverse-look the terminalId to our sessionId via agentTerminalIds
+    // (Map<sessionId, terminalId>) and clear that session's awaiting state.
+    try {
+      unlistenAttentionCleared = await listen<{ terminalId: string }>(
+        'agent-attention-cleared',
+        (event) => {
+          const terminalId = event.payload?.terminalId;
+          if (!terminalId) return;
+          const tIds = get(agentTerminalIds);
+          let matchedSessionId: string | null = null;
+          for (const [sid, tid] of tIds) {
+            if (tid === terminalId) { matchedSessionId = sid; break; }
+          }
+          if (matchedSessionId) clearAwaiting(matchedSessionId);
+        },
+      );
+    } catch (_) {}
+
     // Listen for reset-session, delete-session, and close-tab-session events
     window.addEventListener(AGENT_EVENT.RESET_SESSION, handleResetSession);
     window.addEventListener(AGENT_EVENT.DELETE_SESSION, handleDeleteSession);
@@ -1676,13 +1830,15 @@
     unsubShell();
     unsubAppearance();
     stopContextUsagePolling();
-    if (notifyBufferTimer) clearTimeout(notifyBufferTimer);
-    if (notifySoundInterval) clearInterval(notifySoundInterval);
+    // Stop the chime repeat and cancel any in-flight dock bounce so a bounce
+    // doesn't linger after the panel unmounts.
+    stopAlert();
     window.removeEventListener(AGENT_EVENT.RESET_SESSION, handleResetSession);
     window.removeEventListener(AGENT_EVENT.DELETE_SESSION, handleDeleteSession);
     window.removeEventListener(AGENT_EVENT.CLOSE_TAB_SESSION, handleCloseTabSession);
     window.removeEventListener(AGENT_EVENT.RELAUNCH_SESSION, handleRelaunchSession);
     if (unlistenFileDrop) unlistenFileDrop();
+    if (unlistenAttentionCleared) unlistenAttentionCleared();
   });
 </script>
 
@@ -1691,6 +1847,16 @@
 {#if $activeAgentSession}
   <div class="agent-panel" bind:this={wrapperEl}>
     <div class="agent-terminal-main" style="width:{$agentShellOpen ? mainWidth + '%' : '100%'}">
+      {#if activePhoneOwned}
+        <div class="phone-owned-panel">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="2" width="12" height="20" rx="2.5"/>
+            <line x1="11" y1="18" x2="13" y2="18"/>
+          </svg>
+          <span class="phone-owned-title">Controlled from phone</span>
+          <span class="phone-owned-sub">This session is being driven from your mobile. It'll return when you detach.</span>
+        </div>
+      {/if}
       {#if spawning}
         {@const _prov = $activeAgentSession?.provider ?? 'claude'}
         {@const _src = _prov === 'codex' ? '/codex.svg'
@@ -1748,7 +1914,7 @@
           </button>
         </div>
       {/if}
-      <div class="agent-terminal-container" class:term-hidden={!termReady} bind:this={terminalEl} style="background:{termBg}"></div>
+      <div class="agent-terminal-container" class:term-hidden={!termReady || activePhoneOwned} bind:this={terminalEl} style="background:{termBg}"></div>
     </div>
 
     <div class="agent-shell-panel" class:dragging={dragging} style="display:{$agentShellOpen ? 'flex' : 'none'};width:{100 - mainWidth}%;flex:none;">
@@ -1833,6 +1999,40 @@
     overflow: hidden;
     min-width: 200px;
     position: relative;
+  }
+
+  .phone-owned-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px;
+    background: var(--n);
+    color: var(--acc);
+    user-select: none;
+  }
+  .phone-owned-panel svg {
+    flex: none;
+    opacity: 0.85;
+  }
+  .phone-owned-title {
+    font-family: var(--ui);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--acc);
+  }
+  .phone-owned-sub {
+    font-family: var(--ui);
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 320px;
+    color: var(--fg-muted, color-mix(in srgb, var(--fg) 55%, transparent));
   }
 
   .agent-terminal-container {

@@ -78,6 +78,21 @@ impl CliRunner for CodexRunner {
         if opts.skip_permissions {
             cmd.push_str(" --dangerously-bypass-approvals-and-sandbox");
         }
+        // Hook-driven attention: Codex runs the notify program on task
+        // lifecycle events. `-c notify=["bash","<path>"]` — a TOML array
+        // literal. Escape the path for the TOML double-quoted strings, then
+        // wrap the whole value in single quotes for the shell (so its
+        // brackets / quotes aren't interpreted), using the standard '\''
+        // dance for any embedded single quote.
+        if let Some(path) = opts.notify_script_path.as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            let toml_escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+            let value = format!("notify=[\"bash\",\"{}\"]", toml_escaped);
+            let shell_escaped = value.replace('\'', "'\\''");
+            cmd.push_str(&format!(" -c '{}'", shell_escaped));
+        }
         if let Some(ref prompt) = opts.system_prompt {
             if !prompt.is_empty() {
                 // `-c instructions=<TOML literal>`. We want the TOML value to be
