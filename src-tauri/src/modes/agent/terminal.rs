@@ -162,6 +162,10 @@ pub(crate) async fn spawn_agent_terminal_impl(
     if let Some(ref name) = git_name { cmd.env("GIT_AUTHOR_NAME", name); cmd.env("GIT_COMMITTER_NAME", name); }
     if let Some(ref email) = git_email { cmd.env("GIT_AUTHOR_EMAIL", email); cmd.env("GIT_COMMITTER_EMAIL", email); }
 
+    // Codex log watcher is started only after a successful spawn (below) so
+    // a failed spawn can't leave a thread tailing a log that never appears.
+    let mut codex_log_path: Option<std::path::PathBuf> = None;
+
     // Hook-driven attention identity. notify.sh reads these to POST the
     // agent's lifecycle events to the always-on local endpoint, which sets
     // this terminal's awaiting state authoritatively (claude/codex). Only
@@ -194,7 +198,8 @@ pub(crate) async fn spawn_agent_terminal_impl(
                 let log_path = crate::modes::agent::hooks::codex_session_log_path(&terminal_id);
                 cmd.env("CODEX_TUI_RECORD_SESSION", "1");
                 cmd.env("CODEX_TUI_SESSION_LOG_PATH", &log_path);
-                crate::modes::agent::hooks::start_codex_log_watcher(terminal_id.clone(), log_path);
+                // Defer the watcher to after the spawn succeeds (see below).
+                codex_log_path = Some(log_path);
             }
             // gemini (binary `agy`): no per-session-injectable hook exists (its
             // hooks have a known path bug), so it stays on the output heuristic
@@ -237,6 +242,10 @@ pub(crate) async fn spawn_agent_terminal_impl(
     }
 
     let child = pty_pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn {}: {}", cli.id(), e))?;
+    // Spawn succeeded — now safe to tail codex's session log.
+    if let Some(log_path) = codex_log_path {
+        crate::modes::agent::hooks::start_codex_log_watcher(terminal_id.clone(), log_path);
+    }
     let writer = pty_pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {}", e))?;
     let reader = pty_pair.master.try_clone_reader().map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 

@@ -117,13 +117,13 @@ async fn handle_socket(
     // reported one).
     let replay = json!({ "t": "replay", "d": b64(&scrollback) });
     if ws_tx.send(Message::Text(replay.to_string().into())).await.is_err() {
-        fanout::remove_viewer(&terminal_id, &client_id);
+        detach(&terminal_id, &client_id);
         return;
     }
     if let Some((cols, rows)) = effective_size {
         let size = json!({ "t": "size", "cols": cols, "rows": rows });
         if ws_tx.send(Message::Text(size.to_string().into())).await.is_err() {
-            fanout::remove_viewer(&terminal_id, &client_id);
+            detach(&terminal_id, &client_id);
             return;
         }
     }
@@ -171,19 +171,24 @@ async fn handle_socket(
     }
 
     let _ = ws_tx.send(Message::Close(None)).await;
-    // Detach: forget this client's viewport + viewer. `remove_viewer`
-    // stamps the detach grace when the last phone leaves; reconcile holds
-    // the phone size through the grace, then `reconcile_after` restores the
-    // desktop size once it expires.
-    fanout::remove_client(&terminal_id, &client_id);
-    fanout::remove_viewer(&terminal_id, &client_id);
-    fanout::reconcile_now(&terminal_id);
-    fanout::reconcile_after(&terminal_id, fanout::DETACH_GRACE);
+    detach(&terminal_id, &client_id);
     log::info!(
         "[companion] ws detach terminal={} client={}",
         terminal_id,
         client_id
     );
+}
+
+/// Forget this client's viewport + viewer, then reconcile so the PTY
+/// relaxes back — `remove_viewer` stamps the detach grace when the last
+/// phone leaves; reconcile holds the phone size through the grace, then
+/// `reconcile_after` restores the desktop size once it expires. Used on
+/// every socket exit: clean close, loop break, or a failed initial send.
+fn detach(terminal_id: &str, client_id: &str) {
+    fanout::remove_client(terminal_id, client_id);
+    fanout::remove_viewer(terminal_id, client_id);
+    fanout::reconcile_now(terminal_id);
+    fanout::reconcile_after(terminal_id, fanout::DETACH_GRACE);
 }
 
 fn handle_client_msg(
@@ -227,25 +232,32 @@ fn handle_client_msg(
 /// commands use: the PTY writer for agent terminals, the session
 /// task's command channel for SSH.
 fn write_input(state: &CompanionAppState, terminal_id: &str, kind: TermKind, bytes: &[u8]) {
-    match kind {
+    let delivered = match kind {
         TermKind::Agent => {
             let terminal_state = state.app.state::<TerminalState>();
             let mut terminals = terminal_state.terminals.lock();
-            if let Some(entry) = terminals.get_mut(terminal_id) {
-                let _ = entry
+            match terminals.get_mut(terminal_id) {
+                Some(entry) => entry
                     .writer
                     .write_all(bytes)
-                    .and_then(|_| entry.writer.flush());
+                    .and_then(|_| entry.writer.flush())
+                    .is_ok(),
+                None => false,
             }
         }
         TermKind::Ssh => {
             let ssh_state = state.app.state::<SshTerminalState>();
             let map = ssh_state.terminals.lock();
-            if let Some(entry) = map.get(terminal_id) {
-                let _ = entry.handle_tx.send(SshCommand::Write(bytes.to_vec()));
+            match map.get(terminal_id) {
+                Some(entry) => entry.handle_tx.send(SshCommand::Write(bytes.to_vec())).is_ok(),
+                None => false,
             }
         }
+    };
+    // Answering from the phone clears attention from any source (B1) — but
+    // only once the keystroke actually reached the PTY/session. A dead
+    // terminal or a failed write must not clear a real "needs you" badge.
+    if delivered {
+        fanout::note_input(terminal_id);
     }
-    // Answering from the phone clears attention from any source (B1).
-    fanout::note_input(terminal_id);
 }

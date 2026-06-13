@@ -580,7 +580,7 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
 /// detached thread for the timer because callers include the PTY
 /// reader thread, which has no tokio runtime context.
 pub fn publish_exit(terminal_id: &str) {
-    let (was_notified, restore_size) = {
+    let (was_awaiting, restore_size) = {
         let mut map = hubs().lock();
         let Some(hub) = map.get_mut(terminal_id) else {
             return;
@@ -596,7 +596,10 @@ pub fn publish_exit(terminal_id: &str) {
         }
         // Clear attention so the post-exit sweep can't fire a spurious
         // Attention during the 30s lingering window (B7 double-notify).
-        let was_notified = hub.notified;
+        // Match note_input: an awaiting hub (hook-set prompt_flag) that
+        // never got as far as a push (notified) must still emit the clear,
+        // or the desktop dot lingers after the agent exits.
+        let was_awaiting = hub.prompt_flag || hub.notified;
         hub.prompt_flag = false;
         hub.notified = false;
         // If the terminal was phone-owned, emit a final `terminal-size` with
@@ -613,9 +616,9 @@ pub fn publish_exit(terminal_id: &str) {
             None
         };
         hub.size_owner = Some(false);
-        (was_notified, restore_size)
+        (was_awaiting, restore_size)
     };
-    if was_notified {
+    if was_awaiting {
         emit_cleared(terminal_id);
     }
     if let Some((cols, rows)) = restore_size {

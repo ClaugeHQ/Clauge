@@ -58,14 +58,19 @@ pub fn opencode_config_dir_path() -> Option<String> {
     opencode_config_dir().map(|d| d.to_string_lossy().to_string())
 }
 
-/// Absolute path to the generated `notify.sh`.
+/// Absolute path to the generated `notify.sh`. `None` if the asset isn't
+/// on disk (generation failed/skipped) so the spawn path injects a hook
+/// only when there's a real script to point at.
 pub fn notify_script_path() -> Option<String> {
-    hooks_dir().map(|d| d.join("notify.sh").to_string_lossy().to_string())
+    let p = hooks_dir()?.join("notify.sh");
+    p.exists().then(|| p.to_string_lossy().to_string())
 }
 
-/// Absolute path to the generated Claude `--settings` file.
+/// Absolute path to the generated Claude `--settings` file. `None` if the
+/// asset isn't on disk (see `notify_script_path`).
 pub fn claude_settings_path() -> Option<String> {
-    hooks_dir().map(|d| d.join("claude-settings.json").to_string_lossy().to_string())
+    let p = hooks_dir()?.join("claude-settings.json");
+    p.exists().then(|| p.to_string_lossy().to_string())
 }
 
 /// The notify script body. Reads the event JSON from `$1` (Codex passes the
@@ -255,8 +260,12 @@ export const ClaugeNotifyPlugin = async ({ client }) => {
 /// Build the Claude `--settings` JSON: a minimal file containing ONLY a
 /// `hooks` block that runs `notify.sh` for the lifecycle events we care
 /// about. `Notification` + `PreToolUse` (matcher `*`) signal needs-user;
-/// `Stop` / `SessionStart` / `SessionEnd` clear. Auth / MCP live in the
-/// user's own settings.json and are unaffected by this additional source.
+/// `PostToolUse` / `Stop` / `UserPromptSubmit` / `SessionStart` /
+/// `SessionEnd` clear. `PostToolUse` is essential: `PreToolUse` fires for
+/// every tool (not just gated ones), so without the matching clear an
+/// auto-approved tool would leave a stale "needs you" flag until `Stop`.
+/// Auth / MCP live in the user's own settings.json and are unaffected by
+/// this additional source.
 fn claude_settings_json(notify_path: &str) -> String {
     let cmd = serde_json::Value::String(notify_path.to_string());
     let entry = serde_json::json!({
@@ -269,7 +278,9 @@ fn claude_settings_json(notify_path: &str) -> String {
         "hooks": {
             "Notification": hooks_only,
             "PreToolUse": hooks_matched,
+            "PostToolUse": hooks_matched,
             "Stop": hooks_only,
+            "UserPromptSubmit": hooks_only,
             "SessionStart": hooks_only,
             "SessionEnd": hooks_only,
         }
@@ -433,11 +444,20 @@ mod tests {
         let json = claude_settings_json("/home/u/.clauge/hooks/notify.sh");
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         let hooks = &v["hooks"];
-        for ev in ["Notification", "PreToolUse", "Stop", "SessionStart", "SessionEnd"] {
+        for ev in [
+            "Notification",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "UserPromptSubmit",
+            "SessionStart",
+            "SessionEnd",
+        ] {
             assert!(hooks.get(ev).is_some(), "missing event {ev}");
         }
-        // PreToolUse carries the wildcard matcher.
+        // PreToolUse / PostToolUse carry the wildcard matcher.
         assert_eq!(hooks["PreToolUse"][0]["matcher"], "*");
+        assert_eq!(hooks["PostToolUse"][0]["matcher"], "*");
         // The command resolves to the absolute notify.sh path.
         assert_eq!(
             hooks["Notification"][0]["hooks"][0]["command"],

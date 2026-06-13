@@ -20,6 +20,7 @@ export const phoneDrivenSizes = writable<Map<string, { cols: number; rows: numbe
 
 let unlisten: UnlistenFn | null = null;
 let started = false;
+let tearingDown = false;
 
 /**
  * Register the single `terminal-size` listener. The backend emits this on
@@ -30,6 +31,7 @@ let started = false;
 export function startSizeOwnerListener(): () => void {
   if (started) return () => {};
   started = true;
+  tearingDown = false;
 
   listen<{ terminalId: string; cols: number; rows: number; phoneOwned: boolean }>(
     'terminal-size',
@@ -51,11 +53,19 @@ export function startSizeOwnerListener(): () => void {
     },
   )
     .then((fn) => {
-      unlisten = fn;
+      // If teardown ran before listen() resolved, the listener would leak
+      // (and `started` was reset, so a re-subscribe stacks a second one).
+      // Unlisten immediately in that case; otherwise store the handle.
+      if (tearingDown) fn();
+      else unlisten = fn;
     })
-    .catch((e) => console.warn('[size-owner] listener failed:', e));
+    .catch((e) => {
+      started = false;
+      console.warn('[size-owner] listener failed:', e);
+    });
 
   return () => {
+    tearingDown = true;
     unlisten?.();
     unlisten = null;
     started = false;
