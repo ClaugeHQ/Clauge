@@ -111,6 +111,9 @@ pub fn ssh_write_to_terminal(
         .handle_tx
         .send(SshCommand::Write(bytes))
         .map_err(|e| format!("send write: {}", e))?;
+    drop(map);
+    // Desktop keystrokes clear attention from any source (B1).
+    fanout::note_input(&terminal_id);
     Ok(())
 }
 

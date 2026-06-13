@@ -291,6 +291,9 @@ pub fn agent_write_to_terminal(state: State<'_, TerminalState>, terminal_id: Str
     let entry = terminals.get_mut(&terminal_id).ok_or("Terminal not found")?;
     entry.writer.write_all(data.as_bytes()).map_err(|e| format!("Write error: {}", e))?;
     entry.writer.flush().map_err(|e| format!("Flush error: {}", e))?;
+    drop(terminals);
+    // Desktop keystrokes clear attention from any source (B1).
+    fanout::note_input(&terminal_id);
     Ok(())
 }
 

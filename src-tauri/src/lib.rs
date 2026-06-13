@@ -164,6 +164,10 @@ pub fn run() {
             // frontend without threading AppHandle through every connect
             // entry point (terminal, tunnel, explorer all already exist).
             modes::ssh::ssh_session::set_app_handle(app.handle().clone());
+            // Stash the AppHandle so fanout can emit attention-cleared
+            // events to the frontend without routing through the
+            // companion-only push sink (clears even when companion is off).
+            companion::fanout::set_app_handle(app.handle().clone());
             app.manage(modes::explorer::session::ExplorerSessions::default());
             app.manage(modes::explorer::transfers::Transfers::default());
             app.manage(shared::ai::types::PendingFrontendTools::default());

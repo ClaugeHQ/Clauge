@@ -16,9 +16,11 @@
 // callers never fire redundant resizes.
 
 use parking_lot::Mutex;
-use std::collections::{HashMap, VecDeque};
+use serde::Serialize;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, mpsc};
 
 /// Client id the desktop registers its viewport under.
@@ -88,6 +90,11 @@ struct TermHub {
     /// Reset whenever new output arrives so each fresh prompt notifies
     /// at most once.
     notified: bool,
+    /// Client ids of WS connections currently mirroring this terminal —
+    /// i.e. phones actively viewing. Tracked separately from `sizes` so
+    /// attach/detach gates push without touching the desktop-authoritative
+    /// sizing logic.
+    viewers: HashSet<String>,
 }
 
 /// Everything a WS connection needs at attach time, captured under one
@@ -130,10 +137,97 @@ fn emit_push(trigger: PushTrigger) {
     }
 }
 
-/// True if any non-desktop (i.e. phone) client is currently attached.
+/// The desktop AppHandle, stashed in `setup` so fanout can emit
+/// frontend events (attention-cleared) WITHOUT routing through the
+/// companion-only PUSH_SINK — the desktop dock-bounce/chime must clear
+/// even when the companion server is off.
+static APP_HANDLE: OnceLock<Mutex<Option<AppHandle>>> = OnceLock::new();
+
+fn app_handle() -> &'static Mutex<Option<AppHandle>> {
+    APP_HANDLE.get_or_init(|| Mutex::new(None))
+}
+
+/// Install the desktop AppHandle. Called once from the Tauri `setup` hook.
+pub fn set_app_handle(app: AppHandle) {
+    *app_handle().lock() = Some(app);
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearedPayload {
+    terminal_id: String,
+}
+
+/// Emit `agent-attention-cleared` to the frontend. MUST be called with
+/// the hubs lock dropped — never while holding it.
+fn emit_cleared(terminal_id: &str) {
+    if let Some(handle) = app_handle().lock().as_ref() {
+        let _ = handle.emit(
+            "agent-attention-cleared",
+            ClearedPayload {
+                terminal_id: terminal_id.to_string(),
+            },
+        );
+    }
+}
+
+/// True if any phone is currently mirroring this terminal over a WS.
 /// Used to suppress push when the user is already looking at the term.
+/// The desktop never opens a companion WS to itself, so any viewer is a
+/// phone. Tracked independently of `sizes` (a phone only enters `sizes`
+/// once it sends a resize, which is too late for gating).
 fn phone_attached(hub: &TermHub) -> bool {
-    hub.sizes.keys().any(|k| k != DESKTOP_CLIENT)
+    !hub.viewers.is_empty()
+}
+
+/// Register a WS viewer (phone) on attach. No-op if the hub is gone.
+pub fn add_viewer(terminal_id: &str, client_id: &str) {
+    let mut map = hubs().lock();
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.viewers.insert(client_id.to_string());
+    }
+}
+
+/// Forget a WS viewer on every detach path. No-op if the hub is gone.
+pub fn remove_viewer(terminal_id: &str, client_id: &str) {
+    let mut map = hubs().lock();
+    if let Some(hub) = map.get_mut(terminal_id) {
+        hub.viewers.remove(client_id);
+    }
+}
+
+/// Clear the attention state when input arrives from ANY source
+/// (desktop keystroke, mobile keystroke, SSH write). Edge-triggered:
+/// emits `agent-attention-cleared` only when the hub was actually in an
+/// awaiting/notified state, so a stream of keystrokes after it's cleared
+/// does not spam events. No-op if the hub is gone.
+pub fn note_input(terminal_id: &str) {
+    let was_awaiting = {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
+            return;
+        };
+        let was_awaiting = hub.prompt_flag || hub.notified;
+        hub.prompt_flag = false;
+        hub.notified = false;
+        hub.last_output = Instant::now();
+        was_awaiting
+    };
+    if was_awaiting {
+        emit_cleared(terminal_id);
+    }
+}
+
+/// Whether this terminal is genuinely waiting for the user: its tail
+/// looked like a prompt and it has been idle ≥ ATTENTION_IDLE. No
+/// phone-attached / notified gating — this reflects the real waiting
+/// state for the mobile list dot. False if the hub is gone.
+pub fn is_awaiting(terminal_id: &str) -> bool {
+    let map = hubs().lock();
+    match map.get(terminal_id) {
+        Some(hub) => hub.prompt_flag && hub.last_output.elapsed() >= ATTENTION_IDLE,
+        None => false,
+    }
 }
 
 /// Pure prompt detector: does the output tail look like the terminal is
@@ -149,20 +243,52 @@ pub fn looks_like_prompt(tail: &[u8]) -> bool {
     // an otherwise-matching prompt.
     let text = String::from_utf8_lossy(tail);
     let trimmed = text.trim_end_matches([' ', '\t', '\r', '\n']);
-    if trimmed.is_empty() {
-        return false;
+    if !trimmed.is_empty() {
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.ends_with("[y/n]") || lower.ends_with("[y/n]?") {
+            return true;
+        }
+        if trimmed.ends_with('?') {
+            return true;
+        }
+        // A bare prompt sigil with the question mark already consumed:
+        // the last visual char (pre-trim) was a space following one of
+        // these.
+        let last = trimmed.chars().last().unwrap();
+        if matches!(last, '❯' | '$' | '#' | '>' | ':') {
+            return true;
+        }
     }
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.ends_with("[y/n]") || lower.ends_with("[y/n]?") {
-        return true;
-    }
-    if trimmed.ends_with('?') {
-        return true;
-    }
-    // A bare prompt sigil with the question mark already consumed: the
-    // last visual char (pre-trim) was a space following one of these.
-    let last = trimmed.chars().last().unwrap();
-    matches!(last, '❯' | '$' | '#' | '>' | ':')
+    // Superset: match the desktop frontend's proven patterns against an
+    // ANSI-stripped copy of the tail, so the backend's awaiting state is
+    // at least as sensitive as the desktop UI (TUI agents paint prompts
+    // with cursor moves, so the raw tail heuristic above misses them).
+    matches_prompt_phrases(&strip_ansi(&text))
+}
+
+/// Strip ANSI CSI sequences (`\x1b[…<letter>`) and OSC sequences
+/// (`\x1b]…\x07`) so phrase matching sees the visible text.
+fn strip_ansi(s: &str) -> String {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07").unwrap()
+    });
+    re.replace_all(s, "").into_owned()
+}
+
+/// Case-insensitive match on the desktop frontend's proven approval /
+/// input-waiting phrases.
+fn matches_prompt_phrases(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let has_allow_deny = lower.contains("allow") && lower.contains("deny");
+    has_allow_deny
+        || lower.contains("do you want to proceed")
+        || lower.contains("(y/n)")
+        || lower.contains("[y/n]")
+        || lower.contains("press enter")
+        || lower.contains("approve this")
+        || lower.contains("permission")
+        || lower.contains("yes, and don")
 }
 
 /// The PTY size the hub should be driven at, given every client's
@@ -199,6 +325,7 @@ pub fn register(terminal_id: &str, kind: TermKind, title: &str) {
             last_output: Instant::now(),
             prompt_flag: false,
             notified: false,
+            viewers: HashSet::new(),
         },
     );
 }
@@ -237,9 +364,10 @@ pub fn publish(terminal_id: &str, bytes: &[u8]) {
 /// detached thread for the timer because callers include the PTY
 /// reader thread, which has no tokio runtime context.
 pub fn publish_exit(terminal_id: &str) {
+    let mut was_notified = false;
     {
-        let map = hubs().lock();
-        let Some(hub) = map.get(terminal_id) else {
+        let mut map = hubs().lock();
+        let Some(hub) = map.get_mut(terminal_id) else {
             return;
         };
         let _ = hub.tx.send(FanoutEvent::Exit);
@@ -251,6 +379,14 @@ pub fn publish_exit(terminal_id: &str) {
                 title: hub.title.clone(),
             });
         }
+        // Clear attention so the post-exit sweep can't fire a spurious
+        // Attention during the 30s lingering window (B7 double-notify).
+        was_notified = hub.notified;
+        hub.prompt_flag = false;
+        hub.notified = false;
+    }
+    if was_notified {
+        emit_cleared(terminal_id);
     }
     let id = terminal_id.to_string();
     std::thread::spawn(move || {
@@ -562,6 +698,15 @@ mod tests {
         assert!(looks_like_prompt(b" pick one: "));
         assert!(looks_like_prompt(b"beep\x07"));
 
+        // Superset phrase matches (desktop-frontend parity), including
+        // ANSI-painted TUI prompts whose raw tail wouldn't match.
+        assert!(looks_like_prompt(b"Do you want to proceed with this edit"));
+        assert!(looks_like_prompt(b"Continue (y/n)"));
+        assert!(looks_like_prompt(b"This action requires permission to run"));
+        assert!(looks_like_prompt(b"Press Enter to continue"));
+        assert!(looks_like_prompt(b"\x1b[1m1. Allow once\x1b[0m   2. Deny"));
+        assert!(looks_like_prompt(b"Yes, and don't ask again this session"));
+
         // Negative: mid-stream output, blank tails, plain text.
         assert!(!looks_like_prompt(b"Building project...\n"));
         assert!(!looks_like_prompt(b"   \n\n"));
@@ -618,12 +763,14 @@ mod tests {
         sweep_attention();
         assert_eq!(attention_count_for(&mut rx, id), 0, "non-prompt tail must not notify");
 
-        // A phone attached suppresses the notification entirely.
+        // A phone attached (a WS viewer) suppresses the notification
+        // entirely. Viewer tracking is independent of `sizes`.
         publish(id, b"Retry? ");
-        set_client_size(id, "phone-1", 80, 24);
+        add_viewer(id, "phone-1");
         backdate_last_output_for_test(id, ATTENTION_IDLE + Duration::from_secs(1));
         sweep_attention();
         assert_eq!(attention_count_for(&mut rx, id), 0, "phone attached suppresses push");
+        remove_viewer(id, "phone-1");
 
         clear_push_sink();
         unregister(id);

@@ -135,6 +135,11 @@ pub struct AgentSessionInfo {
     /// hub the desktop is publishing to — true mirroring. `null` when no
     /// terminal is live for this session (phone must spawn one first).
     pub live_terminal_id: Option<String>,
+    /// Whether the live terminal is genuinely waiting for the user (its
+    /// tail looked like a prompt and it has been idle past the attention
+    /// threshold). Drives the mobile in-list attention dot. False when no
+    /// terminal is live for this session.
+    pub awaiting_input: bool,
 }
 
 /// Match a live terminal to a session row. Companion spawns stamp the
@@ -195,6 +200,10 @@ async fn list_agent_sessions(State(state): State<Arc<CompanionAppState>>) -> Res
         .map(|s| {
             let status = agent_status(&terminal_state, &s).to_string();
             let live_terminal_id = live_agent_terminal_id(&terminal_state, &s);
+            let awaiting_input = live_terminal_id
+                .as_deref()
+                .map(crate::companion::fanout::is_awaiting)
+                .unwrap_or(false);
             AgentSessionInfo {
                 id: s.id,
                 title: s.title,
@@ -204,6 +213,7 @@ async fn list_agent_sessions(State(state): State<Arc<CompanionAppState>>) -> Res
                 project_path: s.project_path,
                 last_used_at: s.last_used_at,
                 live_terminal_id,
+                awaiting_input,
             }
         })
         .collect();
@@ -565,6 +575,7 @@ mod tests {
             project_path: "/Users/me/proj".into(),
             last_used_at: "2026-06-11T10:00:00Z".into(),
             live_terminal_id: Some("term-abc".into()),
+            awaiting_input: true,
         };
         assert_eq!(
             serde_json::to_value(&info).unwrap(),
@@ -577,6 +588,7 @@ mod tests {
                 "projectPath": "/Users/me/proj",
                 "lastUsedAt": "2026-06-11T10:00:00Z",
                 "liveTerminalId": "term-abc",
+                "awaitingInput": true,
             })
         );
     }
@@ -592,6 +604,7 @@ mod tests {
             project_path: "/Users/me/proj".into(),
             last_used_at: "2026-06-11T10:00:00Z".into(),
             live_terminal_id: None,
+            awaiting_input: false,
         };
         assert_eq!(
             serde_json::to_value(&info).unwrap()["liveTerminalId"],

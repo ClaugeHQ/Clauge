@@ -80,6 +80,9 @@ async fn handle_socket(
         terminal_id,
         client_id
     );
+    // Register as a viewer so push gating (phone_attached) sees this
+    // phone immediately on attach, not only once it sends a resize.
+    fanout::add_viewer(&terminal_id, &client_id);
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -88,11 +91,13 @@ async fn handle_socket(
     // reported one).
     let replay = json!({ "t": "replay", "d": b64(&scrollback) });
     if ws_tx.send(Message::Text(replay.to_string().into())).await.is_err() {
+        fanout::remove_viewer(&terminal_id, &client_id);
         return;
     }
     if let Some((cols, rows)) = effective_size {
         let size = json!({ "t": "size", "cols": cols, "rows": rows });
         if ws_tx.send(Message::Text(size.to_string().into())).await.is_err() {
+            fanout::remove_viewer(&terminal_id, &client_id);
             return;
         }
     }
@@ -132,6 +137,7 @@ async fn handle_socket(
     }
 
     let _ = ws_tx.send(Message::Close(None)).await;
+    fanout::remove_viewer(&terminal_id, &client_id);
     // Detach: if this client was the size constraint, relax the PTY
     // back to the remaining clients' minimum.
     if let Some((cols, rows)) = fanout::remove_client(&terminal_id, &client_id) {
@@ -204,6 +210,8 @@ fn write_input(state: &CompanionAppState, terminal_id: &str, kind: TermKind, byt
             }
         }
     }
+    // Answering from the phone clears attention from any source (B1).
+    fanout::note_input(terminal_id);
 }
 
 /// Apply an already-computed effective size through the same resize
