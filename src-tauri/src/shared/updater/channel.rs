@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-const REPO_OWNER: &str = "ansxuman";
+const REPO_OWNER: &str = "ClaugeHQ";
 const REPO_NAME: &str = "Clauge";
 
 const STABLE_ENDPOINT: &str =
