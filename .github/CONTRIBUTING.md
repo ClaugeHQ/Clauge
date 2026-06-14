@@ -75,7 +75,7 @@ If your tooling adds the trailer automatically (Claude Code, Cursor, etc.), stri
 
 ## Reporting Issues
 
-Open issues through the [issue chooser](https://github.com/ansxuman/Clauge/issues/new/choose) — it will route you into the correct template (bug report, feature request, etc.). Blank issues are disabled on purpose: a structured report saves everyone time.
+Open issues through the [issue chooser](https://github.com/ClaugeHQ/Clauge/issues/new/choose) — it will route you into the correct template (bug report, feature request, etc.). Blank issues are disabled on purpose: a structured report saves everyone time.
 
 ## License & CLA
 

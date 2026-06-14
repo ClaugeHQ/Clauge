@@ -7,7 +7,7 @@ assignees: ansxuman
 ---
 
 ## Pre-flight
-- [ ] I searched [existing issues](https://github.com/ansxuman/Clauge/issues?q=is%3Aissue) and didn't find a duplicate request
+- [ ] I searched [existing issues](https://github.com/ClaugeHQ/Clauge/issues?q=is%3Aissue) and didn't find a duplicate request
 
 ## Target Mode / Area
 <!-- Which part of Clauge does this touch? Delete the ones that don't apply. -->

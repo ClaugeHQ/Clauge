@@ -174,7 +174,7 @@ export async function checkWhatsNew(currentVersion: string): Promise<{ version: 
   if (lastSeen && lastSeen !== currentVersion) {
     try {
       const res = await fetch(
-        `https://api.github.com/repos/ansxuman/Clauge/releases/tags/v${currentVersion}`
+        `https://api.github.com/repos/ClaugeHQ/Clauge/releases/tags/v${currentVersion}`
       );
       if (res.ok) {
         const data = await res.json();
