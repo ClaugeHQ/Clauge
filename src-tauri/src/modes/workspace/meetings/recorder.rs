@@ -6,7 +6,7 @@
 //! (one loaded model per recording) and ONE DB flush task (the single
 //! writer `repo::append_segments` assumes).
 
-use std::sync::mpsc::{channel, sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{channel, sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -21,6 +21,7 @@ use crate::modes::workspace::models::TranscriptSegment;
 use crate::shared::audio::resample::downmix;
 use crate::shared::audio::{
     to_mono_16k, AudioFrame, CaptureEvent, Chunker, MicCapture, SystemAudioError, SystemCapture,
+    DEVICE_CHANGED_PREFIX,
 };
 use crate::shared::transcribe::engine::Transcriber;
 use crate::shared::transcribe::models as whisper_models;
@@ -80,10 +81,11 @@ const CHUNK_QUEUE_CAPACITY: usize = 8;
 /// Warn the user on the first dropped chunk, then every Nth after that.
 const DROP_WARN_EVERY: u64 = 3;
 
-/// cpal's WASAPI backend reports this through the stream error callback
-/// when the default output device changes (see audio/system/windows.rs);
-/// it is the one system-stream error worth a restart on the new device.
-const DEVICE_CHANGED_PREFIX: &str = "Default audio device changed";
+/// How many times one recording will rebind system capture after a default
+/// output-device change before giving up and degrading to mic-only. Bounds a
+/// restart storm if device-change errors ever arrive in a tight loop, while
+/// still surviving a handful of genuine mid-call output switches.
+const MAX_DEVICE_RESTARTS: u32 = 4;
 
 const EVT_STARTED: &str = "meetings:recording-started";
 const EVT_STOPPED: &str = "meetings:recording-stopped";
@@ -522,6 +524,28 @@ impl DrainPipeline {
         std::mem::take(&mut self.silence_restart_pending)
     }
 
+    /// Wall-clock silence guard for a capture that delivers NO frames at all.
+    /// The sample-based path in `emit` only advances while frames arrive, so a
+    /// macOS tap that's dead silent because it predates the TCC grant (delivers
+    /// zero callbacks, not zero-valued frames) would never trip the restart or
+    /// the warning. `quiet_ms` is the wall time since the last frame. Returns
+    /// true once when the capture should be recreated; fires the warning at
+    /// `SYSTEM_SILENCE_WARN_MS`. Shares the same one-shot arming/warning state
+    /// as the sample path, so the two can't double-fire. No-op for pipelines
+    /// without silence handling (mic, and non-macOS system).
+    fn note_no_frames(&mut self, quiet_ms: u64) -> bool {
+        if self.silence_restart_armed && quiet_ms >= SYSTEM_SILENCE_RESTART_MS {
+            self.silence_restart_armed = false;
+            return true;
+        }
+        if quiet_ms >= SYSTEM_SILENCE_WARN_MS {
+            if let Some(warn) = self.on_silence.take() {
+                warn();
+            }
+        }
+        false
+    }
+
     /// Errs only when the transcriber side has gone away.
     fn handle_frame(&mut self, frame: &AudioFrame) -> Result<(), ()> {
         if frame.samples.is_empty() || frame.rate == 0 {
@@ -636,10 +660,16 @@ enum DrainExit {
     SilenceRestart,
 }
 
+/// How often the drain wakes to run the wall-clock silence watchdog when no
+/// frames are arriving. Short relative to the 15s restart / 60s warn windows.
+const DRAIN_POLL: Duration = Duration::from_millis(500);
+
 fn drain_until_exit(pipeline: &mut DrainPipeline, rx: &Receiver<CaptureEvent>) -> DrainExit {
+    let mut last_frame = Instant::now();
     loop {
-        match rx.recv() {
+        match rx.recv_timeout(DRAIN_POLL) {
             Ok(CaptureEvent::Frame(frame)) => {
+                last_frame = Instant::now();
                 if pipeline.handle_frame(&frame).is_err() {
                     return DrainExit::Closed;
                 }
@@ -648,7 +678,16 @@ fn drain_until_exit(pipeline: &mut DrainPipeline, rx: &Receiver<CaptureEvent>) -
                 }
             }
             Ok(CaptureEvent::Error(msg)) => return DrainExit::StreamError(msg),
-            Err(_) => return DrainExit::Closed,
+            // No frame this tick. A dead-silent tap (denied/pre-grant) delivers
+            // NO callbacks, so the sample-based silence path never runs — guard
+            // on wall-clock time since the last frame instead.
+            Err(RecvTimeoutError::Timeout) => {
+                let quiet_ms = last_frame.elapsed().as_millis() as u64;
+                if pipeline.note_no_frames(quiet_ms) {
+                    return DrainExit::SilenceRestart;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => return DrainExit::Closed,
         }
     }
 }
@@ -714,7 +753,7 @@ fn run_system_drain(
         })
     };
     let mut pipeline = pipeline;
-    let mut restart_attempted = false;
+    let mut device_restarts: u32 = 0;
     let mut silence_restart_done = false;
     loop {
         match drain_until_exit(&mut pipeline, &rx) {
@@ -741,10 +780,12 @@ fn run_system_drain(
                 continue;
             }
             DrainExit::StreamError(msg) => {
-                if !restart_attempted && msg.starts_with(DEVICE_CHANGED_PREFIX) {
-                    restart_attempted = true;
+                if device_restarts < MAX_DEVICE_RESTARTS && msg.starts_with(DEVICE_CHANGED_PREFIX) {
+                    device_restarts += 1;
                     if let Some((new_rx, elapsed_ms)) = restart_system_capture(&active) {
-                        log::info!("[meetings] system capture restarted after device change");
+                        log::info!(
+                            "[meetings] system capture rebound after output-device change (#{device_restarts})"
+                        );
                         pipeline.rebase_to_ms(elapsed_ms);
                         rx = new_rx;
                         continue;
