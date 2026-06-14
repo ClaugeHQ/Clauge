@@ -8,7 +8,7 @@ assignees: ansxuman
 
 ## Pre-flight
 - [ ] I am running the latest Clauge release
-- [ ] I searched [existing issues](https://github.com/ansxuman/Clauge/issues?q=is%3Aissue) and didn't find a duplicate
+- [ ] I searched [existing issues](https://github.com/ClaugeHQ/Clauge/issues?q=is%3Aissue) and didn't find a duplicate
 
 ## Affected Mode / Area
 <!-- Delete the ones that don't apply. -->

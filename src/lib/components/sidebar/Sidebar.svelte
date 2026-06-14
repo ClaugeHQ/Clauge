@@ -228,7 +228,7 @@
       case 'settings': openSettingsTab('account'); break;
       case 'check-updates': handleCheckForUpdates(); break;
       case 'whats-new': openExternal('https://clauge.in/changelog.html'); break;
-      case 'report': openExternal('https://github.com/ansxuman/Clauge/issues/new/choose'); break;
+      case 'report': openExternal('https://github.com/ClaugeHQ/Clauge/issues/new/choose'); break;
       case 'about': openSettingsTab('about'); break;
     }
   }

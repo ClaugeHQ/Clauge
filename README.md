@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ansxuman/Clauge/releases/latest"><img src="https://img.shields.io/github/v/release/ansxuman/Clauge?style=flat-square&color=ff5436&label=latest" alt="Release"></a>
+  <a href="https://github.com/ClaugeHQ/Clauge/releases/latest"><img src="https://img.shields.io/github/v/release/ClaugeHQ/Clauge?style=flat-square&color=ff5436&label=latest" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-7c5cf8?style=flat-square" alt="License"></a>
-  <a href="https://github.com/ansxuman/Clauge/stargazers"><img src="https://img.shields.io/github/stars/ansxuman/Clauge?style=flat-square&color=f5a623" alt="Stars"></a>
+  <a href="https://github.com/ClaugeHQ/Clauge/stargazers"><img src="https://img.shields.io/github/stars/ClaugeHQ/Clauge?style=flat-square&color=f5a623" alt="Stars"></a>
   <img src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-CE422B?style=flat-square" alt="Rust + Tauri">
   <img src="https://img.shields.io/badge/binary-~25%20MB-4f94d4?style=flat-square" alt="~20 MB">
   <img src="https://img.shields.io/badge/MCP-built--in-1dc880?style=flat-square" alt="MCP built-in">
@@ -28,8 +28,8 @@
 <p align="center">
   <a href="https://clauge.in">Website</a> ·
   <a href="https://clauge.in/changelog.html">Changelog</a> ·
-  <a href="https://github.com/ansxuman/Clauge/releases/latest"><strong>Download →</strong></a> ·
-  <a href="https://github.com/ansxuman/Clauge/issues">Report a bug</a>
+  <a href="https://github.com/ClaugeHQ/Clauge/releases/latest"><strong>Download →</strong></a> ·
+  <a href="https://github.com/ClaugeHQ/Clauge/issues">Report a bug</a>
 </p>
 
 <p align="center">
@@ -238,9 +238,9 @@ Drive your desktop from your phone. The **Clauge** companion app attaches to any
 
 <a href="https://www.star-history.com/?repos=ansxuman%2FClauge&type=date&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ansxuman/Clauge&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ansxuman/Clauge&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ansxuman/Clauge&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ClaugeHQ/Clauge&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ClaugeHQ/Clauge&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ClaugeHQ/Clauge&type=date&legend=top-left" />
  </picture>
 </a>
 

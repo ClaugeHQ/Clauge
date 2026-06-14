@@ -7,7 +7,7 @@
   "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ansxuman/Clauge"
+    "url": "https://github.com/ClaugeHQ/Clauge"
   },
   "type": "module",
   "scripts": {

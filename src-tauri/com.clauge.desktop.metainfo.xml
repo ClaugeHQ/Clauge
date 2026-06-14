@@ -25,7 +25,7 @@
   <launchable type="desktop-id">Clauge.desktop</launchable>
 
   <url type="homepage">https://clauge.in</url>
-  <url type="bugtracker">https://github.com/ansxuman/Clauge/issues</url>
+  <url type="bugtracker">https://github.com/ClaugeHQ/Clauge/issues</url>
 
   <categories>
     <category>Development</category>

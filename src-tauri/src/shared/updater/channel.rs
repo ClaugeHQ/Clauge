@@ -7,7 +7,7 @@ const REPO_OWNER: &str = "ansxuman";
 const REPO_NAME: &str = "Clauge";
 
 const STABLE_ENDPOINT: &str =
-    "https://github.com/ansxuman/Clauge/releases/latest/download/latest.json";
+    "https://github.com/ClaugeHQ/Clauge/releases/latest/download/latest.json";
 
 #[derive(Debug, Deserialize)]
 struct GhRelease {
