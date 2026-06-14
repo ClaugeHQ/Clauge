@@ -461,6 +461,12 @@ struct DrainPipeline {
     /// Offset base applied when the first frame arrives, set by a
     /// `rebase_to_ms` that happens before any frame has been seen.
     pending_base_ms: u64,
+    /// The recording's start instant. The first chunk anchors to
+    /// `start_anchor.elapsed()` so mic and system share ONE timeline — they
+    /// don't start at the same wall-clock moment (the system tap comes up
+    /// later), and anchoring each to its own first frame stamps system
+    /// segments too early, scrambling cross-source order.
+    start_anchor: Option<Instant>,
     dropped_chunks: u64,
     dropped_ms: u64,
     on_backlog: Option<Box<dyn FnMut(&str) + Send>>,
@@ -493,6 +499,7 @@ impl DrainPipeline {
             chunker: None,
             offset: None,
             pending_base_ms: 0,
+            start_anchor: None,
             dropped_chunks: 0,
             dropped_ms: 0,
             on_backlog: None,
@@ -500,6 +507,13 @@ impl DrainPipeline {
             silence_restart_armed: false,
             silence_restart_pending: false,
         }
+    }
+
+    /// Anchor the first chunk to this recording-start instant so every source
+    /// shares one wall-clock timeline (see `start_anchor`).
+    fn with_start_anchor(mut self, anchor: Instant) -> Self {
+        self.start_anchor = Some(anchor);
+        self
     }
 
     fn with_backlog_warning(mut self, warn: impl FnMut(&str) + Send + 'static) -> Self {
@@ -571,8 +585,19 @@ impl DrainPipeline {
                 Ok(())
             }
             None => {
+                // Anchor the first chunk to a shared origin. After a no-frame
+                // restart `pending_base_ms` already holds the wall-clock anchor;
+                // otherwise anchor to the recording-start instant so mic and
+                // system land on one timeline (a fresh pipeline at base 0 would
+                // stamp the later-starting source too early).
+                let base_ms = if self.pending_base_ms != 0 {
+                    self.pending_base_ms
+                } else {
+                    self.start_anchor
+                        .map_or(0, |a| a.elapsed().as_millis() as u64)
+                };
                 let mut offset = OffsetTracker::new(rate);
-                offset.rebase_to_ms(self.pending_base_ms, rate);
+                offset.rebase_to_ms(base_ms, rate);
                 self.offset = Some(offset);
                 self.chunker = Some(Chunker::new(rate, self.target_secs, self.max_secs));
                 Ok(())
@@ -703,6 +728,9 @@ fn run_mic_drain(
 ) {
     let mut pipeline = DrainPipeline::new(SOURCE_MIC, chunk_tx)
         .with_backlog_warning(backlog_warner(app.clone(), meeting_id.clone()));
+    if let Some(anchor) = active.lock().as_ref().map(|r| r.started_instant) {
+        pipeline = pipeline.with_start_anchor(anchor);
+    }
     if let DrainExit::StreamError(msg) = drain_until_exit(&mut pipeline, &rx) {
         log::error!("[meetings] mic stream failed, stopping recording: {msg}");
         let _ = app.emit(
@@ -732,8 +760,11 @@ fn run_system_drain(
     mut rx: Receiver<CaptureEvent>,
     chunk_tx: SyncSender<ChunkJob>,
 ) {
-    let pipeline = DrainPipeline::new(SOURCE_SYSTEM, chunk_tx)
+    let mut pipeline = DrainPipeline::new(SOURCE_SYSTEM, chunk_tx)
         .with_backlog_warning(backlog_warner(app.clone(), meeting_id.clone()));
+    if let Some(anchor) = active.lock().as_ref().map(|r| r.started_instant) {
+        pipeline = pipeline.with_start_anchor(anchor);
+    }
     // Silence handling is macOS-specific: a tap created before the TCC
     // grant delivers zeros forever. On Windows, loopback silence just
     // means nothing is playing — restarting there would be wrong.
