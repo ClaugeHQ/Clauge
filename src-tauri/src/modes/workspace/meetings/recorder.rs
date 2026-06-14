@@ -208,6 +208,12 @@ pub async fn start_recording(
         .map_err(|e| format!("failed to create meeting: {e}"))?;
     let meeting_id = meeting.id.clone();
 
+    // Capture the shared timeline anchor BEFORE starting either stream — both
+    // pipelines stamp their first chunk relative to this, so it must predate
+    // any frame a backend buffers during startup (otherwise early frames land
+    // too far into the recording and can misorder the first segments).
+    let started_instant = Instant::now();
+
     let (mic_tx, mic_rx) = channel();
     let mic = match MicCapture::start(mic_tx) {
         Ok(m) => m,
@@ -237,7 +243,7 @@ pub async fn start_recording(
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let recording = ActiveRecording {
         meeting_id: meeting_id.clone(),
-        started_instant: Instant::now(),
+        started_instant,
         started_at: meeting.started_at.clone(),
         source_app: source_app.clone(),
         system_audio,
