@@ -214,12 +214,15 @@ impl EpisodeTracker {
 
 // --- Auto-stop tracker (pure, testable) ---
 
-/// Stops a detected-call recording once the call ends. Arms only while a
-/// recording with a `source_app` is live (manual recordings are never
-/// auto-stopped) and fires at most once per recording: 20s of CONSECUTIVE
+/// Stops a recording once the call it belongs to ends. Arms when EITHER the
+/// recording was call-detected at start (`source_app` set) OR — even for a
+/// manually-started recording — another process is observed genuinely on the
+/// mic during it (`Some(true)`), i.e. a call is in progress. A recording
+/// where no other app ever touches the mic (a plain voice memo) stays manual
+/// and never auto-stops. Fires at most once per recording: 20s of CONSECUTIVE
 /// `Some(false)` from `other_process_uses_mic()`. `Some(true)` (call still
-/// holds the mic) and `None` (probe unavailable/unknown) both reset the
-/// idle run — unknown must never stop a recording.
+/// holds the mic) and `None` (probe unavailable/unknown) both reset the idle
+/// run — unknown must never stop a recording.
 #[derive(Default)]
 pub struct AutoStopTracker {
     recording_id: Option<String>,
@@ -250,6 +253,13 @@ impl AutoStopTracker {
                 fired: false,
                 idle_since: None,
             };
+        }
+        // Arm dynamically: a manually-started recording becomes auto-stoppable
+        // once another process is genuinely on the mic during it (a call in
+        // progress). Covers "pressed Record, then joined the call" — which the
+        // start-time `detected` flag alone misses.
+        if !self.armed && other_mic == Some(true) {
+            self.armed = true;
         }
         if !self.armed || self.fired {
             return false;
@@ -1120,13 +1130,28 @@ mod tests {
     const STOP_WINDOW: Duration = Duration::from_secs(CALL_END_STOP_SECS);
 
     #[test]
-    fn autostop_arms_only_for_detected_recordings() {
+    fn autostop_manual_recording_with_no_call_never_fires() {
         let mut t = AutoStopTracker::default();
         let t0 = Instant::now();
-        // Manual recording (detected = false): 20s+ of idle never fires.
+        // Manual recording (detected = false) where no other app is ever on
+        // the mic — a plain voice memo — never arms, so idle never fires.
         assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
         assert!(!t.tick(t0 + STOP_WINDOW, Some(("m1", false)), Some(false)));
         assert!(!t.tick(t0 + 2 * STOP_WINDOW, Some(("m1", false)), Some(false)));
+    }
+
+    #[test]
+    fn autostop_manual_recording_arms_when_a_call_appears() {
+        let mut t = AutoStopTracker::default();
+        let t0 = Instant::now();
+        // Manual recording (detected = false): not armed at start.
+        assert!(!t.tick(t0, Some(("m1", false)), Some(false)));
+        // A call appears — another process takes the mic → arms dynamically.
+        assert!(!t.tick(t0 + T, Some(("m1", false)), Some(true)));
+        // Call ends: 20s of consecutive idle now fires the auto-stop.
+        let t1 = t0 + 2 * T;
+        assert!(!t.tick(t1, Some(("m1", false)), Some(false)));
+        assert!(t.tick(t1 + STOP_WINDOW, Some(("m1", false)), Some(false)));
     }
 
     #[test]
