@@ -62,7 +62,19 @@ impl Transcriber {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_no_timestamps(false);
-        params.set_suppress_nst(true);
+        // Anti-hallucination. Meeting audio is full of pauses + room noise
+        // where Whisper invents filler ("Thank you", "♪") or loops the last
+        // phrase across the silent tail. These guards are the non-VAD defense:
+        params.set_suppress_blank(true); //   drop blank/leading-space starts
+        params.set_suppress_nst(true); //     drop non-speech tokens (♪, [sound])
+        params.set_no_context(true); //       don't carry text across chunks → no repeat cascade
+        params.set_temperature(0.0); //       deterministic first pass…
+        params.set_temperature_inc(0.2); //   …with fallback ladder on low confidence
+        params.set_logprob_thold(-1.0); //    low avg-logprob → failed decode → fallback
+        params.set_entropy_thold(2.4); //     compression-ratio analog → kills repetition loops
+        // (no_speech_thold is intentionally NOT set — it's a documented no-op
+        // in whisper-rs 0.16. Silent chunks are dropped upstream by the RMS
+        // gate in recorder.rs; a true VAD pass is the deferred follow-up.)
 
         state
             .full(params, samples_16k_mono)
@@ -86,6 +98,19 @@ impl Transcriber {
                 text,
             });
         }
+
+        // Pin the auto-detected language after the first chunk that actually
+        // yields speech. Re-detecting per chunk (the `auto` default) latches
+        // onto the wrong language on short/noisy audio and emits garbage; once
+        // we've seen real speech, lock that language for the rest of the call.
+        if self.language.is_none() && !segments.is_empty() {
+            let id = state.full_lang_id_from_state();
+            if let Some(lang) = whisper_rs::get_lang_str(id) {
+                log::info!("[transcribe] pinned auto-detected language: {lang}");
+                self.language = Some(lang.to_string());
+            }
+        }
+
         Ok(segments)
     }
 }

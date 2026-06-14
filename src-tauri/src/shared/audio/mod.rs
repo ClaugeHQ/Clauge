@@ -21,3 +21,10 @@ pub enum CaptureEvent {
     Frame(AudioFrame),
     Error(String),
 }
+
+/// Prefix of the `CaptureEvent::Error` raised when the OS default audio device
+/// changes mid-capture. cpal's WASAPI backend emits this string natively; the
+/// cross-platform `DeviceWatch` poller (system/mod.rs) emits it too. The
+/// recorder's system drain matches on this prefix to rebind capture to the new
+/// device instead of degrading to mic-only.
+pub const DEVICE_CHANGED_PREFIX: &str = "Default audio device changed";
