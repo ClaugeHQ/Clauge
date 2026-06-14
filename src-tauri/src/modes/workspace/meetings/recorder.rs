@@ -195,6 +195,14 @@ pub async fn start_recording(
     }
 
     let model_path = whisper_models::model_path(&app, &model)?;
+    // The file exists but could be corrupt/truncated (an interrupted download
+    // outside the normal path). Validate the ggml magic up front so the user
+    // gets the actionable "re-download" signal instead of an opaque whisper
+    // load error; drop the bad file so the UI offers a clean re-download.
+    if !whisper_models::validate_magic(&model_path) {
+        let _ = std::fs::remove_file(&model_path);
+        return Err("model_missing".to_string());
+    }
     let lang = language.clone();
     let transcriber =
         tauri::async_runtime::spawn_blocking(move || Transcriber::load(&model_path, Some(&lang)))
@@ -337,14 +345,12 @@ pub async fn start_recording(
             system_audio,
         },
     );
-    // The detect poller can emit call-ended and close the widget while this
-    // start is still in flight, leaving a recording with no visible stop
-    // affordance. Detected starts carry a source app, so reopen the pill for
-    // them (`open_widget` is a no-op show if it already exists); manual
-    // starts (source_app: None) never open it.
-    if source_app.is_some() {
-        widget::open_widget(&app);
-    }
+    // Show the floating pill for EVERY recording so there's always a visible
+    // stop affordance — including manual (mic-button) starts, not just detected
+    // calls. The widget reads live recording status on show / via the
+    // recording-started event, so it lands straight on the recording pill.
+    // (`open_widget` is a no-op show if it already exists.)
+    widget::open_widget(&app);
     Ok(meeting_id)
 }
 
@@ -638,7 +644,7 @@ impl DrainPipeline {
         let rate = offset.rate;
         offset.advance(chunk.len());
         let end_ms = offset.chunk_start_ms();
-        if is_silent_chunk(&chunk) {
+        if is_silent_chunk(&chunk, rate) {
             if self.silence_restart_armed && end_ms >= SYSTEM_SILENCE_RESTART_MS {
                 self.silence_restart_armed = false;
                 self.silence_restart_pending = true;
@@ -909,8 +915,16 @@ fn run_transcriber<F: FnMut(TranscriptSegment)>(
     }
 }
 
-fn is_silent_chunk(samples: &[f32]) -> bool {
-    chunk_rms(samples) < SILENT_CHUNK_RMS
+/// A chunk counts as silent only when EVERY ~1s window is below the threshold.
+/// A whole-chunk mean would average away a brief, faint speaker inside a long
+/// (up to 28s) chunk and drop their words — using the loudest window keeps real
+/// speech while still rejecting a genuinely silent chunk.
+fn is_silent_chunk(samples: &[f32], rate: u32) -> bool {
+    if samples.is_empty() {
+        return true;
+    }
+    let win = (rate as usize).max(1);
+    samples.chunks(win).all(|w| chunk_rms(w) < SILENT_CHUNK_RMS)
 }
 
 fn chunk_rms(samples: &[f32]) -> f32 {
@@ -1247,11 +1261,18 @@ mod tests {
 
     #[test]
     fn silent_chunk_predicate_filters_quiet_audio() {
-        assert!(is_silent_chunk(&[]));
-        assert!(is_silent_chunk(&vec![0.0f32; 16_000]));
-        assert!(is_silent_chunk(&vec![0.001f32; 16_000]));
-        assert!(!is_silent_chunk(&tone(16_000, 1.0)));
+        assert!(is_silent_chunk(&[], 16_000));
+        assert!(is_silent_chunk(&vec![0.0f32; 16_000], 16_000));
+        assert!(is_silent_chunk(&vec![0.001f32; 16_000], 16_000));
+        assert!(!is_silent_chunk(&tone(16_000, 1.0), 16_000));
         assert!(chunk_rms(&vec![0.5f32; 100]) > 0.4);
+        // Brief faint speech inside a long mostly-silent chunk is NOT silent —
+        // the loudest 1s window clears the threshold even though the whole-chunk
+        // mean (the old test) falls below it.
+        let mut long = vec![0.0005f32; 16_000 * 40];
+        long[..16_000].fill(0.008); // ~1s just above the per-window threshold
+        assert!(chunk_rms(&long) < SILENT_CHUNK_RMS); // whole-chunk mean would drop it
+        assert!(!is_silent_chunk(&long, 16_000)); // windowed keeps it
     }
 
     #[test]
@@ -1270,7 +1291,7 @@ mod tests {
         drop(p);
 
         let jobs: Vec<ChunkJob> = rx.into_iter().collect();
-        assert!(jobs.iter().all(|j| !is_silent_chunk(&j.samples_16k)), "silence never queued");
+        assert!(jobs.iter().all(|j| !is_silent_chunk(&j.samples_16k, 16_000)), "silence never queued");
         assert_eq!(jobs[0].offset_ms, 2_000, "skipped silence still advances the offset");
     }
 

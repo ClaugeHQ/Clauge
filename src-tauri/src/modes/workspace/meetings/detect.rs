@@ -745,14 +745,17 @@ pub fn start_poller(app: AppHandle) {
                 //    one-shot fired for this recording.
                 // The probe never runs when neither wants it.
                 let detected = status.source_app.is_some();
-                let autostop_wanted =
-                    !status.stopping && detected && state.autostop_enabled();
+                // Auto-stop runs whenever it's ENABLED — not only for call-
+                // detected recordings: it arms dynamically once another process
+                // is on the mic, so the probe must run for manual recordings
+                // too. When disabled it must never fire (see autostop_mic below).
+                let autostop_active = !status.stopping && state.autostop_enabled();
                 let notice_wanted = !status.stopping
                     && status
                         .meeting_id
                         .as_deref()
                         .is_some_and(|id| suppressed_call.wants_probe(id));
-                let other_mic = if autostop_wanted || notice_wanted {
+                let other_mic = if autostop_active || notice_wanted {
                     tauri::async_runtime::spawn_blocking(other_process_uses_mic)
                         .await
                         .unwrap_or(None)
@@ -789,7 +792,11 @@ pub fn start_poller(app: AppHandle) {
                         ),
                     }
                 }
-                if autostop.tick(Instant::now(), recording, other_mic) {
+                // Feed the probe to auto-stop only when it's enabled; otherwise
+                // None, so a disabled auto-stop can never fire (the suppressed
+                // notice may still have run the probe above).
+                let autostop_mic = if autostop_active { other_mic } else { None };
+                if autostop.tick(Instant::now(), recording, autostop_mic) {
                     let meeting_id = status.meeting_id.clone().unwrap_or_default();
                     log::info!(
                         "meeting auto-stop: call ended ({CALL_END_STOP_SECS}s without another process on the mic) — stopping recording {meeting_id}"

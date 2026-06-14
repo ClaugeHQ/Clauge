@@ -78,8 +78,14 @@ pub async fn workspace_meeting_update_notes(
 #[tauri::command]
 pub async fn workspace_meeting_delete(
     pool: State<'_, SqlitePool>,
+    recorder_state: State<'_, recorder::RecorderState>,
     id: String,
 ) -> Result<(), String> {
+    // Don't delete a meeting that's actively recording — the flush task is
+    // still writing to that row, so pulling it out makes every flush error.
+    if recorder_state.status().meeting_id.as_deref() == Some(id.as_str()) {
+        return Err("Stop the recording before deleting this meeting.".to_string());
+    }
     repo::delete_meeting(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())

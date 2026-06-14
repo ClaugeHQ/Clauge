@@ -664,14 +664,15 @@ pub(crate) fn pg_row_to_json(row: &sqlx::postgres::PgRow) -> Vec<serde_json::Val
                     .ok().flatten()
                     .map(|v| serde_json::Value::String(v))
                     .unwrap_or(serde_json::Value::Null),
-                // Arrays. Dispatch by element type (the part after the
-                // leading '_' in the Postgres type name) and decode via
-                // sqlx's native Vec<T> impl, then serialize as a JSON
-                // array. The previous "try as Option<String>" catch-all
-                // failed for every array column — sqlx's wire format
-                // for arrays isn't TEXT — so cells silently rendered as
-                // NULL even when the row had values.
-                t if t.starts_with('_') => {
+                // Arrays. sqlx-postgres reports array type names with a
+                // trailing "[]" — `type_info().name()` returns "INT4[]",
+                // "TEXT[]", etc., NOT the catalog "_int4" form. The old
+                // `starts_with('_')` guard therefore never matched and EVERY
+                // array column fell through to the scalar fallback → NULL.
+                // Match the "[]" suffix (also accept a "_" prefix for custom
+                // arrays), strip to the element type, and decode via sqlx's
+                // native Vec<T> impl into a JSON array.
+                t if t.ends_with("[]") || t.starts_with('_') => {
                     // Each arm: try_get as Vec<T>, map elements to JSON,
                     // wrap in Value::Array. Mirrors the scalar branches
                     // above 1:1 for which T to use per element type.
@@ -686,7 +687,12 @@ pub(crate) fn pg_row_to_json(row: &sqlx::postgres::PgRow) -> Vec<serde_json::Val
                                 .unwrap_or(serde_json::Value::Null)
                         };
                     }
-                    match &t[1..] {
+                    let elem = t
+                        .strip_suffix("[]")
+                        .or_else(|| t.strip_prefix('_'))
+                        .unwrap_or(t)
+                        .to_ascii_uppercase();
+                    match elem.as_str() {
                         "BOOL"      => arr!(bool, serde_json::Value::Bool),
                         "INT2"      => arr!(i16, |n| serde_json::json!(n)),
                         "INT4" | "OID" => arr!(i32, |n| serde_json::json!(n)),

@@ -79,6 +79,11 @@
     return dur ? `${when} · ${dur}` : when;
   }
 
+  function openMeetingSettings(e: MouseEvent) {
+    e.stopPropagation();
+    openSettingsTab('workspace:meetings');
+  }
+
   async function handleRecordBtn(e: MouseEvent) {
     e.stopPropagation();
     if (isStopping || stopping || starting) return;
@@ -202,6 +207,14 @@
     </div>
     <button
       class="coll-add"
+      title="Meeting Notes settings"
+      aria-label="Meeting Notes settings"
+      onclick={openMeetingSettings}
+    >
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button
+      class="coll-add"
       class:mtg-stop={isRecording}
       class:mtg-busy={isStopping || stopping || starting}
       title={isStopping || stopping ? 'Stopping…' : isRecording ? 'Stop recording' : 'Record meeting now'}
@@ -223,7 +236,8 @@
 
   <div
     class="ncoll-body"
-    style="max-height:{expanded ? Math.max(filtered.length, 1) * 44 + 24 + 'px' : '0'}"
+    class:is-open={expanded}
+    style="max-height:{expanded ? Math.min(Math.max(filtered.length, 1) * 44 + 24, 360) + 'px' : '0'}"
   >
     {#each filtered as m (m.id)}
       <div class="ws-leaf" onclick={() => openMeetingTab(m)} oncontextmenu={(e) => showRowMenu(e, m)}>
@@ -413,6 +427,10 @@
     overflow: hidden;
     background: var(--e);
     transition: max-height 0.2s ease;
+  }
+  /* once expanded, scroll the capped list instead of growing unbounded */
+  .ncoll-body.is-open {
+    overflow-y: auto;
   }
 
   .ws-leaf {

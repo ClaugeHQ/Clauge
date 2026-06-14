@@ -78,15 +78,27 @@
 
   const parsed = $derived(meeting ? parseTranscript(meeting) : []);
   const segments = $derived.by(() => {
+    let raw: typeof parsed;
     if (recordingThis) {
       // The backend flushes segments to the DB mid-recording while the
       // live store keeps accumulating from recording start, so a tab
       // opened mid-recording would show flushed segments twice. Drop
       // live segments already present in the persisted transcript.
       const persisted = new Set(parsed.map(s => `${s.startMs}:${s.endMs}:${s.source}`));
-      return sortSegments([...parsed, ...liveSegs.filter(s => !persisted.has(`${s.startMs}:${s.endMs}:${s.source}`))]);
+      raw = [...parsed, ...liveSegs.filter(s => !persisted.has(`${s.startMs}:${s.endMs}:${s.source}`))];
+    } else {
+      raw = parsed.length ? parsed : liveSnapshot;
     }
-    return parsed.length ? parsed : sortSegments(liveSnapshot);
+    // Dedupe by (startMs,endMs,source) so the keyed transcript render can never
+    // hit a duplicate key (two whisper segments can share identical stamps).
+    const seen = new Set<string>();
+    const unique = raw.filter((s) => {
+      const k = `${s.startMs}:${s.endMs}:${s.source}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return sortSegments(unique);
   });
 
   // 1s tick drives the live timer + duration while recording.
@@ -779,7 +791,7 @@
         </button>
       </div>
       <div class="mv-tr-list" bind:this={scrollEl} onscroll={onScroll}>
-        {#each segments as s, i (i)}
+        {#each segments as s (`${s.startMs}:${s.endMs}:${s.source}`)}
           <div class="mv-seg" class:mv-seg-sys={s.source === 'system'}>
             <span class="mv-seg-ts">[{fmtTs(s.startMs)}]</span>
             <span class="mv-seg-text">{s.text}</span>

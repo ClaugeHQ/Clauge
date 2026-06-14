@@ -99,18 +99,13 @@ impl Transcriber {
             });
         }
 
-        // Pin the auto-detected language after the first chunk that actually
-        // yields speech. Re-detecting per chunk (the `auto` default) latches
-        // onto the wrong language on short/noisy audio and emits garbage; once
-        // we've seen real speech, lock that language for the rest of the call.
-        if self.language.is_none() && !segments.is_empty() {
-            let id = state.full_lang_id_from_state();
-            if let Some(lang) = whisper_rs::get_lang_str(id) {
-                log::info!("[transcribe] pinned auto-detected language: {lang}");
-                self.language = Some(lang.to_string());
-            }
-        }
-
+        // NOTE: do NOT pin a per-recording language from the first chunk's
+        // auto-detection. Whisper's per-chunk detect is low-confidence on short
+        // audio (and meaningless on `.en` models, which always decode English),
+        // so a garbage first detection (e.g. "sw" @ p=0.01) would be forced on
+        // the whole call — wrong-language decoding then drops the quieter source
+        // entirely. Leave `self.language` as set: an explicit user language, or
+        // None for per-chunk auto-detect.
         Ok(segments)
     }
 }
