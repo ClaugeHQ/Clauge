@@ -5,8 +5,10 @@
 <h1 align="center">Clauge</h1>
 
 <p align="center">
-  <strong>One window. Every dev tool.</strong>
+  <strong>The AI-powered super-app for developers.</strong>
 </p>
+
+<img width="2560" height="1340" alt="clauge_hero" src="https://github.com/user-attachments/assets/0fb660ba-b041-46bb-b636-399c949e7ffb" />
 
 <p align="center">
   Coding agents · workspace · REST · SQL · NoSQL · SSH · file explorer<br/>
