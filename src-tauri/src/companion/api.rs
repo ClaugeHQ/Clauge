@@ -77,6 +77,16 @@ async fn request_open(state: &CompanionAppState, ev: OpenSessionEvent) -> Respon
     let (tx, rx) = oneshot::channel();
     state.lifecycle.register_pending(request_id.clone(), tx);
 
+    // The frontend opens the tab, but a hidden/minimized window has a
+    // suspended webview that never handles `open-session` (→ 504). Surface the
+    // window first so a phone-initiated spawn works even when the desktop is in
+    // the background.
+    if let Some(win) = state.app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+
     if let Err(e) = state.app.emit(EVT_OPEN_SESSION, ev) {
         state.lifecycle.remove_pending(&request_id);
         return internal("emit open-session", e);
