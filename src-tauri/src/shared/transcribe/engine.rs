@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperVadParams,
 };
 
 use crate::modes::workspace::models::TranscriptSegment;
@@ -16,10 +16,17 @@ use crate::modes::workspace::models::TranscriptSegment;
 pub struct Transcriber {
     ctx: WhisperContext,
     language: Option<String>,
+    /// Path to the Silero VAD ggml model. When set, whisper.cpp's built-in
+    /// VAD trims non-speech before decoding — fewer hallucinations + faster.
+    vad_model_path: Option<String>,
 }
 
 impl Transcriber {
-    pub fn load(model_path: &Path, language: Option<&str>) -> Result<Self, String> {
+    pub fn load(
+        model_path: &Path,
+        language: Option<&str>,
+        vad_model_path: Option<&str>,
+    ) -> Result<Self, String> {
         let path_str = model_path
             .to_str()
             .ok_or_else(|| format!("Model path is not valid UTF-8: {:?}", model_path))?;
@@ -37,6 +44,9 @@ impl Transcriber {
             ctx,
             language: language
                 .filter(|l| !l.is_empty() && *l != "auto")
+                .map(str::to_owned),
+            vad_model_path: vad_model_path
+                .filter(|p| !p.is_empty())
                 .map(str::to_owned),
         })
     }
@@ -74,7 +84,22 @@ impl Transcriber {
         params.set_entropy_thold(2.4); //     compression-ratio analog → kills repetition loops
         // (no_speech_thold is intentionally NOT set — it's a documented no-op
         // in whisper-rs 0.16. Silent chunks are dropped upstream by the RMS
-        // gate in recorder.rs; a true VAD pass is the deferred follow-up.)
+        // gate in recorder.rs.)
+
+        // Built-in Silero VAD: trims non-speech regions before decoding, so
+        // whisper never sees the silent/noise spans that make it hallucinate
+        // ("Thank you", looped phrases), and skips decoding silence entirely.
+        // Only enabled when a VAD model is present (else plain decode).
+        if let Some(vad) = self.vad_model_path.as_deref() {
+            params.set_vad_model_path(Some(vad));
+            let mut vad_params = WhisperVadParams::new();
+            vad_params.set_threshold(0.5);
+            vad_params.set_min_speech_duration(250);
+            vad_params.set_min_silence_duration(100);
+            vad_params.set_speech_pad(64);
+            params.set_vad_params(vad_params);
+            params.enable_vad(true);
+        }
 
         state
             .full(params, samples_16k_mono)
@@ -176,7 +201,7 @@ mod tests {
             .map(|s| s.unwrap() as f32 / 32768.0)
             .collect();
 
-        let mut transcriber = Transcriber::load(&model, Some("en")).unwrap();
+        let mut transcriber = Transcriber::load(&model, Some("en"), None).unwrap();
         let segments = transcriber.transcribe(&samples, 5_000, "mic").unwrap();
         let joined = segments
             .iter()

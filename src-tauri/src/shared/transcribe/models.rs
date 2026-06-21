@@ -96,6 +96,57 @@ pub fn validate_magic(path: &Path) -> bool {
     }
 }
 
+// ── Silero VAD model (for whisper.cpp built-in VAD) ──────────────────
+// ~885 KB ggml model. Gating non-speech kills most hallucinations and
+// speeds decoding (silence isn't transcribed). One file, shared across
+// whisper models. Lives next to the whisper models.
+const VAD_MODEL_FILE: &str = "ggml-silero-v5.1.2.bin";
+const VAD_DOWNLOAD_URL: &str =
+    "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin";
+
+pub fn vad_model_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(model_dir(app)?.join(VAD_MODEL_FILE))
+}
+
+pub fn vad_model_exists(app: &AppHandle) -> bool {
+    vad_model_path(app)
+        .map(|p| p.is_file() && validate_magic(&p))
+        .unwrap_or(false)
+}
+
+/// Ensure the Silero VAD model is present, downloading it once. Best-effort:
+/// callers fall back to no-VAD on `Err` (offline first run, etc.).
+pub async fn ensure_vad_model(app: &AppHandle) -> Result<PathBuf, String> {
+    let final_path = vad_model_path(app)?;
+    if final_path.is_file() && validate_magic(&final_path) {
+        return Ok(final_path);
+    }
+    std::fs::create_dir_all(model_dir(app)?)
+        .map_err(|e| format!("Failed to create model dir: {}", e))?;
+    let pool = app.state::<SqlitePool>();
+    let client = build_download_http_client(pool.inner()).await?;
+    let bytes = client
+        .get(VAD_DOWNLOAD_URL)
+        .send()
+        .await
+        .map_err(|e| format!("VAD download request failed: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("VAD download failed: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("VAD download stream error: {}", e))?;
+    let part_path = final_path.with_extension("bin.part");
+    std::fs::write(&part_path, &bytes)
+        .map_err(|e| format!("Failed to write VAD model: {}", e))?;
+    if !validate_magic(&part_path) {
+        let _ = std::fs::remove_file(&part_path);
+        return Err("Downloaded VAD model is not a valid ggml file".into());
+    }
+    std::fs::rename(&part_path, &final_path)
+        .map_err(|e| format!("Failed to finalize VAD model: {}", e))?;
+    Ok(final_path)
+}
+
 pub fn list_models(app: &AppHandle) -> Vec<ModelInfo> {
     CATALOG
         .iter()
