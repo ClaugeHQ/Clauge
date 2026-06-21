@@ -21,15 +21,36 @@ pub struct ModelSpec {
     pub name: &'static str,
     pub size_mb: u32,
     pub multilingual: bool,
+    /// Friendly display name for the picker.
+    pub label: &'static str,
+    /// One-line guidance so users pick the right model without confusion.
+    pub tip: &'static str,
+    /// The safe default we steer most users to.
+    pub recommended: bool,
+    /// Coarse 1–5 ratings driving the picker's meters.
+    pub accuracy: u8,
+    pub speed: u8,
 }
 
 pub const CATALOG: &[ModelSpec] = &[
-    ModelSpec { name: "tiny", size_mb: 75, multilingual: true },
-    ModelSpec { name: "tiny.en", size_mb: 75, multilingual: false },
-    ModelSpec { name: "base", size_mb: 142, multilingual: true },
-    ModelSpec { name: "base.en", size_mb: 142, multilingual: false },
-    ModelSpec { name: "small", size_mb: 466, multilingual: true },
-    ModelSpec { name: "small.en", size_mb: 466, multilingual: false },
+    ModelSpec { name: "tiny.en", size_mb: 75, multilingual: false,
+        label: "Tiny (English)", recommended: false, accuracy: 1, speed: 5,
+        tip: "Fastest, least accurate. Quick drafts or low-power machines." },
+    ModelSpec { name: "tiny", size_mb: 75, multilingual: true,
+        label: "Tiny", recommended: false, accuracy: 1, speed: 5,
+        tip: "Multilingual. Fastest, least accurate." },
+    ModelSpec { name: "base.en", size_mb: 142, multilingual: false,
+        label: "Base (English)", recommended: false, accuracy: 2, speed: 4,
+        tip: "Fast and light; okay for clear English audio." },
+    ModelSpec { name: "base", size_mb: 142, multilingual: true,
+        label: "Base", recommended: false, accuracy: 2, speed: 4,
+        tip: "Multilingual. Fast and light, basic accuracy." },
+    ModelSpec { name: "small.en", size_mb: 466, multilingual: false,
+        label: "Small (English)", recommended: true, accuracy: 3, speed: 3,
+        tip: "Balanced — good English accuracy at usable speed. Best default for most people." },
+    ModelSpec { name: "small", size_mb: 466, multilingual: true,
+        label: "Small", recommended: false, accuracy: 3, speed: 3,
+        tip: "Multilingual, balanced accuracy and speed." },
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +60,11 @@ pub struct ModelInfo {
     pub size_mb: u32,
     pub multilingual: bool,
     pub downloaded: bool,
+    pub label: &'static str,
+    pub tip: &'static str,
+    pub recommended: bool,
+    pub accuracy: u8,
+    pub speed: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,6 +122,61 @@ pub fn validate_magic(path: &Path) -> bool {
     }
 }
 
+// ── Silero VAD model (for whisper.cpp built-in VAD) ──────────────────
+// ~885 KB ggml model. Gating non-speech kills most hallucinations and
+// speeds decoding (silence isn't transcribed). One file, shared across
+// whisper models. Lives next to the whisper models.
+const VAD_MODEL_FILE: &str = "ggml-silero-v5.1.2.bin";
+const VAD_DOWNLOAD_URL: &str =
+    "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin";
+
+pub fn vad_model_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(model_dir(app)?.join(VAD_MODEL_FILE))
+}
+
+pub fn vad_model_exists(app: &AppHandle) -> bool {
+    vad_model_path(app)
+        .map(|p| p.is_file() && validate_magic(&p))
+        .unwrap_or(false)
+}
+
+/// Ensure the Silero VAD model is present, downloading it once. Best-effort:
+/// callers fall back to no-VAD on `Err` (offline first run, etc.).
+pub async fn ensure_vad_model(app: &AppHandle) -> Result<PathBuf, String> {
+    let final_path = vad_model_path(app)?;
+    if final_path.is_file() && validate_magic(&final_path) {
+        return Ok(final_path);
+    }
+    std::fs::create_dir_all(model_dir(app)?)
+        .map_err(|e| format!("Failed to create model dir: {}", e))?;
+    let pool = app.state::<SqlitePool>();
+    let client = build_download_http_client(pool.inner()).await?;
+    let bytes = client
+        .get(VAD_DOWNLOAD_URL)
+        .send()
+        .await
+        .map_err(|e| format!("VAD download request failed: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("VAD download failed: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("VAD download stream error: {}", e))?;
+    let part_path = final_path.with_extension("bin.part");
+    std::fs::write(&part_path, &bytes)
+        .map_err(|e| format!("Failed to write VAD model: {}", e))?;
+    if !validate_magic(&part_path) {
+        let _ = std::fs::remove_file(&part_path);
+        return Err("Downloaded VAD model is not a valid ggml file".into());
+    }
+    // Windows `rename` fails if the destination exists. The early-return
+    // above already handled a *valid* existing file, so anything still here
+    // is invalid — remove it before finalizing.
+    let _ = std::fs::remove_file(&final_path);
+    std::fs::rename(&part_path, &final_path)
+        .map_err(|e| format!("Failed to finalize VAD model: {}", e))?;
+    Ok(final_path)
+}
+
 pub fn list_models(app: &AppHandle) -> Vec<ModelInfo> {
     CATALOG
         .iter()
@@ -104,6 +185,11 @@ pub fn list_models(app: &AppHandle) -> Vec<ModelInfo> {
             size_mb: s.size_mb,
             multilingual: s.multilingual,
             downloaded: is_downloaded(app, s.name),
+            label: s.label,
+            tip: s.tip,
+            recommended: s.recommended,
+            accuracy: s.accuracy,
+            speed: s.speed,
         })
         .collect()
 }
@@ -257,13 +343,16 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_six_models() {
-        assert_eq!(CATALOG.len(), 6);
+    fn catalog_is_well_formed() {
         assert!(CATALOG.iter().any(|s| s.name == "tiny"));
         assert!(CATALOG.iter().any(|s| s.name == "small.en"));
         for spec in CATALOG {
             assert_eq!(spec.multilingual, !spec.name.ends_with(".en"));
+            assert!(!spec.label.is_empty() && !spec.tip.is_empty());
+            assert!((1..=5).contains(&spec.accuracy) && (1..=5).contains(&spec.speed));
         }
+        // Exactly one steered default to avoid choice paralysis.
+        assert_eq!(CATALOG.iter().filter(|s| s.recommended).count(), 1);
     }
 
     #[test]

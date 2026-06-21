@@ -269,6 +269,15 @@ export interface WhisperModelInfo {
   sizeMb: number;
   multilingual: boolean;
   downloaded: boolean;
+  /** Friendly display name. */
+  label: string;
+  /** One-line guidance for the picker. */
+  tip: string;
+  /** The steered default. */
+  recommended: boolean;
+  /** Coarse 1–5 ratings for the meters. */
+  accuracy: number;
+  speed: number;
 }
 
 /** Mirror of Rust's `DetectStatus` — call-detection snapshot. */

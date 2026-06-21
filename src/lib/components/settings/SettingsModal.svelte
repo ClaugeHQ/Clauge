@@ -485,6 +485,15 @@
     let meetingAutostopEnabled = $state(true);
     let whisperModels = $state<WhisperModelInfo[]>([]);
     let deletingModel = $state<string | null>(null);
+    // Models whose download was just requested but no progress event has
+    // arrived yet — gives immediate feedback + blocks double-clicks.
+    let pendingDownloads = $state<Set<string>>(new Set());
+    // In-app delete confirmation (window.confirm is a no-op in the webview).
+    let showModelDeleteConfirm = $state(false);
+    let modelDeleteName = $state<string | null>(null);
+    let modelDeleteMessage = $state("");
+    // null = leave default unchanged; "" = clear; otherwise = switch to this.
+    let modelDeleteNextDefault = $state<string | null>(null);
     let meetingCardEl = $state<HTMLElement | null>(null);
     let meetingModel = $derived(
         // `||` not `??`: empty string means "cleared" and falls back to the
@@ -492,12 +501,20 @@
         ($settings["workspace_meeting_model"] || "base") as string,
     );
     let meetingLanguage = $derived(
-        ($settings["workspace_meeting_language"] ?? "auto") as string,
+        ($settings["workspace_meeting_language"] ?? "en") as string,
     );
-    let downloadedModels = $derived(whisperModels.filter((m) => m.downloaded));
+    // Recommended first, then most accurate, then smallest.
+    let sortedModels = $derived(
+        [...whisperModels].sort(
+            (a, b) =>
+                (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0) ||
+                b.accuracy - a.accuracy ||
+                a.sizeMb - b.sizeMb,
+        ),
+    );
+    let downloadedModels = $derived(sortedModels.filter((m) => m.downloaded));
 
     const MEETING_LANGUAGES = [
-        { code: "auto", label: "Auto-detect" },
         { code: "en", label: "English" },
         { code: "es", label: "Spanish" },
         { code: "fr", label: "French" },
@@ -506,6 +523,7 @@
         { code: "hi", label: "Hindi" },
         { code: "ja", label: "Japanese" },
         { code: "zh", label: "Chinese" },
+        { code: "auto", label: "Auto-detect (mixed-language only)" },
     ];
 
     $effect(() => {
@@ -582,27 +600,66 @@
     }
 
     async function handleMeetingModelDownload(name: string) {
+        if (pendingDownloads.has(name) || deletingModel === name) return;
+        // Immediate feedback: flip the button to "Starting…" + disable it so
+        // there's no dead window before the first progress event lands.
+        pendingDownloads = new Set(pendingDownloads).add(name);
         try {
             await downloadModel(name, refreshMeetingModels);
         } catch (e) {
             errorToast("Model download failed", e);
+        } finally {
+            const next = new Set(pendingDownloads);
+            next.delete(name);
+            pendingDownloads = next;
         }
     }
 
-    async function handleMeetingModelDelete(name: string) {
+    /** Open the in-app delete confirmation (window.confirm is a no-op in the
+     *  Tauri webview, so a native prompt never appeared and deletes — even of
+     *  the default model — went through silently). */
+    function requestMeetingModelDelete(name: string) {
+        const label =
+            whisperModels.find((m) => m.name === name)?.label ?? name;
+        modelDeleteName = name;
+        if (name === meetingModel) {
+            const others = downloadedModels.filter((m) => m.name !== name);
+            if (others.length > 0) {
+                const nextDefault =
+                    others.find((m) => m.recommended) ?? others[0];
+                modelDeleteNextDefault = nextDefault.name;
+                modelDeleteMessage = `"${label}" is your default transcription model. The default will switch to "${nextDefault.label}".\n\nDelete "${label}"?`;
+            } else {
+                modelDeleteNextDefault = "";
+                modelDeleteMessage = `"${label}" is your only downloaded model and the current default.\n\nDelete it anyway? You'll need to download a model before recording again.`;
+            }
+        } else {
+            modelDeleteNextDefault = null;
+            modelDeleteMessage = `Delete the "${label}" model? You can re-download it anytime.`;
+        }
+        showModelDeleteConfirm = true;
+    }
+
+    async function performMeetingModelDelete() {
+        const name = modelDeleteName;
+        if (!name) return;
         deletingModel = name;
         try {
             await workspaceMeetingModelDelete(name);
-            if (name === meetingModel) {
-                // Deleted the persisted default — clear it so the backend
-                // falls back to its built-in default instead of a model
-                // that no longer exists on disk.
-                await setSetting("workspace_meeting_model", "");
+            // Only move the default once the delete actually succeeded —
+            // otherwise a failed delete would leave the model present but
+            // the default already changed (partial state).
+            if (modelDeleteNextDefault !== null) {
+                await setSetting(
+                    "workspace_meeting_model",
+                    modelDeleteNextDefault,
+                );
             }
         } catch (e) {
             errorToast("Failed to delete model", e);
         } finally {
             deletingModel = null;
+            modelDeleteName = null;
         }
         await refreshMeetingModels();
     }
@@ -611,6 +668,11 @@
         return sizeMb >= 1024
             ? `${(sizeMb / 1024).toFixed(1)} GB`
             : `${sizeMb} MB`;
+    }
+    /** 1–5 rating → filled/empty dots for the model meters. */
+    function ratingDots(n: number): string {
+        const v = Math.max(0, Math.min(5, n));
+        return "●".repeat(v) + "○".repeat(5 - v);
     }
 
     // AI Assistance state
@@ -2259,25 +2321,41 @@
                                     </label>
                                 </div>
 
-                                {#each whisperModels as m (m.name)}
+                                {#each sortedModels as m (m.name)}
                                     {@const prog = $modelDownloadProgress.get(
                                         m.name,
                                     )}
-                                    <div class="stg-card-row">
-                                        <div class="stg-meeting-model">
-                                            <span class="stg-card-row-label"
-                                                >{m.name}</span
-                                            >
-                                            {#if !m.multilingual}
-                                                <span
-                                                    class="stg-meeting-model-tag"
-                                                    >English-only</span
+                                    <div class="stg-card-row stg-model-row">
+                                        <div class="stg-model-main">
+                                            <div class="stg-meeting-model">
+                                                <span class="stg-card-row-label"
+                                                    >{m.label}</span
                                                 >
-                                            {/if}
-                                            <span
-                                                class="stg-meeting-model-size"
-                                                >{fmtModelSize(m.sizeMb)}</span
-                                            >
+                                                {#if m.recommended}
+                                                    <span class="stg-model-badge"
+                                                        >Recommended</span
+                                                    >
+                                                {/if}
+                                                {#if !m.multilingual}
+                                                    <span
+                                                        class="stg-meeting-model-tag"
+                                                        >English-only</span
+                                                    >
+                                                {/if}
+                                                <span
+                                                    class="stg-meeting-model-size"
+                                                    >{fmtModelSize(m.sizeMb)}</span
+                                                >
+                                            </div>
+                                            <div class="stg-model-tip">{m.tip}</div>
+                                            <div class="stg-model-meters">
+                                                <span class="stg-model-meter"
+                                                    >Accuracy <span class="stg-dots">{ratingDots(m.accuracy)}</span></span
+                                                >
+                                                <span class="stg-model-meter"
+                                                    >Speed <span class="stg-dots">{ratingDots(m.speed)}</span></span
+                                                >
+                                            </div>
                                         </div>
                                         {#if prog}
                                             <div
@@ -2294,15 +2372,23 @@
                                                         : undefined}
                                                 ></div>
                                             </div>
+                                        {:else if pendingDownloads.has(m.name)}
+                                            <button
+                                                class="stg-card-mini-btn"
+                                                disabled>Starting…</button
+                                            >
                                         {:else if m.downloaded}
                                             <button
                                                 class="stg-card-mini-btn"
                                                 onclick={() =>
-                                                    handleMeetingModelDelete(
+                                                    requestMeetingModelDelete(
                                                         m.name,
                                                     )}
                                                 disabled={deletingModel ===
-                                                    m.name}>Delete</button
+                                                    m.name}
+                                                >{deletingModel === m.name
+                                                    ? "Deleting…"
+                                                    : "Delete"}</button
                                             >
                                         {:else}
                                             <button
@@ -2343,7 +2429,7 @@
                                             {/if}
                                             {#each downloadedModels as m (m.name)}
                                                 <option value={m.name}
-                                                    >{m.name}</option
+                                                    >{m.label}{m.recommended ? " · Recommended" : ""}</option
                                                 >
                                             {/each}
                                         </select>
@@ -2358,8 +2444,11 @@
                                             >Language</span
                                         >
                                         <span class="stg-card-row-help"
-                                            >English-only models ignore this
-                                            and always transcribe in
+                                            >Pick your spoken language for best
+                                            accuracy. Auto-detect is unreliable
+                                            on short audio — only use it for
+                                            mixed-language calls. English-only
+                                            models always transcribe in
                                             English.</span
                                         >
                                     </div>
@@ -5933,6 +6022,14 @@
     onconfirm={handleClearChatHistory}
 />
 
+<ConfirmDialog
+    bind:show={showModelDeleteConfirm}
+    title="Delete model"
+    message={modelDeleteMessage}
+    confirmText="Delete"
+    onconfirm={performMeetingModelDelete}
+/>
+
 <style>
     @import "./SettingsModal.svelte.css";
 
@@ -6120,6 +6217,52 @@
         font-family: var(--mono);
         color: var(--t4);
         white-space: nowrap;
+    }
+
+    /* Richer model rows: header + tip + accuracy/speed meters. */
+    .stg-model-row {
+        align-items: flex-start;
+    }
+    .stg-model-main {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+    }
+    .stg-model-badge {
+        font-size: 9.5px;
+        font-weight: 700;
+        font-family: var(--ui);
+        letter-spacing: 0.03em;
+        color: #fff;
+        background: var(--acc, #7c5cf8);
+        border-radius: 4px;
+        padding: 1px 6px;
+        white-space: nowrap;
+    }
+    .stg-model-tip {
+        font-size: 11px;
+        font-family: var(--ui);
+        color: var(--t3);
+        line-height: 1.4;
+    }
+    .stg-model-meters {
+        display: flex;
+        gap: 14px;
+    }
+    .stg-model-meter {
+        font-size: 10px;
+        font-family: var(--ui);
+        color: var(--t4);
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+    }
+    .stg-dots {
+        font-size: 9px;
+        letter-spacing: 1px;
+        color: var(--acc, #7c5cf8);
     }
 
     .stg-meeting-progress {

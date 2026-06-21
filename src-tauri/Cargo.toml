@@ -134,7 +134,11 @@ window-vibrancy = "0.7"
 # features pull every Apple framework binding (tokio, metal, ...) — trimmed to
 # the Core Audio surface. macos_14_2 gates TapGuard (the tap API's floor).
 cidre = { version = "0.15.2", default-features = false, features = ["core_audio", "at", "av", "cat", "cf", "cm", "ns", "macos_14_2"] }
-whisper-rs = { version = "0.16", features = ["metal", "coreml", "log_backend"] }
+# Metal only — we don't ship the CoreML encoder (.mlmodelc), so the
+# `coreml` feature would make whisper attempt + fail to load it on every
+# chunk (log spam + wasted work) before falling back. Metal is plenty fast
+# on Apple silicon. Re-add `coreml` only alongside shipping the .mlmodelc.
+whisper-rs = { version = "0.16", features = ["metal", "log_backend"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

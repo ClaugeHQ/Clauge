@@ -27,15 +27,22 @@ use crate::shared::transcribe::engine::Transcriber;
 use crate::shared::transcribe::models as whisper_models;
 
 pub const DEFAULT_MODEL: &str = "base";
-pub const DEFAULT_LANGUAGE: &str = "auto";
+// Default to English, not auto-detect: per-chunk language detection is
+// unreliable on short audio (picks random langs @ p≈0.01 → wrong-language
+// decode = garbage + slow). English-first product; users pick another
+// language (or Auto) in Settings.
+pub const DEFAULT_LANGUAGE: &str = "en";
 
 const SOURCE_MIC: &str = "mic";
 const SOURCE_SYSTEM: &str = "system";
 
-const CHUNK_TARGET_SECS: f32 = 20.0;
-/// Chunker may overshoot max by one frame; 28s leaves headroom under
-/// whisper's 30s window.
-const CHUNK_MAX_SECS: f32 = 28.0;
+/// Emit a chunk every ~8s so transcript lands within seconds of speech
+/// instead of after a full 20s window. Built-in VAD trims silence inside
+/// each chunk, so shorter windows don't waste decode on quiet spans.
+const CHUNK_TARGET_SECS: f32 = 8.0;
+/// Chunker may overshoot target by one frame; 12s caps a chunk well under
+/// whisper's 30s window while keeping enough context per utterance.
+const CHUNK_MAX_SECS: f32 = 12.0;
 
 /// Whole-chunk RMS below this is skipped before whisper: WASAPI loopback
 /// gaps and muted mics produce long all-silence chunks that would only
@@ -203,11 +210,29 @@ pub async fn start_recording(
         let _ = std::fs::remove_file(&model_path);
         return Err("model_missing".to_string());
     }
+    // Built-in VAD: make sure the Silero model is present (best-effort,
+    // one-time ~885 KB download). On failure we transcribe without VAD.
+    let _ = whisper_models::ensure_vad_model(&app).await;
+    let vad_path = whisper_models::vad_model_path(&app).ok().and_then(|p| {
+        // Only enable VAD with a valid model — a stale/corrupt file (e.g. a
+        // failed download) would make whisper error instead of falling back
+        // to plain decode. Drop the bad file so the next run re-fetches.
+        if p.is_file() && whisper_models::validate_magic(&p) {
+            Some(p.to_string_lossy().into_owned())
+        } else {
+            if p.is_file() {
+                let _ = std::fs::remove_file(&p);
+            }
+            None
+        }
+    });
+
     let lang = language.clone();
-    let transcriber =
-        tauri::async_runtime::spawn_blocking(move || Transcriber::load(&model_path, Some(&lang)))
-            .await
-            .map_err(|e| format!("transcriber load task failed: {e}"))??;
+    let transcriber = tauri::async_runtime::spawn_blocking(move || {
+        Transcriber::load(&model_path, Some(&lang), vad_path.as_deref())
+    })
+    .await
+    .map_err(|e| format!("transcriber load task failed: {e}"))??;
 
     let pool = app.state::<SqlitePool>().inner().clone();
     let title = default_title(chrono::Local::now());
@@ -1489,7 +1514,7 @@ mod tests {
         pipeline.flush().unwrap();
         drop(pipeline);
 
-        let transcriber = Transcriber::load(&model, Some("en")).unwrap();
+        let transcriber = Transcriber::load(&model, Some("en"), None).unwrap();
         let mut collected: Vec<TranscriptSegment> = Vec::new();
         run_transcriber(transcriber, chunk_rx, |seg| collected.push(seg));
 
