@@ -21,15 +21,42 @@ pub struct ModelSpec {
     pub name: &'static str,
     pub size_mb: u32,
     pub multilingual: bool,
+    /// Friendly display name for the picker.
+    pub label: &'static str,
+    /// One-line guidance so users pick the right model without confusion.
+    pub tip: &'static str,
+    /// The safe default we steer most users to.
+    pub recommended: bool,
+    /// Coarse 1–5 ratings driving the picker's meters.
+    pub accuracy: u8,
+    pub speed: u8,
 }
 
 pub const CATALOG: &[ModelSpec] = &[
-    ModelSpec { name: "tiny", size_mb: 75, multilingual: true },
-    ModelSpec { name: "tiny.en", size_mb: 75, multilingual: false },
-    ModelSpec { name: "base", size_mb: 142, multilingual: true },
-    ModelSpec { name: "base.en", size_mb: 142, multilingual: false },
-    ModelSpec { name: "small", size_mb: 466, multilingual: true },
-    ModelSpec { name: "small.en", size_mb: 466, multilingual: false },
+    ModelSpec { name: "tiny.en", size_mb: 75, multilingual: false,
+        label: "Tiny (English)", recommended: false, accuracy: 1, speed: 5,
+        tip: "Fastest, least accurate. Quick drafts or low-power machines." },
+    ModelSpec { name: "tiny", size_mb: 75, multilingual: true,
+        label: "Tiny", recommended: false, accuracy: 1, speed: 5,
+        tip: "Multilingual. Fastest, least accurate." },
+    ModelSpec { name: "base.en", size_mb: 142, multilingual: false,
+        label: "Base (English)", recommended: false, accuracy: 2, speed: 4,
+        tip: "Fast and light; okay for clear English audio." },
+    ModelSpec { name: "base", size_mb: 142, multilingual: true,
+        label: "Base", recommended: false, accuracy: 2, speed: 4,
+        tip: "Multilingual. Fast and light, basic accuracy." },
+    ModelSpec { name: "small.en", size_mb: 466, multilingual: false,
+        label: "Small (English)", recommended: true, accuracy: 3, speed: 3,
+        tip: "Balanced — good English accuracy at usable speed. Best default for most people." },
+    ModelSpec { name: "small", size_mb: 466, multilingual: true,
+        label: "Small", recommended: false, accuracy: 3, speed: 3,
+        tip: "Multilingual, balanced accuracy and speed." },
+    ModelSpec { name: "large-v3-turbo", size_mb: 1620, multilingual: true,
+        label: "Large v3 Turbo", recommended: false, accuracy: 5, speed: 3,
+        tip: "Best accuracy at usable speed. Pick this if you have the disk/RAM and a recent machine." },
+    ModelSpec { name: "large-v3", size_mb: 3090, multilingual: true,
+        label: "Large v3", recommended: false, accuracy: 5, speed: 1,
+        tip: "Highest accuracy, but slowest and heaviest. Best on powerful machines." },
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +66,11 @@ pub struct ModelInfo {
     pub size_mb: u32,
     pub multilingual: bool,
     pub downloaded: bool,
+    pub label: &'static str,
+    pub tip: &'static str,
+    pub recommended: bool,
+    pub accuracy: u8,
+    pub speed: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +187,11 @@ pub fn list_models(app: &AppHandle) -> Vec<ModelInfo> {
             size_mb: s.size_mb,
             multilingual: s.multilingual,
             downloaded: is_downloaded(app, s.name),
+            label: s.label,
+            tip: s.tip,
+            recommended: s.recommended,
+            accuracy: s.accuracy,
+            speed: s.speed,
         })
         .collect()
 }
@@ -308,13 +345,17 @@ mod tests {
     }
 
     #[test]
-    fn catalog_has_six_models() {
-        assert_eq!(CATALOG.len(), 6);
+    fn catalog_is_well_formed() {
         assert!(CATALOG.iter().any(|s| s.name == "tiny"));
         assert!(CATALOG.iter().any(|s| s.name == "small.en"));
+        assert!(CATALOG.iter().any(|s| s.name == "large-v3-turbo"));
         for spec in CATALOG {
             assert_eq!(spec.multilingual, !spec.name.ends_with(".en"));
+            assert!(!spec.label.is_empty() && !spec.tip.is_empty());
+            assert!((1..=5).contains(&spec.accuracy) && (1..=5).contains(&spec.speed));
         }
+        // Exactly one steered default to avoid choice paralysis.
+        assert_eq!(CATALOG.iter().filter(|s| s.recommended).count(), 1);
     }
 
     #[test]

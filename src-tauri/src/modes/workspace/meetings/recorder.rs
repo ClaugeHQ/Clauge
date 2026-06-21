@@ -1501,7 +1501,7 @@ mod tests {
         pipeline.flush().unwrap();
         drop(pipeline);
 
-        let transcriber = Transcriber::load(&model, Some("en")).unwrap();
+        let transcriber = Transcriber::load(&model, Some("en"), None).unwrap();
         let mut collected: Vec<TranscriptSegment> = Vec::new();
         run_transcriber(transcriber, chunk_rx, |seg| collected.push(seg));
 

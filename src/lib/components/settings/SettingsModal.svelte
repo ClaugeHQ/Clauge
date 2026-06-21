@@ -612,6 +612,11 @@
             ? `${(sizeMb / 1024).toFixed(1)} GB`
             : `${sizeMb} MB`;
     }
+    /** 1–5 rating → filled/empty dots for the model meters. */
+    function ratingDots(n: number): string {
+        const v = Math.max(0, Math.min(5, n));
+        return "●".repeat(v) + "○".repeat(5 - v);
+    }
 
     // AI Assistance state
     let aiTopTab = $state<"clauge" | "byok">("clauge");
@@ -2263,21 +2268,37 @@
                                     {@const prog = $modelDownloadProgress.get(
                                         m.name,
                                     )}
-                                    <div class="stg-card-row">
-                                        <div class="stg-meeting-model">
-                                            <span class="stg-card-row-label"
-                                                >{m.name}</span
-                                            >
-                                            {#if !m.multilingual}
-                                                <span
-                                                    class="stg-meeting-model-tag"
-                                                    >English-only</span
+                                    <div class="stg-card-row stg-model-row">
+                                        <div class="stg-model-main">
+                                            <div class="stg-meeting-model">
+                                                <span class="stg-card-row-label"
+                                                    >{m.label}</span
                                                 >
-                                            {/if}
-                                            <span
-                                                class="stg-meeting-model-size"
-                                                >{fmtModelSize(m.sizeMb)}</span
-                                            >
+                                                {#if m.recommended}
+                                                    <span class="stg-model-badge"
+                                                        >Recommended</span
+                                                    >
+                                                {/if}
+                                                {#if !m.multilingual}
+                                                    <span
+                                                        class="stg-meeting-model-tag"
+                                                        >English-only</span
+                                                    >
+                                                {/if}
+                                                <span
+                                                    class="stg-meeting-model-size"
+                                                    >{fmtModelSize(m.sizeMb)}</span
+                                                >
+                                            </div>
+                                            <div class="stg-model-tip">{m.tip}</div>
+                                            <div class="stg-model-meters">
+                                                <span class="stg-model-meter"
+                                                    >Accuracy <span class="stg-dots">{ratingDots(m.accuracy)}</span></span
+                                                >
+                                                <span class="stg-model-meter"
+                                                    >Speed <span class="stg-dots">{ratingDots(m.speed)}</span></span
+                                                >
+                                            </div>
                                         </div>
                                         {#if prog}
                                             <div
@@ -2343,7 +2364,7 @@
                                             {/if}
                                             {#each downloadedModels as m (m.name)}
                                                 <option value={m.name}
-                                                    >{m.name}</option
+                                                    >{m.label}{m.recommended ? " · Recommended" : ""}</option
                                                 >
                                             {/each}
                                         </select>
@@ -6120,6 +6141,52 @@
         font-family: var(--mono);
         color: var(--t4);
         white-space: nowrap;
+    }
+
+    /* Richer model rows: header + tip + accuracy/speed meters. */
+    .stg-model-row {
+        align-items: flex-start;
+    }
+    .stg-model-main {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+    }
+    .stg-model-badge {
+        font-size: 9.5px;
+        font-weight: 700;
+        font-family: var(--ui);
+        letter-spacing: 0.03em;
+        color: #fff;
+        background: var(--acc, #7c5cf8);
+        border-radius: 4px;
+        padding: 1px 6px;
+        white-space: nowrap;
+    }
+    .stg-model-tip {
+        font-size: 11px;
+        font-family: var(--ui);
+        color: var(--t3);
+        line-height: 1.4;
+    }
+    .stg-model-meters {
+        display: flex;
+        gap: 14px;
+    }
+    .stg-model-meter {
+        font-size: 10px;
+        font-family: var(--ui);
+        color: var(--t4);
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+    }
+    .stg-dots {
+        font-size: 9px;
+        letter-spacing: 1px;
+        color: var(--acc, #7c5cf8);
     }
 
     .stg-meeting-progress {
