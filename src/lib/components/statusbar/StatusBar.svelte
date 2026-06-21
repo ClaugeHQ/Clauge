@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { updateAvailable, showWhatsNewModal } from '$lib/utils/updater';
   import { mode } from '$lib/stores/app';
-  import { agentGitBranchName, agentGitFiles, agentGitAhead, agentGitBehind, activeAgentSession, agentUsageLimits, agentUsageAuthStatus, agentShellOpen, agentSessionKey, agentCodexToken, agentFooterProvider } from '$lib/modes/agent/stores';
+  import { agentGitBranchName, agentGitFiles, agentGitAhead, agentGitBehind, activeAgentSession, agentUsageLimits, agentUsageAuthStatus, agentShellOpen, agentSessionKey, agentCodexToken, agentFooterProvider, agentExplorerOpenSessions, toggleAgentExplorer } from '$lib/modes/agent/stores';
   import { openSettingsTab } from '$lib/shared/stores/tabs';
   import AgentGitPanel from '$lib/modes/agent/components/AgentGitPanel.svelte';
   import GetProButton from '$lib/components/sidebar/GetProButton.svelte';
@@ -98,18 +98,28 @@
 
 {#if $mode === 'agent'}
 <footer class="statusbar glass-surface">
-  {#if $agentGitBranchName}
+  {#if $activeAgentSession || $agentGitBranchName}
   <div class="sl">
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="si git-clickable" onclick={(e) => { e.stopPropagation(); gitPanelOpen = !gitPanelOpen; }}>
-      <svg style="width:10px;height:10px;stroke:var(--t3);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
-      <span>{$agentGitBranchName}</span>
-      {#if $agentGitAhead > 0}<span class="git-ahead">↑{$agentGitAhead}</span>{/if}
-      {#if $agentGitBehind > 0}<span class="git-behind">↓{$agentGitBehind}</span>{/if}
-      {#if $agentGitFiles.length > 0}<span class="git-changes">{$agentGitFiles.length}</span>{/if}
-    </div>
+    {#if $activeAgentSession}
+      {@const explorerOpen = $agentExplorerOpenSessions.has($activeAgentSession.id)}
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div class="si explorer-toggle" onclick={() => $activeAgentSession && toggleAgentExplorer($activeAgentSession.id)} title="Toggle file explorer">
+        <svg style="width:11px;height:11px;stroke:{explorerOpen ? 'var(--acc)' : 'var(--t3)'};fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="12" y1="9" x2="17" y2="9"/><line x1="12" y1="13" x2="17" y2="13"/></svg>
+        <span style="color:{explorerOpen ? 'var(--acc)' : ''}">Files</span>
+      </div>
+    {/if}
+    {#if $agentGitBranchName}
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div class="si git-clickable" onclick={(e) => { e.stopPropagation(); gitPanelOpen = !gitPanelOpen; }}>
+        <svg style="width:10px;height:10px;stroke:var(--t3);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+        <span>{$agentGitBranchName}</span>
+        {#if $agentGitAhead > 0}<span class="git-ahead">↑{$agentGitAhead}</span>{/if}
+        {#if $agentGitBehind > 0}<span class="git-behind">↓{$agentGitBehind}</span>{/if}
+        {#if $agentGitFiles.length > 0}<span class="git-changes">{$agentGitFiles.length}</span>{/if}
+      </div>
+    {/if}
   </div>
-  <AgentGitPanel bind:open={gitPanelOpen} />
+  {#if $agentGitBranchName}<AgentGitPanel bind:open={gitPanelOpen} />{/if}
   {/if}
   <div class="sc">
     {#if usageChips.length > 0}
@@ -267,6 +277,15 @@
     transition: background 0.1s;
   }
   .git-clickable:hover {
+    background: var(--surface-hover);
+  }
+  .explorer-toggle {
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .explorer-toggle:hover {
     background: var(--surface-hover);
   }
   .update-hint {

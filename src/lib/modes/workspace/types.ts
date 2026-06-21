@@ -110,6 +110,13 @@ export interface WorkspaceCardComment {
   body: string;
   parentId: string | null;
   createdAt: string;
+  /** Drawer section: 'ticket' (real issue discussion — local or mirrored
+   *  from GitHub/GitLab) or 'coworker' (local AI persona chat). */
+  channel: string;
+  /** Provider comment id when fetched from GitHub/GitLab; null = local. */
+  externalId: string | null;
+  /** GitHub/GitLab login for a fetched comment (display name). */
+  externalAuthor: string | null;
   /** Optional — drawer-only marker for a transient row that's not a
    *  real comment yet. `'thinking'` = "@alex is composing"; `'error'`
    *  = the agent run failed (body holds the error message). Server
@@ -157,6 +164,17 @@ export interface ProjectIssue {
   url: string;
   source: 'github' | 'gitlab' | string;
   labels: string[];
+  /** Original issue creation timestamp from the provider (ISO 8601). */
+  createdAt: string;
+}
+
+/** Readiness probe for "create as cloud issue" in the new-ticket dialog. */
+export interface CloudTarget {
+  repoConfigured: boolean;
+  provider: 'github' | 'gitlab' | 'unsupported' | null;
+  tool: string | null;
+  toolInstalled: boolean;
+  installUrl: string | null;
 }
 
 // Inbox row — a note or card recently mutated by an agent (any

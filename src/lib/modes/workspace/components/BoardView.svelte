@@ -40,6 +40,7 @@
   import { showContextMenu } from '$lib/shared/primitives/contextmenu';
   import ConfirmDialog from '$lib/shared/primitives/ConfirmDialog.svelte';
   import CardEditorDrawer from './CardEditorDrawer.svelte';
+  import CardCreateDialog from './CardCreateDialog.svelte';
   import GhNotInstalledModal from './GhNotInstalledModal.svelte';
   import GlabNotInstalledModal from './GlabNotInstalledModal.svelte';
 
@@ -61,6 +62,19 @@
   let { boardId }: Props = $props();
 
   let board = $state<WorkspaceBoard | null>(null);
+  // Column id the "new ticket" dialog is open for (null = closed), plus
+  // a title to prefill (from the quick-add input).
+  let createDialogColumn = $state<string | null>(null);
+  let createDialogTitle = $state('');
+
+  /** Open the unified create dialog for a column, optionally prefilled
+   *  with the quick-add text. Keeps the create flow uniform — typing +
+   *  Enter no longer silently creates a card. */
+  function openCreateDialog(columnId: string) {
+    createDialogTitle = (inlineNewByColumn[columnId] ?? '').trim();
+    inlineNewByColumn = { ...inlineNewByColumn, [columnId]: '' };
+    createDialogColumn = columnId;
+  }
   let nameDraft = $state('');
   let inlineNewByColumn = $state<Record<string, string>>({});
   let editingCard = $state<WorkspaceBoardCard | null>(null);
@@ -339,24 +353,6 @@
     }
   }
 
-  async function addInlineCard(columnId: string) {
-    const title = (inlineNewByColumn[columnId] ?? '').trim();
-    if (!title) return;
-    inlineNewByColumn = { ...inlineNewByColumn, [columnId]: '' };
-    const existing = cardsByColumn.get(columnId) ?? [];
-    try {
-      await workspaceCardCreate({
-        columnId,
-        title,
-        position: existing.length,
-        actor: currentUserActor(),
-      });
-      await loadBoardContents(boardId);
-    } catch (e) {
-      errorToast('Add card failed', e);
-    }
-  }
-
   async function approveCard(card: WorkspaceBoardCard) {
     // Approve = clear review_pending. Doesn't move the card; user can
     // separately drag it to Done if they want.
@@ -541,6 +537,7 @@
             externalId: issue.externalId,
             externalUrl: issue.url,
             actor: currentUserActor(),
+            createdAt: issue.createdAt || undefined,
           });
         } catch (e) { console.warn('skip issue:', issue.externalId, e); }
       }
@@ -752,10 +749,12 @@
               placeholder="+ Add a card"
               value={inlineNewByColumn[col.id] ?? ''}
               oninput={(e) => inlineNewByColumn = { ...inlineNewByColumn, [col.id]: e.currentTarget.value }}
-              onkeydown={(e) => { if (e.key === 'Enter') addInlineCard(col.id); }}
-              onblur={() => addInlineCard(col.id)}
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); openCreateDialog(col.id); } }}
               spellcheck="false"
             />
+            <button class="bv-add-more" title="New ticket (description, priority, local/cloud)" onclick={() => openCreateDialog(col.id)} aria-label="New ticket">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
           </div>
         </div>
       {/each}
@@ -769,6 +768,17 @@
     workspace={board ? ($workspacesStore.find(w => w.id === board!.workspaceId) ?? null) : null}
     onclose={() => editingCard = null}
     onsave={onCardSaved}
+  />
+{/if}
+
+{#if createDialogColumn}
+  <CardCreateDialog
+    columnId={createDialogColumn}
+    boardId={boardId}
+    initialTitle={createDialogTitle}
+    position={(cardsByColumn.get(createDialogColumn) ?? []).length}
+    onclose={() => (createDialogColumn = null)}
+    oncreated={() => loadBoardContents(boardId)}
   />
 {/if}
 
@@ -1225,9 +1235,32 @@
   .bv-col-add {
     padding: 8px;
     border-top: 1px solid var(--b1);
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .bv-add-more {
+    flex-shrink: 0;
+    width: 30px;
+    border: 1px dashed var(--b1);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--t3);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+  }
+  .bv-add-more:hover {
+    border-color: var(--acc);
+    border-style: solid;
+    color: var(--acc);
+    background: var(--surface-hover);
   }
   .bv-add-input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     border: 1px dashed var(--b1);
     background: transparent;
     color: var(--t2);

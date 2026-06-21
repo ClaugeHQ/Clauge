@@ -115,6 +115,8 @@ export const workspaceCardCreate = (params: {
   linkedSessionId?: string | null;
   coworkerId?: string | null;
   actor: string;
+  /** ISO 8601 — set the card's created_at (used when importing issues). */
+  createdAt?: string;
 }) => invoke<WorkspaceBoardCard>('workspace_card_create', params);
 export const workspaceCardUpdate = (params: {
   id: string;
@@ -137,12 +139,24 @@ export const workspaceCardClearReview = (id: string, actor: string) =>
 export const workspaceCardDelete = (id: string) => invoke<void>('workspace_card_delete', { id });
 export const workspaceBoardDismissedExternals = (boardId: string) =>
   invoke<string[]>('workspace_board_dismissed_externals', { boardId });
-export const workspaceCardAddComment = (id: string, body: string, actor: string) =>
-  invoke<WorkspaceCardComment>('workspace_card_add_comment', { id, body, actor });
-export const workspaceCardCommentList = (cardId: string) =>
-  invoke<WorkspaceCardComment[]>('workspace_card_comment_list', { cardId });
+export const workspaceCardAddComment = (id: string, body: string, actor: string, channel?: string, parentId?: string | null) =>
+  invoke<WorkspaceCardComment>('workspace_card_add_comment', { id, body, actor, channel, parentId });
+export const workspaceCardCommentList = (cardId: string, channel?: string) =>
+  invoke<WorkspaceCardComment[]>('workspace_card_comment_list', { cardId, channel });
 export const workspaceCardCommentDelete = (id: string) =>
   invoke<void>('workspace_card_comment_delete', { id });
+// GitHub/GitLab ticket-comment 2-way sync.
+export const workspaceCardFetchTicketComments = (cardId: string) =>
+  invoke<WorkspaceCardComment[]>('workspace_card_fetch_ticket_comments', { cardId });
+export const workspaceCardPostTicketComment = (cardId: string, body: string, actor: string) =>
+  invoke<WorkspaceCardComment>('workspace_card_post_ticket_comment', { cardId, body, actor });
+export const workspaceCardEditTicketComment = (commentId: string, body: string) =>
+  invoke<void>('workspace_card_edit_ticket_comment', { commentId, body });
+export const workspaceCardDeleteTicketComment = (commentId: string) =>
+  invoke<void>('workspace_card_delete_ticket_comment', { commentId });
+// New-ticket dialog: is "create as cloud issue" available for this board?
+export const workspaceCloudTarget = (boardId: string) =>
+  invoke<import('./types').CloudTarget>('workspace_cloud_target', { boardId });
 
 export interface CardPushResult {
   id: string;

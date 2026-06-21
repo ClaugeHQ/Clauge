@@ -95,6 +95,16 @@ pub trait CliRunner: Send + Sync {
     /// The returned string is meant to be passed to `<user-shell> -l -i -c`.
     fn build_spawn_command(&self, opts: &SpawnOpts) -> String;
 
+    // ---- Context ------------------------------------------------------
+
+    /// How this CLI expects an in-prompt file reference, used by the Agent
+    /// file explorer's drag-to-context gesture. The default `@<path>`
+    /// covers Claude, Codex, Antigravity, and OpenCode; override only if a
+    /// future CLI uses different syntax.
+    fn file_reference(&self, rel_path: &str) -> String {
+        format!("@{rel_path}")
+    }
+
     // ---- Home / plugins ------------------------------------------------
 
     /// CLI home directory, e.g. `~/.claude`.

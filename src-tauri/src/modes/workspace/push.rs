@@ -18,7 +18,6 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
 use crate::modes::workspace::cli_errors::{classify_output, CliError};
-use crate::shared::repos::workspaces as repo;
 
 /// Run the full push pipeline for `card_id`. Returns the patched card
 /// as a JSON value on success; an error string on failure. The error
@@ -43,37 +42,24 @@ pub async fn push_card_to_repo(
     .await
     .map_err(|e| format!("DB error reading card: {e}"))?;
 
-    let (title, description, _column_id, external_id, workspace_id) =
+    let (title, description, _column_id, external_id, _workspace_id) =
         card_row.ok_or_else(|| "Card not found".to_string())?;
 
     if external_id.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
         return Err("Card is already linked to an issue".into());
     }
 
-    let workspace = repo::get_workspace_by_id(pool, &workspace_id)
-        .await
-        .map_err(|e| format!("DB error reading workspace: {e}"))?;
-    let repo_url = workspace
-        .repo_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    // ── 2. Resolve the repo the same way the scan does (board source /
+    //    project git remote / repo_url). cwd lets gh/glab infer the repo
+    //    even when no explicit owner/repo or repo_url is configured.
+    let target = super::repo_target::resolve_for_card(pool, card_id)
+        .await?
         .ok_or_else(|| {
-            "Workspace has no repo URL set. Use 'Link to repo' first.".to_string()
-        })?
-        .to_string();
-
-    // ── 2. Decide tool + parse owner/repo. ─────────────────────────
-    let lower = repo_url.to_lowercase();
-    let (tool, source): (&str, &str) = if lower.contains("github.com") {
-        ("gh", "github")
-    } else if lower.contains("gitlab") {
-        ("glab", "gitlab")
-    } else {
-        return Err(format!("Unsupported repo URL: {repo_url}"));
-    };
-    let owner_repo = super::commands::parse_owner_repo(&repo_url)
-        .ok_or_else(|| format!("Could not parse owner/repo from {repo_url}"))?;
+            "This board isn't connected to a GitHub/GitLab repo. Set a project or repo URL first."
+                .to_string()
+        })?;
+    let tool = target.tool;
+    let source = target.provider.clone();
 
     // ── 3. CLI on PATH? ────────────────────────────────────────────
     let tool_bin = crate::shared::platform::path::find_binary(tool).ok_or_else(|| {
@@ -84,36 +70,35 @@ pub async fn push_card_to_repo(
     //    parse the resulting issue URL — both CLIs print it on success.
     let title_owned = title.clone();
     let body_owned = description.clone();
-    let owner_repo_owned = owner_repo.clone();
-    let source_owned = source.to_string();
+    let source_owned = source.clone();
     let tool_bin_owned = tool_bin.clone();
+    let cwd_owned = target.cwd.clone();
+    let owner_repo_owned = target.owner_repo.clone();
 
     let output = tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new(&tool_bin_owned);
         crate::shared::platform::path::apply_user_path(&mut cmd);
+        // Prefer running inside the repo checkout so the CLI infers the
+        // repo; fall back to an explicit --repo/-R when we only have a URL.
+        if let Some(cwd) = &cwd_owned {
+            cmd.current_dir(cwd);
+        }
         if source_owned == "github" {
-            cmd.args([
-                "issue",
-                "create",
-                "--repo",
-                &owner_repo_owned,
-                "--title",
-                &title_owned,
-                "--body",
-                &body_owned,
-            ]);
+            cmd.args(["issue", "create"]);
+            if cwd_owned.is_none() {
+                if let Some(or) = &owner_repo_owned {
+                    cmd.args(["--repo", or]);
+                }
+            }
+            cmd.args(["--title", &title_owned, "--body", &body_owned]);
         } else {
-            // glab: --title / --description; -R for repo.
-            cmd.args([
-                "issue",
-                "create",
-                "-R",
-                &owner_repo_owned,
-                "--title",
-                &title_owned,
-                "--description",
-                &body_owned,
-            ]);
+            cmd.args(["issue", "create"]);
+            if cwd_owned.is_none() {
+                if let Some(or) = &owner_repo_owned {
+                    cmd.args(["-R", or]);
+                }
+            }
+            cmd.args(["--title", &title_owned, "--description", &body_owned]);
         }
         cmd.output()
     })
@@ -125,7 +110,7 @@ pub async fn push_card_to_repo(
         // Use the shared classifier so multi-account / no-access /
         // network failures get clean toast copy. Falls back to raw
         // stderr only when the classifier can't pin the error down.
-        let err = classify_output(tool, &output, Some(&owner_repo))
+        let err = classify_output(tool, &output, target.owner_repo.as_deref())
             .unwrap_or(CliError::Other {
                 stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
             });
@@ -133,13 +118,13 @@ pub async fn push_card_to_repo(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let issue_url = extract_issue_url(&stdout, source).ok_or_else(|| {
+    let issue_url = extract_issue_url(&stdout, &source).ok_or_else(|| {
         format!(
             "Could not parse issue URL from {tool} output: {}",
             stdout.trim()
         )
     })?;
-    let external_id = derive_external_id(&issue_url, source).unwrap_or_else(|| issue_url.clone());
+    let external_id = derive_external_id(&issue_url, &source).unwrap_or_else(|| issue_url.clone());
 
     // ── 5. Persist back onto the card. ─────────────────────────────
     let now = chrono::Utc::now().to_rfc3339();

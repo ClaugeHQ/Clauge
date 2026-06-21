@@ -1151,6 +1151,7 @@ pub async fn update_card_pr_url(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_card_comment(
     pool: &SqlitePool,
     id: &str,
@@ -1160,6 +1161,9 @@ pub async fn insert_card_comment(
     body: &str,
     parent_id: Option<&str>,
     now: &str,
+    channel: &str,
+    external_id: Option<&str>,
+    external_author: Option<&str>,
     guard: MutationGuard<'_>,
 ) -> Result<u64, sqlx::Error> {
     // INSERT … SELECT … WHERE EXISTS lets us refuse atomically when
@@ -1173,8 +1177,8 @@ pub async fn insert_card_comment(
     };
     let sql = format!(
         "INSERT INTO workspace_card_comments \
-         (id, card_id, actor, coworker_id, body, parent_id, created_at) \
-         SELECT ?, ?, ?, ?, ?, ?, ? \
+         (id, card_id, actor, coworker_id, body, parent_id, created_at, channel, external_id, external_author) \
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? \
          WHERE EXISTS (SELECT 1 FROM workspace_board_cards WHERE id = ? {})",
         exists_clause
     );
@@ -1186,6 +1190,9 @@ pub async fn insert_card_comment(
         .bind(body)
         .bind(parent_id)
         .bind(now)
+        .bind(channel)
+        .bind(external_id)
+        .bind(external_author)
         .bind(card_id)
         .execute(pool)
         .await?
@@ -1211,16 +1218,119 @@ pub async fn insert_card_comment(
     Ok(inserted)
 }
 
-pub async fn list_card_comments(
+/// Insert (or refresh) a comment fetched from GitHub/GitLab, keyed by
+/// `external_id` so repeated fetches never duplicate. Returns true when a
+/// new row was inserted. `created_at` is the ORIGINAL provider timestamp.
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_external_comment(
+    pool: &SqlitePool,
+    id: &str,
+    card_id: &str,
+    actor: &str,
+    body: &str,
+    created_at: &str,
+    external_id: &str,
+    external_author: &str,
+) -> Result<bool, sqlx::Error> {
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM workspace_card_comments WHERE external_id = ? LIMIT 1")
+            .bind(external_id)
+            .fetch_optional(pool)
+            .await?;
+    if existing.is_some() {
+        // Body may have been edited upstream — keep our copy in sync.
+        sqlx::query(
+            "UPDATE workspace_card_comments \
+             SET body = ?, created_at = ?, external_author = ?, actor = ? \
+             WHERE external_id = ?",
+        )
+        .bind(body)
+        .bind(created_at)
+        .bind(external_author)
+        .bind(actor)
+        .bind(external_id)
+        .execute(pool)
+        .await?;
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO workspace_card_comments \
+         (id, card_id, actor, coworker_id, body, parent_id, created_at, channel, external_id, external_author) \
+         VALUES (?, ?, ?, NULL, ?, NULL, ?, 'ticket', ?, ?)",
+    )
+    .bind(id)
+    .bind(card_id)
+    .bind(actor)
+    .bind(body)
+    .bind(created_at)
+    .bind(external_id)
+    .bind(external_author)
+    .execute(pool)
+    .await?;
+    Ok(true)
+}
+
+/// Update a comment's body (local edit / mirror of a remote edit).
+pub async fn update_comment_body(
+    pool: &SqlitePool,
+    id: &str,
+    body: &str,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE workspace_card_comments SET body = ?, created_at = created_at WHERE id = ?")
+        .bind(body)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    let _ = now; // created_at preserved; updated tracking lives on the card
+    Ok(())
+}
+
+/// Remove synced (external) ticket comments on a card whose provider id is
+/// no longer in `keep` — i.e. they were deleted upstream. Local comments
+/// (external_id NULL) and coworker comments are never touched.
+pub async fn prune_external_comments(
     pool: &SqlitePool,
     card_id: &str,
-) -> Result<Vec<WorkspaceCardComment>, sqlx::Error> {
-    sqlx::query_as::<_, WorkspaceCardComment>(
-        "SELECT * FROM workspace_card_comments \
-         WHERE card_id = ? ORDER BY created_at ASC",
+    keep: &[String],
+) -> Result<u64, sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, external_id FROM workspace_card_comments \
+         WHERE card_id = ? AND channel = 'ticket' AND external_id IS NOT NULL",
     )
     .bind(card_id)
     .fetch_all(pool)
+    .await?;
+    let mut removed = 0u64;
+    for (id, ext) in rows {
+        if !keep.iter().any(|k| k == &ext) {
+            sqlx::query("DELETE FROM workspace_card_comments WHERE id = ?")
+                .bind(&id)
+                .execute(pool)
+                .await?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+pub async fn list_card_comments(
+    pool: &SqlitePool,
+    card_id: &str,
+    channel: Option<&str>,
+) -> Result<Vec<WorkspaceCardComment>, sqlx::Error> {
+    let sql = if channel.is_some() {
+        "SELECT * FROM workspace_card_comments \
+         WHERE card_id = ? AND channel = ? ORDER BY created_at ASC"
+    } else {
+        "SELECT * FROM workspace_card_comments \
+         WHERE card_id = ? ORDER BY created_at ASC"
+    };
+    let mut q = sqlx::query_as::<_, WorkspaceCardComment>(sql).bind(card_id);
+    if let Some(ch) = channel {
+        q = q.bind(ch);
+    }
+    q.fetch_all(pool)
     .await
 }
 

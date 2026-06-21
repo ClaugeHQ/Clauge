@@ -157,6 +157,7 @@ pub fn run() {
             app.manage(Arc::new(modes::sql::client::SqlConnectionManager::new()));
             app.manage(modes::nosql::client::create_nosql_state());
             app.manage(modes::agent::models::TerminalState::default());
+            app.manage(modes::agent::files::FsWatchState::default());
             app.manage(modes::ssh::models::SshTerminalState::default());
             app.manage(modes::ssh::models::PendingAuthPrompts::default());
             // Stash the AppHandle so the keyboard-interactive auth flow
@@ -538,6 +539,16 @@ pub fn run() {
             modes::agent::commands::agent_inject_contexts,
             modes::agent::commands::agent_remove_injected_contexts,
             modes::agent::commands::agent_inject_purpose,
+            modes::agent::files::agent_fs_list_dir,
+            modes::agent::files::agent_fs_read_file,
+            modes::agent::files::agent_fs_write_file,
+            modes::agent::files::agent_fs_rename,
+            modes::agent::files::agent_fs_delete,
+            modes::agent::files::agent_fs_create,
+            modes::agent::files::agent_fs_reveal,
+            modes::agent::files::agent_fs_watch_start,
+            modes::agent::files::agent_fs_watch_stop,
+            modes::agent::files::agent_file_reference,
             modes::agent::terminal::agent_spawn_terminal,
             modes::agent::terminal::agent_spawn_shell,
             modes::agent::terminal::agent_write_to_terminal,
@@ -625,6 +636,11 @@ pub fn run() {
             modes::workspace::commands::workspace_card_comment_list,
             modes::workspace::commands::workspace_card_comment_delete,
             modes::workspace::commands::workspace_card_push_to_repo,
+            modes::workspace::commands::workspace_cloud_target,
+            modes::workspace::tickets::workspace_card_fetch_ticket_comments,
+            modes::workspace::tickets::workspace_card_post_ticket_comment,
+            modes::workspace::tickets::workspace_card_edit_ticket_comment,
+            modes::workspace::tickets::workspace_card_delete_ticket_comment,
             modes::workspace::commands::workspace_card_raise_pr,
             modes::workspace::commands::workspace_card_check_pr_state,
             modes::workspace::commands::workspace_card_get_claim,

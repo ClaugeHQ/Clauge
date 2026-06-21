@@ -46,6 +46,10 @@
     workspaceCardGetClaim,
     workspaceCardDrawerChat,
     workspaceCardAddComment,
+    workspaceCardFetchTicketComments,
+    workspaceCardPostTicketComment,
+    workspaceCardEditTicketComment,
+    workspaceCardDeleteTicketComment,
     workspaceCardRelease,
     type CardClaimState,
   } from '../commands';
@@ -75,6 +79,9 @@
   import CardThread from './CardThread.svelte';
   import CoworkerAvatar from './CoworkerAvatar.svelte';
   import CoworkerMentionPopover from './CoworkerMentionPopover.svelte';
+  import { renderCardMarkdown, handleImageToggleClick } from '../cardMarkdown';
+  import { imagePaste, insertAtCaret, pickImageFile, imageMarkdown } from '../imageAttach';
+  import { tick } from 'svelte';
 
   interface Props {
     card: WorkspaceBoardCard;
@@ -108,7 +115,19 @@
   let mentionPopover: CoworkerMentionPopover | null = null;
 
   // ── UI state ────────────────────────────────────────────────────
-  let tab = $state<'thread' | 'edit'>('thread');
+  // Two clear sections: the real ticket (description + ticket comments)
+  // and the local AI coworker chat.
+  let tab = $state<'ticket' | 'coworker'>('ticket');
+  // Edit-in-place description: rendered (with lazy images) by default,
+  // click to edit.
+  let descEditing = $state(false);
+  const renderedDesc = $derived(renderCardMarkdown(description));
+  // Ticket-comment composer (separate from the coworker chat composer).
+  let ticketDraft = $state('');
+  let ticketReplyTo = $state<WorkspaceCardComment | null>(null);
+  let postingTicket = $state(false);
+  let ticketSyncing = $state(false);
+  let ticketSyncedAt = $state<number | null>(null);
   let chatDraft = $state('');
   let chatting = $state(false);
   /** While a mention is in-flight, hold a reference to the coworker
@@ -180,6 +199,10 @@
   let firstScroll = true;
   $effect(() => {
     void comments.length;
+    // Only auto-scroll the conversational Coworker section — on the
+    // Ticket section the description sits at the top and must stay
+    // visible, so we never yank it out of view.
+    if (tab !== 'coworker') return;
     if (!bodyEl) return;
     const el = bodyEl;
     requestAnimationFrame(() => {
@@ -216,6 +239,9 @@
           body: '',
           parentId: null,
           createdAt: flight.startedAt,
+          channel: 'coworker',
+          externalId: null,
+          externalAuthor: null,
           pending: 'thinking',
         },
       ];
@@ -228,6 +254,15 @@
 
   const editor = $derived(describeActor(card.updatedBy));
   const source = $derived(cardSourceBadge(card));
+
+  // Comments split by drawer section. Ticket = real issue discussion
+  // (local or, for linked cards, mirrored from GitHub/GitLab). Coworker
+  // = the local AI persona chat.
+  const ticketComments = $derived(comments.filter((c) => c.channel !== 'coworker'));
+  const coworkerComments = $derived(comments.filter((c) => c.channel === 'coworker'));
+  /** A card linked to a real GitHub/GitLab issue. Drives the ticket
+   *  composer hint + (Phase 3) routes comments to the issue. */
+  const isCloudCard = $derived(!!card.externalId);
 
   // ── Lifecycle ribbon ────────────────────────────────────────────
   // Compact one-line summary that orients the user: when the card
@@ -332,11 +367,11 @@
     // Coworkers are needed for the picker + bubble rendering.
     await loadCoworkers();
     await refreshClaimAndComments();
-    // Always land on Thread — it's the conversational view that
-    // surfaces the body + bubbles together. Even an empty card opens
-    // here (CardThread renders an inviting empty-state); Edit is the
-    // explicit raw-markdown escape hatch for when the user wants it.
-    tab = 'thread';
+    // Land on the Ticket section — the real issue (description + its
+    // comment thread). The Coworker section is the local AI chat.
+    tab = 'ticket';
+    // For a GitHub/GitLab-linked card, pull the real issue comments.
+    if (isCloudCard) syncTicketComments();
     try {
       unlisten = await listen<{ cardId: string }>('workspace:card-updated', async (e) => {
         if (e.payload?.cardId === card.id) await refreshClaimAndComments();
@@ -456,15 +491,18 @@
       body,
       parentId: null,
       createdAt: stamp,
+      channel: 'coworker',
+      externalId: null,
+      externalAuthor: null,
     };
     comments = [...comments, optimisticUser];
     chatDraft = '';
-    tab = 'thread';
+    tab = 'coworker';
 
     if (!cw) {
       // Plain comment path — no agent, no thinking bubble.
       try {
-        const created = await workspaceCardAddComment(cardIdSnap, body, currentUserActor());
+        const created = await workspaceCardAddComment(cardIdSnap, body, currentUserActor(), 'coworker');
         // Component may be unmounted by now; guard the local mutation.
         if (card) {
           comments = comments.map((c) => (c.id === optimisticId ? created : c));
@@ -506,6 +544,9 @@
         body: '',
         parentId: null,
         createdAt: new Date().toISOString(),
+        channel: 'coworker',
+        externalId: null,
+        externalAuthor: null,
         pending: 'thinking',
       },
     ];
@@ -582,6 +623,134 @@
 
   function onChatInput() {
     mentionPopover?.refresh();
+  }
+
+  // ── Ticket comment composer (the real issue discussion) ──────────
+  function startTicketReply(c: WorkspaceCardComment) {
+    ticketReplyTo = c;
+    tab = 'ticket';
+  }
+
+  /** Fetch the linked issue's comments (GitHub) and merge the canonical
+   *  ticket thread in, preserving coworker chat + any pending bubbles. */
+  async function syncTicketComments() {
+    if (!isCloudCard || ticketSyncing) return;
+    ticketSyncing = true;
+    try {
+      const fetched = await workspaceCardFetchTicketComments(card.id);
+      if (!card) return;
+      const keep = comments.filter((c) => c.channel === 'coworker' || c.pending);
+      comments = [...keep, ...fetched];
+      ticketSyncedAt = Date.now();
+    } catch (e) {
+      showToast(`Couldn't sync ${repoLabel} comments — ${friendlyError(e)}`, 'error');
+    } finally {
+      if (card) ticketSyncing = false;
+    }
+  }
+
+  async function editTicketComment(c: WorkspaceCardComment, body: string) {
+    try {
+      await workspaceCardEditTicketComment(c.id, body);
+      if (card) comments = comments.map((x) => (x.id === c.id ? { ...x, body } : x));
+      onsave?.();
+    } catch (e) { errorToast('Edit failed', e); }
+  }
+  async function deleteTicketComment(c: WorkspaceCardComment) {
+    try {
+      await workspaceCardDeleteTicketComment(c.id);
+      if (card) comments = comments.filter((x) => x.id !== c.id);
+      onsave?.();
+    } catch (e) { errorToast('Delete failed', e); }
+  }
+
+  function syncedAgo(): string {
+    if (!ticketSyncedAt) return '';
+    const s = Math.max(0, Math.round((Date.now() - ticketSyncedAt) / 1000));
+    if (s < 5) return 'just now';
+    if (s < 60) return `${s}s ago`;
+    return `${Math.round(s / 60)}m ago`;
+  }
+
+  async function addTicketComment() {
+    const raw = ticketDraft.trim();
+    if (!raw || postingTicket) return;
+    const cardIdSnap = card.id;
+    let body = raw;
+    if (ticketReplyTo) {
+      const who = ticketReplyTo.externalAuthor || describeActor(ticketReplyTo.actor).label;
+      const quoted = ticketReplyTo.body.split('\n').map((l) => `> ${l}`).join('\n');
+      body = `> **@${who}**\n${quoted}\n\n${raw}`;
+    }
+    postingTicket = true;
+    const optimisticId = `pending-ticket-${Date.now()}`;
+    const replyId = ticketReplyTo?.id ?? null;
+    const optimistic: WorkspaceCardComment = {
+      id: optimisticId,
+      cardId: cardIdSnap,
+      actor: currentUserActor(),
+      coworkerId: null,
+      body,
+      parentId: replyId,
+      createdAt: new Date().toISOString(),
+      channel: 'ticket',
+      externalId: null,
+      externalAuthor: null,
+    };
+    comments = [...comments, optimistic];
+    ticketDraft = '';
+    ticketReplyTo = null;
+    try {
+      const created = isCloudCard
+        ? await workspaceCardPostTicketComment(cardIdSnap, body, currentUserActor())
+        : await workspaceCardAddComment(cardIdSnap, body, currentUserActor(), 'ticket', replyId);
+      if (card) comments = comments.map((c) => (c.id === optimisticId ? created : c));
+      onsave?.();
+    } catch (e) {
+      if (card) { comments = comments.filter((c) => c.id !== optimisticId); ticketDraft = raw; }
+      errorToast('Comment failed', e);
+    } finally {
+      if (card) postingTicket = false;
+    }
+  }
+
+  function onTicketKey(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      addTicketComment();
+    }
+  }
+
+  // ── Image attachment ─────────────────────────────────────────────
+  let descEditEl = $state<HTMLTextAreaElement | null>(null);
+  let ticketComposerEl = $state<HTMLTextAreaElement | null>(null);
+  async function addDescImage() {
+    if (!descEditing) { descEditing = true; await tick(); }
+    const f = await pickImageFile();
+    if (!f || !descEditEl) return;
+    try {
+      const md = await imageMarkdown(f);
+      if (md) { description = insertAtCaret(descEditEl, description, md); scheduleDescSave(); }
+    } catch (e) { showToast(friendlyError(e), 'error'); }
+  }
+  async function addTicketImage() {
+    const f = await pickImageFile();
+    if (!f || !ticketComposerEl) return;
+    try {
+      const md = await imageMarkdown(f);
+      if (md) ticketDraft = insertAtCaret(ticketComposerEl, ticketDraft, md);
+    } catch (e) { showToast(friendlyError(e), 'error'); }
+  }
+
+  // ── Description edit-in-place ────────────────────────────────────
+  function onDescViewClick(e: MouseEvent) {
+    // Image chips reveal/collapse without entering edit mode.
+    if (handleImageToggleClick(e)) return;
+    descEditing = true;
+  }
+  function onDescBlur() {
+    descEditing = false;
+    flushDescSave();
   }
 
   async function doRelease() {
@@ -761,41 +930,113 @@
       </div>
     {/if}
 
-    <!-- ─────────── Body (Thread / Edit) ─────────── -->
+    <!-- ─────────── Body (Ticket / Coworker) ─────────── -->
     <div class="cd-tabs">
-      <button class="cd-tab" class:cd-tab-on={tab === 'thread'} onclick={() => (tab = 'thread')}>
-        Thread
-        {#if comments.length > 0}<span class="cd-tab-count">{comments.length}</span>{/if}
+      <button class="cd-tab" class:cd-tab-on={tab === 'ticket'} onclick={() => (tab = 'ticket')}>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z"/><line x1="12" y1="7" x2="12" y2="17" stroke-dasharray="2 3"/></svg>
+        Ticket
+        {#if ticketComments.length > 0}<span class="cd-tab-count">{ticketComments.length}</span>{/if}
       </button>
-      <button class="cd-tab" class:cd-tab-on={tab === 'edit'} onclick={() => (tab = 'edit')}>
-        Description
+      <button class="cd-tab" class:cd-tab-on={tab === 'coworker'} onclick={() => (tab = 'coworker')}>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Coworker
+        {#if coworkerComments.length > 0}<span class="cd-tab-count">{coworkerComments.length}</span>{/if}
       </button>
     </div>
 
     <div class="cd-body" bind:this={bodyEl}>
-      {#if tab === 'thread'}
-        <CardThread body={description} {comments} />
-      {:else}
-        <textarea
-          class="cd-desc"
-          bind:value={description}
-          oninput={(e) => { autoGrow(e.currentTarget); scheduleDescSave(); }}
-          onfocus={(e) => autoGrow(e.currentTarget)}
-          onblur={flushDescSave}
-          placeholder="Describe this card. Markdown supported. Auto-saves as you type."
-        ></textarea>
-      {/if}
-
-      {#if card.reviewChecklist}
-        <div class="cd-checklist">
-          <div class="cd-checklist-key">Review checklist <span class="cd-dim">(set by {editor.label})</span></div>
-          <pre>{card.reviewChecklist}</pre>
+      {#if tab === 'ticket'}
+        <!-- Editable description — rendered with lazy images, click to edit. -->
+        <div class="cd-desc-section">
+          <div class="cd-comments-head">
+            <span class="cd-section-key">Description</span>
+            <button class="cd-img-btn" onclick={addDescImage} title="Attach image (or paste a screenshot)">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              Image
+            </button>
+          </div>
+          {#if descEditing}
+            <!-- svelte-ignore a11y_autofocus -->
+            <textarea
+              class="cd-desc"
+              bind:value={description}
+              bind:this={descEditEl}
+              use:imagePaste={(md) => { if (descEditEl) { description = insertAtCaret(descEditEl, description, md); scheduleDescSave(); } }}
+              autofocus
+              oninput={(e) => { autoGrow(e.currentTarget); scheduleDescSave(); }}
+              onfocus={(e) => autoGrow(e.currentTarget)}
+              onblur={onDescBlur}
+              placeholder="Describe this ticket. Markdown supported. Auto-saves as you type."
+            ></textarea>
+          {:else if renderedDesc}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <div class="cd-desc-view" onclick={onDescViewClick} title="Click to edit">
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+              {@html renderedDesc}
+            </div>
+          {:else}
+            <button class="cd-desc-empty" onclick={() => (descEditing = true)}>+ Add a description</button>
+          {/if}
         </div>
+
+        {#if card.reviewChecklist}
+          <div class="cd-checklist">
+            <div class="cd-checklist-key">Review checklist <span class="cd-dim">(set by {editor.label})</span></div>
+            <pre>{card.reviewChecklist}</pre>
+          </div>
+        {/if}
+
+        <div class="cd-comments-head">
+          <span class="cd-section-key">Comments</span>
+          {#if isCloudCard}
+            <span class="cd-sync-state">
+              {#if ticketSyncing}Syncing…{:else if ticketSyncedAt}Synced {syncedAgo()}{/if}
+            </span>
+            <button class="cd-sync-btn" onclick={syncTicketComments} disabled={ticketSyncing} title="Refresh comments from {repoLabel}">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+          {/if}
+        </div>
+        <CardThread comments={ticketComments} emptyText="No comments yet — start the discussion below." onreply={startTicketReply} onedit={editTicketComment} ondelete={deleteTicketComment} />
+      {:else}
+        <CardThread comments={coworkerComments} emptyText="No messages yet — @-mention a coworker below to start a chat." />
       {/if}
     </div>
 
-    <!-- ─────────── Claim banner / chat area ─────────── -->
+    <!-- ─────────── Composer (Ticket comment / Coworker chat) ─────────── -->
     <div class="cd-chat">
+      {#if tab === 'ticket'}
+        {#if ticketReplyTo}
+          <div class="cd-reply-chip">
+            <span class="cd-reply-ico">↳</span>
+            <span class="cd-reply-text">Replying to <strong>@{ticketReplyTo.externalAuthor || describeActor(ticketReplyTo.actor).label}</strong></span>
+            <button class="cd-reply-x" onclick={() => (ticketReplyTo = null)} title="Cancel reply">×</button>
+          </div>
+        {/if}
+        <div class="cd-chat-row">
+          <textarea
+            class="cd-chat-input"
+            bind:value={ticketDraft}
+            bind:this={ticketComposerEl}
+            use:imagePaste={(md) => { if (ticketComposerEl) ticketDraft = insertAtCaret(ticketComposerEl, ticketDraft, md); }}
+            placeholder={isCloudCard ? `Comment on ${repoLabel} issue ${card.externalId}…` : 'Add a comment to this ticket…'}
+            onkeydown={onTicketKey}
+            rows="3"
+          ></textarea>
+          <div class="cd-chat-foot">
+            <span class="cd-chat-hint">
+              {isCloudCard ? `Posts to the ${repoLabel} issue` : 'Ticket comment'} · <kbd>⌘↵</kbd> to send
+            </span>
+            <span class="cd-chat-foot-spacer"></span>
+            <button class="cd-img-btn cd-img-btn-inline" onclick={addTicketImage} title="Attach image (or paste a screenshot)">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            </button>
+            <button class="cd-chat-send" onclick={addTicketComment} disabled={!ticketDraft.trim() || postingTicket}>
+              {postingTicket ? 'Posting…' : ticketReplyTo ? 'Post reply' : 'Comment'}
+            </button>
+          </div>
+        </div>
+      {:else}
       {#if claimMode === 'manual-conflict'}
         <div class="cd-claim cd-claim-conflict">
           <span class="cd-claim-ico" style="color: var(--err, #f87171);">⚠</span>
@@ -884,6 +1125,7 @@
           </button>
         </div>
       </div>
+      {/if}
     </div>
 
     <!-- ─────────── Footer (push + meta) ─────────── -->
@@ -1227,6 +1469,131 @@
     width: 100%;
   }
   .cd-desc:focus { border-color: var(--acc); }
+
+  /* ── Ticket section: description + comments ─────────────── */
+  .cd-desc-section { display: flex; flex-direction: column; gap: 6px; }
+  .cd-section-key {
+    font-family: var(--ui);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--t4);
+    text-transform: uppercase;
+  }
+  .cd-comments-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .cd-sync-state { font-family: var(--ui); font-size: 10px; color: var(--t4); }
+  .cd-sync-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 20px;
+    border: 1px solid var(--b1);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--t3);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .cd-sync-btn:hover:not(:disabled) { color: var(--t1); border-color: var(--acc); }
+  .cd-sync-btn:disabled { opacity: 0.5; }
+  .cd-img-btn {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid var(--b1); background: transparent; color: var(--t3);
+    font-family: var(--ui); font-size: 10px; padding: 2px 7px; border-radius: 5px; cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .cd-img-btn:hover { color: var(--t1); border-color: var(--acc); }
+  .cd-img-btn-inline { margin-left: 0; padding: 4px 7px; }
+  .cd-desc-empty {
+    text-align: left;
+    border: 1px dashed var(--b1);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: transparent;
+    color: var(--t3);
+    font-family: var(--ui);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .cd-desc-empty:hover { border-color: var(--acc); color: var(--t1); }
+  .cd-desc-view {
+    font-family: var(--ui);
+    font-size: 12.5px;
+    color: var(--t1);
+    line-height: 1.65;
+    padding: 10px 12px;
+    background: var(--surface-hover);
+    border: 1px solid var(--b1);
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-sizing: border-box;
+    max-width: 100%;
+    cursor: text;
+    transition: border-color 0.12s;
+  }
+  .cd-desc-view:hover { border-color: var(--b2); }
+  .cd-desc-view :global(pre), .cd-desc-view :global(img) { max-width: 100%; }
+  .cd-desc-view :global(p) { margin: 0 0 8px; }
+  .cd-desc-view :global(p:last-child) { margin-bottom: 0; }
+  .cd-desc-view :global(code) {
+    font-family: var(--mono); font-size: 11.5px;
+    background: rgba(0,0,0,0.22); padding: 1px 4px; border-radius: 3px;
+  }
+  .cd-desc-view :global(pre) {
+    background: rgba(0,0,0,0.25); border: 1px solid var(--b1);
+    border-radius: 5px; padding: 8px 10px; overflow-x: auto; font-size: 11px;
+  }
+  .cd-desc-view :global(a) { color: var(--acc); text-decoration: none; }
+  .cd-desc-view :global(a:hover) { text-decoration: underline; }
+  .cd-desc-view :global(ul), .cd-desc-view :global(ol) { margin: 6px 0; padding-left: 22px; }
+  .cd-desc-view :global(li) { margin: 2px 0; }
+  .cd-desc-view :global(blockquote) { border-left: 2px solid var(--b2); padding-left: 10px; margin: 6px 0; color: var(--t3); }
+  .cd-desc-view :global(h1), .cd-desc-view :global(h2), .cd-desc-view :global(h3) { margin: 8px 0 4px; font-weight: 600; color: var(--t1); }
+  .cd-desc-view :global(h1) { font-size: 14px; }
+  .cd-desc-view :global(h2) { font-size: 13px; }
+  .cd-desc-view :global(h3) { font-size: 12.5px; }
+  .cd-desc-view :global(.th-img-toggle) {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 8px; margin: 4px 0;
+    border: 1px dashed var(--b2); border-radius: 5px;
+    background: var(--surface-hover); color: var(--t2);
+    font-family: var(--ui); font-size: 11px; cursor: pointer;
+  }
+  .cd-desc-view :global(.th-img-toggle:hover) { border-color: var(--acc); color: var(--t1); }
+  .cd-desc-view :global(.th-img-hint) { color: var(--t4); font-size: 10px; }
+  .cd-desc-view :global(.th-img-revealed) { display: block; position: relative; margin: 6px 0; }
+  .cd-desc-view :global(.th-img-revealed img) { max-width: 100%; border-radius: 6px; cursor: pointer; display: block; }
+  .cd-desc-view :global(.th-img-collapse) {
+    position: absolute; top: 4px; right: 4px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    font-family: var(--ui); font-size: 10px;
+    padding: 2px 6px; border-radius: 3px; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .cd-desc-view :global(.th-img-revealed:hover .th-img-collapse) { opacity: 1; }
+
+  /* Reply chip above the ticket composer. */
+  .cd-reply-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; border-radius: 5px;
+    background: color-mix(in srgb, var(--acc) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--acc) 24%, transparent);
+    font-family: var(--ui); font-size: 11px; color: var(--t2);
+  }
+  .cd-reply-ico { color: var(--acc); }
+  .cd-reply-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cd-reply-text strong { color: var(--acc); font-weight: 600; }
+  .cd-reply-x { border: none; background: transparent; color: var(--t3); font-size: 14px; cursor: pointer; padding: 0 2px; }
+  .cd-reply-x:hover { color: var(--err, #f87171); }
 
   .cd-checklist {
     border: 1px solid color-mix(in srgb, #a78bfa 30%, transparent);
