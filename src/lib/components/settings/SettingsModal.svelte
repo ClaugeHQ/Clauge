@@ -590,15 +590,32 @@
     }
 
     async function handleMeetingModelDelete(name: string) {
+        const label =
+            whisperModels.find((m) => m.name === name)?.label ?? name;
+        // Deleting the active default needs a deliberate choice — prompt the
+        // user to move the default first (auto-suggesting a sensible model)
+        // rather than silently leaving recording without a model.
+        if (name === meetingModel) {
+            const others = downloadedModels.filter((m) => m.name !== name);
+            if (others.length > 0) {
+                const next =
+                    others.find((m) => m.recommended) ?? others[0];
+                const ok = confirm(
+                    `"${label}" is your default transcription model.\n\nSwitch the default to "${next.label}" and delete "${label}"?`,
+                );
+                if (!ok) return;
+                await setSetting("workspace_meeting_model", next.name);
+            } else {
+                const ok = confirm(
+                    `"${label}" is your only downloaded model and the default.\n\nDelete it anyway? You'll need to download a model before recording again.`,
+                );
+                if (!ok) return;
+                await setSetting("workspace_meeting_model", "");
+            }
+        }
         deletingModel = name;
         try {
             await workspaceMeetingModelDelete(name);
-            if (name === meetingModel) {
-                // Deleted the persisted default — clear it so the backend
-                // falls back to its built-in default instead of a model
-                // that no longer exists on disk.
-                await setSetting("workspace_meeting_model", "");
-            }
         } catch (e) {
             errorToast("Failed to delete model", e);
         } finally {

@@ -40,11 +40,29 @@ impl Transcriber {
             started.elapsed()
         );
 
+        // English-only models (`*.en`) MUST be pinned to English. Their
+        // tokenizer can't decode other languages, and leaving language as
+        // auto makes whisper run a per-chunk language-detect that returns
+        // garbage on short audio (e.g. "mi"/"sa"/"sw" @ p=0.01) → it then
+        // "decodes" in that wrong language (empty/garbage) and burns time on
+        // the temperature-fallback ladder. Forcing "en" skips detection
+        // entirely: faster AND correct.
+        let english_only = model_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.contains(".en"))
+            .unwrap_or(false);
+        let language = if english_only {
+            Some("en".to_string())
+        } else {
+            language
+                .filter(|l| !l.is_empty() && *l != "auto")
+                .map(str::to_owned)
+        };
+
         Ok(Self {
             ctx,
-            language: language
-                .filter(|l| !l.is_empty() && *l != "auto")
-                .map(str::to_owned),
+            language,
             vad_model_path: vad_model_path
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned),

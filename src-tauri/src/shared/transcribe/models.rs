@@ -51,12 +51,6 @@ pub const CATALOG: &[ModelSpec] = &[
     ModelSpec { name: "small", size_mb: 466, multilingual: true,
         label: "Small", recommended: false, accuracy: 3, speed: 3,
         tip: "Multilingual, balanced accuracy and speed." },
-    ModelSpec { name: "large-v3-turbo", size_mb: 1620, multilingual: true,
-        label: "Large v3 Turbo", recommended: false, accuracy: 5, speed: 3,
-        tip: "Best accuracy at usable speed. Pick this if you have the disk/RAM and a recent machine." },
-    ModelSpec { name: "large-v3", size_mb: 3090, multilingual: true,
-        label: "Large v3", recommended: false, accuracy: 5, speed: 1,
-        tip: "Highest accuracy, but slowest and heaviest. Best on powerful machines." },
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -348,7 +342,6 @@ mod tests {
     fn catalog_is_well_formed() {
         assert!(CATALOG.iter().any(|s| s.name == "tiny"));
         assert!(CATALOG.iter().any(|s| s.name == "small.en"));
-        assert!(CATALOG.iter().any(|s| s.name == "large-v3-turbo"));
         for spec in CATALOG {
             assert_eq!(spec.multilingual, !spec.name.ends_with(".en"));
             assert!(!spec.label.is_empty() && !spec.tip.is_empty());
