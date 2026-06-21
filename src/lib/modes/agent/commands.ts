@@ -85,6 +85,34 @@ export const agentWriteToTerminal = (terminalId: string, data: string) => invoke
 export const agentResizeTerminal = (terminalId: string, cols: number, rows: number) => invoke<void>('agent_resize_terminal', { terminalId, cols, rows });
 export const agentKillTerminal = (terminalId: string) => invoke<void>('agent_kill_terminal', { terminalId });
 
+// Local file explorer
+export interface FsEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modified: number;
+}
+export interface FileContent {
+  content: string | null;
+  isBinary: boolean;
+  size: number;
+  tooLarge: boolean;
+}
+export interface FsChange {
+  paths: string[];
+}
+export const agentFsListDir = (path: string) => invoke<FsEntry[]>('agent_fs_list_dir', { path });
+export const agentFsReadFile = (path: string) => invoke<FileContent>('agent_fs_read_file', { path });
+export const agentFsWriteFile = (path: string, content: string) => invoke<void>('agent_fs_write_file', { path, content });
+export const agentFsRename = (from: string, to: string) => invoke<void>('agent_fs_rename', { from, to });
+export const agentFsDelete = (path: string) => invoke<void>('agent_fs_delete', { path });
+export const agentFsCreate = (path: string, isDir: boolean) => invoke<void>('agent_fs_create', { path, isDir });
+export const agentFsReveal = (path: string) => invoke<void>('agent_fs_reveal', { path });
+export const agentFsWatchStart = (path: string, onEvent: any) => invoke<void>('agent_fs_watch_start', { path, onEvent });
+export const agentFsWatchStop = () => invoke<void>('agent_fs_watch_stop');
+export const agentFileReference = (provider: string, relPath: string) => invoke<string>('agent_file_reference', { provider, relPath });
+
 // Worktree
 export const agentIsGitRepo = (path: string) => invoke<boolean>('agent_is_git_repo', { path });
 export const agentCreateWorktree = (projectPath: string, branchName: string) => invoke<string>('agent_create_worktree', { projectPath, branchName });

@@ -111,6 +111,9 @@ pub async fn drawer_chat_turn(
         body,
         None,
         &now,
+        "coworker",
+        None,
+        None,
         repo::MutationGuard::default(),
     )
     .await
@@ -125,6 +128,9 @@ pub async fn drawer_chat_turn(
         body: body.to_string(),
         parent_id: None,
         created_at: now.clone(),
+        channel: "coworker".to_string(),
+        external_id: None,
+        external_author: None,
     };
 
     // 4. Build prompt — card body + thread (filtered to this coworker's
@@ -136,9 +142,12 @@ pub async fn drawer_chat_turn(
     .fetch_one(pool)
     .await
     .map_err(|e| format!("DB error reading card meta: {e}"))?;
-    let prior = repo::list_card_comments(pool, card_id)
+    let prior = repo::list_card_comments(pool, card_id, Some("coworker"))
         .await
-        .map_err(|e| format!("DB error reading thread: {e}"))?;
+        .map_err(|e| format!("DB error reading thread: {e}"))?
+        .into_iter()
+        .filter(|c| c.coworker_id.as_deref() == Some(coworker_id) || c.coworker_id.is_none())
+        .collect::<Vec<_>>();
     let prompt = build_prompt(&card_meta.0, &card_meta.1, &prior, body);
     let truncated = truncate_to_bytes(&prompt, PROMPT_MAX_BYTES);
 
@@ -258,6 +267,9 @@ pub async fn drawer_chat_turn(
         &response,
         None,
         &reply_now,
+        "coworker",
+        None,
+        None,
         repo::MutationGuard::default(),
     )
     .await
@@ -284,6 +296,9 @@ pub async fn drawer_chat_turn(
             body: response,
             parent_id: None,
             created_at: reply_now,
+            channel: "coworker".to_string(),
+            external_id: None,
+            external_author: None,
         }),
         session_id: session.id,
         agent_error: None,
@@ -371,7 +386,7 @@ pub async fn start_work(
         "**Work started.**\n\n- Branch: `{branch}`\n- Worktree: `{worktree_path}`\n\nFurther \
          agent runs on this card will use this worktree."
     );
-    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, repo::MutationGuard::default()).await;
+    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, "ticket", None, None, repo::MutationGuard::default()).await;
 
     Ok(super::commands::StartWorkResult {
         worktree_path,

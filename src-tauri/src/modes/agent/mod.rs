@@ -12,6 +12,7 @@
 // trait that abstracts the binary path and arguments.
 
 pub mod commands;
+pub mod files;
 pub mod git;
 pub mod hooks;
 pub mod models;

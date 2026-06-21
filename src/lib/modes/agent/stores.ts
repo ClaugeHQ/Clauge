@@ -17,6 +17,35 @@ export const agentTerminalIds = writable<Map<string, string>>(new Map());
 export const agentShellIds = writable<Map<string, string>>(new Map());
 export const agentShellOpen = writable<boolean>(false);
 
+// Local file explorer (frontend-only state). Open/closed is tracked per
+// session (set of session ids with the explorer open) so toggling it in
+// one session doesn't open it everywhere.
+export const agentExplorerOpenSessions = writable<Set<string>>(new Set());
+export function toggleAgentExplorer(sessionId: string) {
+  agentExplorerOpenSessions.update((s) => {
+    const next = new Set(s);
+    if (next.has(sessionId)) next.delete(sessionId); else next.add(sessionId);
+    return next;
+  });
+}
+export function setAgentExplorerOpen(sessionId: string, open: boolean) {
+  agentExplorerOpenSessions.update((s) => {
+    const next = new Set(s);
+    if (open) next.add(sessionId); else next.delete(sessionId);
+    return next;
+  });
+}
+export const agentExplorerWidth = writable<number>(240); // px width of the tree column
+// The file currently open in the agent editor. Auto-closed (set to null)
+// whenever the active session changes — opening a file in one session must
+// never surface it in another.
+export const agentEditorFile = writable<{ path: string; name: string } | null>(null);
+// Paths reported changed by the fs watcher; the editor reacts to reload.
+export const agentFsChanged = writable<string[]>([]);
+// True while a file is being dragged from the explorer — surfaces the
+// terminal drop overlay (xterm's canvas otherwise swallows drop events).
+export const agentFileDragging = writable<boolean>(false);
+
 // Context usage per session
 export const agentContextUsage = writable<Map<string, ContextUsage>>(new Map());
 

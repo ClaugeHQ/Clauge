@@ -588,10 +588,16 @@ pub async fn workspace_card_create(
     linked_session_id: Option<String>,
     coworker_id: Option<String>,
     actor: String,
+    // Original creation timestamp (ISO 8601) for imported issues, so the
+    // card shows the real GitHub/GitLab date. Omit for new cards.
+    created_at: Option<String>,
 ) -> Result<WorkspaceBoardCard, String> {
     crate::telemetry::bump("workspace.card_create");
     let id = new_id();
-    let now = now_rfc3339();
+    let now = created_at
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(now_rfc3339);
     let tags_json = serde_json::to_string(&tags.unwrap_or_default()).unwrap_or_else(|_| "[]".to_string());
 
     repo::insert_card(
@@ -977,11 +983,14 @@ pub async fn workspace_card_add_comment(
     id: String,
     body: String,
     actor: String,
+    channel: Option<String>,
+    parent_id: Option<String>,
 ) -> Result<crate::modes::workspace::models::WorkspaceCardComment, String> {
     let trimmed = body.trim();
     if trimmed.is_empty() {
         return Err("Comment body is empty".into());
     }
+    let channel = channel.unwrap_or_else(|| "ticket".to_string());
     let now = now_rfc3339();
     let comment_id = uuid::Uuid::new_v4().to_string();
     repo::insert_card_comment(
@@ -991,8 +1000,11 @@ pub async fn workspace_card_add_comment(
         &actor,
         None, // plain user/agent comment — no coworker attribution
         trimmed,
-        None,
+        parent_id.as_deref(),
         &now,
+        &channel,
+        None,
+        None,
         repo::MutationGuard::default(),
     )
     .await
@@ -1003,19 +1015,23 @@ pub async fn workspace_card_add_comment(
         actor,
         coworker_id: None,
         body: trimmed.to_string(),
-        parent_id: None,
+        parent_id,
         created_at: now,
+        channel,
+        external_id: None,
+        external_author: None,
     })
 }
 
-/// List all comments on a card, oldest first. Drives the Thread tab
-/// in CardEditorDrawer.
+/// List comments on a card, oldest first. `channel` filters to a drawer
+/// section ('ticket' | 'coworker'); None returns all.
 #[tauri::command]
 pub async fn workspace_card_comment_list(
     pool: State<'_, SqlitePool>,
     card_id: String,
+    channel: Option<String>,
 ) -> Result<Vec<crate::modes::workspace::models::WorkspaceCardComment>, String> {
-    repo::list_card_comments(pool.inner(), &card_id)
+    repo::list_card_comments(pool.inner(), &card_id, channel.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -1716,6 +1732,55 @@ pub async fn maybe_autostart_mcp(app: tauri::AppHandle, pool: SqlitePool) {
     }
 }
 
+/// Cheap (no-network) readiness probe for "create as cloud issue" in the
+/// new-ticket dialog. Tells the UI whether a repo is configured, which
+/// provider it is, and whether the matching CLI is installed — so the
+/// Cloud option only lights up when it can actually work, and otherwise
+/// shows the right guidance (configure repo / install gh|glab). Auth +
+/// access errors still surface at create time via the shared classifier.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTarget {
+    pub repo_configured: bool,
+    /// 'github' | 'gitlab' | null (no supported repo resolvable)
+    pub provider: Option<String>,
+    pub tool: Option<String>,
+    pub tool_installed: bool,
+    pub install_url: Option<String>,
+}
+
+#[tauri::command]
+pub async fn workspace_cloud_target(
+    pool: State<'_, SqlitePool>,
+    board_id: String,
+) -> Result<CloudTarget, String> {
+    use crate::shared::platform::path::find_binary;
+    // Resolve the repo the SAME way the issue scan does (board source /
+    // project git remote / repo_url), not just workspace.repo_url.
+    let target = super::repo_target::resolve_for_board(pool.inner(), &board_id).await?;
+    let Some(t) = target else {
+        return Ok(CloudTarget {
+            repo_configured: false,
+            provider: None,
+            tool: None,
+            tool_installed: false,
+            install_url: None,
+        });
+    };
+    let install_url = if t.tool == "gh" {
+        "https://cli.github.com/"
+    } else {
+        "https://gitlab.com/gitlab-org/cli"
+    };
+    Ok(CloudTarget {
+        repo_configured: true,
+        provider: Some(t.provider),
+        tool: Some(t.tool.to_string()),
+        tool_installed: find_binary(t.tool).is_some(),
+        install_url: Some(install_url.to_string()),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Project issue scan — supports GitHub via `gh` and GitLab via `glab`.
 // Each failure mode maps to its own UI state; we never throw a generic
@@ -1780,7 +1845,7 @@ fn scan_project_issues_sync(project_path: &str) -> Result<ProjectScanResult, Str
                     "--limit",
                     "100",
                     "--json",
-                    "number,title,body,url,labels",
+                    "number,title,body,url,labels,createdAt",
                 ],
             )
         } else if lower.contains("gitlab") {
@@ -1917,7 +1982,7 @@ fn scan_project_url_sync(url: &str) -> Result<ProjectScanResult, String> {
             "https://cli.github.com/",
             "gh auth login",
             vec!["--repo".to_string(), or],
-            vec!["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,body,url,labels"],
+            vec!["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,body,url,labels,createdAt"],
         )
     } else if lower.contains("gitlab") {
         let or = match parse_owner_repo(url) {
@@ -2021,6 +2086,11 @@ fn parse_github_issues(json: &str) -> Vec<ProjectIssue> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let created_at = i
+                .get("createdAt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(ProjectIssue {
                 external_id: format!("#{}", number),
                 title,
@@ -2028,6 +2098,7 @@ fn parse_github_issues(json: &str) -> Vec<ProjectIssue> {
                 url,
                 source: "github".to_string(),
                 labels,
+                created_at,
             })
         })
         .collect()
@@ -2061,6 +2132,11 @@ fn parse_gitlab_issues(json: &str) -> Vec<ProjectIssue> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let created_at = i
+                .get("created_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(ProjectIssue {
                 external_id: format!("!{}", iid),
                 title,
@@ -2068,6 +2144,7 @@ fn parse_gitlab_issues(json: &str) -> Vec<ProjectIssue> {
                 url,
                 source: "gitlab".to_string(),
                 labels,
+                created_at,
             })
         })
         .collect()

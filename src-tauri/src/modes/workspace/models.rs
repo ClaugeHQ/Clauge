@@ -16,6 +16,10 @@ pub struct ProjectIssue {
     /// 'github' | 'gitlab' — drives the icon shown on the imported card.
     pub source: String,
     pub labels: Vec<String>,
+    /// Original issue creation timestamp from the provider (ISO 8601).
+    /// Imported cards adopt this as their `created_at` so the board
+    /// shows the real GitHub/GitLab date, not the local import time.
+    pub created_at: String,
 }
 
 /// Result of a project-issue scan. Each variant maps 1:1 to a UI banner
@@ -126,9 +130,21 @@ pub struct WorkspaceCardComment {
     /// comments and for any pre-coworker agent comments.
     pub coworker_id: Option<String>,
     pub body: String,
-    /// Reserved for threaded replies; always None in v1.
+    /// Threaded replies: id of the comment being replied to (quote-reply
+    /// link for UI grouping). None for top-level comments.
     pub parent_id: Option<String>,
     pub created_at: String,
+    /// Which drawer section this comment belongs to: 'ticket' (real issue
+    /// discussion — local or mirrored from GitHub/GitLab) or 'coworker'
+    /// (local AI persona chat). Defaults 'ticket'.
+    #[sqlx(default)]
+    pub channel: String,
+    /// Provider comment id for a comment fetched from GitHub/GitLab.
+    /// None for locally-authored comments.
+    pub external_id: Option<String>,
+    /// GitHub/GitLab login for a fetched comment (display name when the
+    /// author isn't a Clauge user/coworker).
+    pub external_author: Option<String>,
 }
 
 /// Persona built on top of an underlying agent CLI. Global to the

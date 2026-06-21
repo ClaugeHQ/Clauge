@@ -20,6 +20,9 @@
     agentSessions,
     agentSoundEnabled,
     agentDockBounceEnabled,
+    agentExplorerOpenSessions,
+    agentEditorFile,
+    agentFileDragging,
   } from '../stores';
   import { getSetting, setSetting } from '$lib/commands/settings';
   import { phoneOwnedTerminals, phoneDrivenSizes } from '$lib/stores/sizeOwner';
@@ -46,6 +49,8 @@
     agentCheckCliInstalled,
   } from '../commands';
   import ProviderNotInstalledModal from '$lib/shared/agent/ProviderNotInstalledModal.svelte';
+  import AgentFileExplorer from './AgentFileExplorer.svelte';
+  import AgentFileEditor from './AgentFileEditor.svelte';
   import { showToast } from '$lib/shared/primitives/toast';
   import { errorToast, friendlyError } from '$lib/utils/errors';
   import { refreshAgentGitStatus, refreshAgentContextUsage, loadAgentSessions, agentGitBranchName, agentGitFiles, agentGitAhead, agentGitBehind } from '../stores';
@@ -69,6 +74,26 @@
   let terminalEl: HTMLDivElement;
   let shellEl: HTMLDivElement;
   let wrapperEl: HTMLDivElement;
+  let regionEl: HTMLDivElement;
+
+  // File explorer root = active session's worktree (when present) or project path.
+  let explorerRoot = $derived(
+    $activeAgentSession ? ($activeAgentSession.worktreePath || $activeAgentSession.projectPath) : ''
+  );
+  // Explorer open state is per-session.
+  let explorerOpenForActive = $derived(
+    $activeAgentSession ? $agentExplorerOpenSessions.has($activeAgentSession.id) : false
+  );
+  // Auto-close the open file whenever the active session changes, so a file
+  // opened in one session never shows when you switch to another.
+  let _editorSessionId: string | null = null;
+  $effect(() => {
+    const id = $activeAgentSession?.id ?? null;
+    if (id !== _editorSessionId) {
+      _editorSessionId = id;
+      agentEditorFile.set(null);
+    }
+  });
 
   $effect(() => {
     if ($mode !== 'agent') return;
@@ -1430,7 +1455,7 @@
 
     const startX = e.clientX;
     const startW = mainWidth;
-    const rect = wrapperEl.getBoundingClientRect();
+    const rect = (regionEl ?? wrapperEl).getBoundingClientRect();
 
     function onMove(e: MouseEvent) {
       const pct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -1846,6 +1871,25 @@
 
 {#if $activeAgentSession}
   <div class="agent-panel" bind:this={wrapperEl}>
+    {#if explorerOpenForActive && explorerRoot}
+      {#key explorerRoot}
+        <AgentFileExplorer root={explorerRoot} />
+      {/key}
+    {/if}
+    {#if $agentEditorFile}
+      {#key $agentEditorFile.path}
+        <AgentFileEditor file={$agentEditorFile} />
+      {/key}
+    {/if}
+    <div class="agent-terminal-region" bind:this={regionEl}>
+    {#if $agentFileDragging}
+      <div class="agent-drop-overlay">
+        <div class="agent-drop-hint">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Drop to insert file path into the prompt</span>
+        </div>
+      </div>
+    {/if}
     <div class="agent-terminal-main" style="width:{$agentShellOpen ? mainWidth + '%' : '100%'}">
       {#if activePhoneOwned}
         <div class="phone-owned-panel">
@@ -1972,6 +2016,7 @@
         <div class="agent-shell-container" class:term-hidden={activeShellLoading} bind:this={shellEl} style="background:{termBg}"></div>
       </div>
     </div>
+    </div>
   </div>
 {:else}
   <div class="agent-empty">
@@ -1991,6 +2036,43 @@
     flex-direction: row;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .agent-terminal-region {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .agent-drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none; /* visual only — hit-testing uses elementFromPoint */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--acc, #7c5cf8) 14%, transparent);
+    border: 2px dashed var(--acc, #7c5cf8);
+    border-radius: 6px;
+  }
+  .agent-drop-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 22px;
+    border-radius: 10px;
+    background: var(--s);
+    border: 1px solid var(--b1);
+    color: var(--acc, #7c5cf8);
+    font-size: 12px;
+    font-family: var(--mono);
+    pointer-events: none;
   }
 
   .agent-terminal-main {

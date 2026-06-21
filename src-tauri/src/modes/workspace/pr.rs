@@ -186,7 +186,7 @@ pub async fn commit_card(
         message
     );
     let cid = uuid::Uuid::new_v4().to_string();
-    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, repo::MutationGuard::default()).await;
+    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, "ticket", None, None, repo::MutationGuard::default()).await;
     emit_updated(app, card_id);
 
     Ok(CommitResult { commit_sha: sha, message: message.to_string() })
@@ -233,7 +233,7 @@ pub async fn raise_or_update_pr(
         let now = chrono::Utc::now().to_rfc3339();
         let body = format!("**Pushed update to PR**\n\n[{}]({})", url, url);
         let cid = uuid::Uuid::new_v4().to_string();
-        let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, repo::MutationGuard::default()).await;
+        let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, "ticket", None, None, repo::MutationGuard::default()).await;
         emit_updated(app, card_id);
         return Ok(RaisePrResult { pr_url: url, already_existed: true, branch: ctx.branch });
     }
@@ -328,7 +328,7 @@ pub async fn raise_or_update_pr(
         .map_err(|e| CliError::Other { stderr: format!("DB: {e}") })?;
     let body = format!("**PR raised**\n\n[{}]({})", pr_url, pr_url);
     let cid = uuid::Uuid::new_v4().to_string();
-    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, repo::MutationGuard::default()).await;
+    let _ = repo::insert_card_comment(pool, &cid, card_id, actor, None, &body, None, &now, "ticket", None, None, repo::MutationGuard::default()).await;
     emit_updated(app, card_id);
 
     Ok(RaisePrResult { pr_url, already_existed: false, branch: ctx.branch })

@@ -728,7 +728,7 @@ pub(super) async fn dispatch_tool(
             if let Some(comment) = str_arg("comment") {
                 if !comment.trim().is_empty() {
                     let cid = new_id();
-                    let rows = repo::insert_card_comment(pool, &cid, &id, actor, None, comment.trim(), None, &now, guard)
+                    let rows = repo::insert_card_comment(pool, &cid, &id, actor, None, comment.trim(), None, &now, "ticket", None, None, guard)
                         .await.map_err(map_db)?;
                     if rows == 0 {
                         return Err(diagnose_card_or_err(pool, &id, guard).await);
@@ -749,7 +749,7 @@ pub(super) async fn dispatch_tool(
             let trimmed = feedback.trim();
             if !trimmed.is_empty() {
                 let cid = new_id();
-                let rows = repo::insert_card_comment(pool, &cid, &id, actor, None, trimmed, None, &now, guard)
+                let rows = repo::insert_card_comment(pool, &cid, &id, actor, None, trimmed, None, &now, "ticket", None, None, guard)
                     .await.map_err(map_db)?;
                 if rows == 0 {
                     return Err(diagnose_card_or_err(pool, &id, guard).await);
@@ -1034,11 +1034,14 @@ pub(super) async fn dispatch_tool(
             }
             let coworker_id = str_arg("coworkerId");
             let comment_id = new_id();
+            // A comment carrying a coworker id is AI-persona chat → Coworker
+            // section; otherwise it's ticket discussion.
+            let channel = if coworker_id.is_some() { "coworker" } else { "ticket" };
             let guard = repo::MutationGuard { respect_frozen: true, expected_updated_at: None };
             let rows = repo::insert_card_comment(
                 pool, &comment_id, &id, actor,
                 coworker_id.as_deref(),
-                trimmed, None, &now, guard,
+                trimmed, None, &now, channel, None, None, guard,
             )
             .await.map_err(map_db)?;
             if rows == 0 {
