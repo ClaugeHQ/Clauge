@@ -7,10 +7,10 @@
 //   it locally. For local (non-linked) cards both calls degrade to plain
 //   local ticket comments.
 //
-// GitHub uses `gh` (full 2-way). GitLab uses `glab` for posting; GitLab
-// comment *fetch* has no stable JSON surface, so linked GitLab cards fall
-// back to local ticket comments (still fully usable) rather than shipping
-// a fragile parser.
+// Full 2-way for both providers: GitHub via `gh` (issue-comment endpoints),
+// GitLab via `glab api` (issue *notes* REST endpoints). Fetch + post + edit +
+// delete are supported on both. Local (non-linked) cards keep plain local
+// ticket comments.
 
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -104,35 +104,48 @@ pub async fn workspace_card_fetch_ticket_comments(
     let tref = resolve_ticket(pool, &card_id).await?;
 
     if let Some(t) = tref {
-        if t.source == "github" {
-            let bin = find_binary(t.tool)
-                .ok_or_else(|| format!("{} is not installed or not on PATH.", t.tool))?;
-            let number = t.number.clone();
-            let owner_repo = t.owner_repo.clone();
-            let output = tokio::task::spawn_blocking(move || {
-                let mut cmd = std::process::Command::new(&bin);
-                apply_user_path(&mut cmd);
+        let bin = find_binary(t.tool)
+            .ok_or_else(|| format!("{} is not installed or not on PATH.", t.tool))?;
+        let number = t.number.clone();
+        let owner_repo = t.owner_repo.clone();
+        let source = t.source.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            let mut cmd = std::process::Command::new(&bin);
+            apply_user_path(&mut cmd);
+            if source == "github" {
                 cmd.args([
                     "issue", "view", &number, "--repo", &owner_repo, "--json", "comments",
                 ]);
-                cmd.output()
-            })
-            .await
-            .map_err(|e| format!("spawn_blocking failed: {e}"))?
-            .map_err(|e| format!("{} failed to spawn: {e}", t.tool))?;
-
-            if !output.status.success() {
-                let err = classify_output(t.tool, &output, Some(&t.owner_repo)).unwrap_or(
-                    CliError::Other {
-                        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-                    },
+            } else {
+                // GitLab REST: notes on the issue (newest 100). The project
+                // id is the URL-encoded path; iid is the issue number.
+                let endpoint = format!(
+                    "projects/{}/issues/{}/notes?per_page=100&sort=asc",
+                    gitlab_project_id(&owner_repo),
+                    number
                 );
-                return Err(err.message());
+                cmd.args(["api", &endpoint]);
             }
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            upsert_github_comments(pool, &card_id, &stdout).await?;
+            cmd.output()
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+        .map_err(|e| format!("{} failed to spawn: {e}", t.tool))?;
+
+        if !output.status.success() {
+            let err = classify_output(t.tool, &output, Some(&t.owner_repo)).unwrap_or(
+                CliError::Other {
+                    stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                },
+            );
+            return Err(err.message());
         }
-        // GitLab fetch intentionally omitted — see module comment.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if t.source == "github" {
+            upsert_github_comments(pool, &card_id, &stdout).await?;
+        } else {
+            upsert_gitlab_comments(pool, &card_id, &stdout).await?;
+        }
     }
 
     repo::list_card_comments(pool, &card_id, Some("ticket"))
@@ -191,8 +204,65 @@ async fn upsert_github_comments(
     Ok(())
 }
 
+/// GitLab project id for the REST API = URL-encoded `group/project` path.
+fn gitlab_project_id(owner_repo: &str) -> String {
+    owner_repo.replace('/', "%2F")
+}
+
+/// Parse `glab api …/notes` output (a JSON array) and upsert real user
+/// notes. System notes (label/state changes) are skipped. We key each by
+/// `note_<id>` so edit/delete can recover the note id, and preserve the
+/// original `created_at`.
+async fn upsert_gitlab_comments(
+    pool: &SqlitePool,
+    card_id: &str,
+    stdout: &str,
+) -> Result<(), String> {
+    let parsed: Value =
+        serde_json::from_str(stdout).map_err(|e| format!("Could not parse glab output: {e}"))?;
+    let notes = parsed.as_array().cloned().unwrap_or_default();
+    let mut kept: Vec<String> = Vec::new();
+    for n in notes {
+        // Skip auto-generated system notes — only real comments.
+        if n.get("system").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let note_id = match n.get("id").and_then(|v| v.as_i64()) {
+            Some(i) => i,
+            None => continue,
+        };
+        let body = n.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if body.trim().is_empty() {
+            continue;
+        }
+        let created_at = n
+            .get("created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let author = n
+            .get("author")
+            .and_then(|a| a.get("username"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let external_id = format!("note_{note_id}");
+        kept.push(external_id.clone());
+        let id = new_id();
+        repo::upsert_external_comment(
+            pool, &id, card_id, &author, &body, &created_at, &external_id, &author,
+        )
+        .await
+        .map_err(|e| format!("DB error storing comment: {e}"))?;
+    }
+    repo::prune_external_comments(pool, card_id, &kept)
+        .await
+        .map_err(|e| format!("DB error pruning comments: {e}"))?;
+    Ok(())
+}
+
 /// REST comment id from a comment URL.
-/// GitHub: `…/issues/85#issuecomment-1234567`. GitLab: `…#note_42`.
+/// GitHub: `…/issues/85#issuecomment-1234567`. GitLab: `note_42`.
 fn comment_rest_id(url: &str, source: &str) -> Option<String> {
     let marker = if source == "github" { "issuecomment-" } else { "note_" };
     url.rsplit(marker)
@@ -265,22 +335,37 @@ pub async fn workspace_card_delete_ticket_comment(
     Ok(())
 }
 
-/// PATCH/DELETE a provider comment via `gh api` / `glab api`.
+/// Edit (body=Some) / delete (body=None) a provider comment via
+/// `gh api` / `glab api`. GitHub uses PATCH/DELETE on the issue-comment;
+/// GitLab uses PUT/DELETE on the issue note.
 async fn run_comment_api(
     t: &TicketRef,
     comment_url: &str,
     method: &str,
     body: Option<&str>,
 ) -> Result<(), String> {
-    if t.source != "github" {
-        return Err("Editing/deleting GitLab comments isn't supported yet — do it on GitLab.".into());
-    }
     let rid = comment_rest_id(comment_url, &t.source)
         .ok_or_else(|| "Could not determine the comment id".to_string())?;
     let bin = find_binary(t.tool)
         .ok_or_else(|| format!("{} is not installed or not on PATH.", t.tool))?;
-    let endpoint = format!("repos/{}/issues/comments/{}", t.owner_repo, rid);
-    let method = method.to_string();
+    let (endpoint, method) = if t.source == "github" {
+        (
+            format!("repos/{}/issues/comments/{}", t.owner_repo, rid),
+            method.to_string(),
+        )
+    } else {
+        // GitLab: PUT to edit, DELETE to remove the note.
+        let m = if body.is_some() { "PUT" } else { "DELETE" };
+        (
+            format!(
+                "projects/{}/issues/{}/notes/{}",
+                gitlab_project_id(&t.owner_repo),
+                t.number,
+                rid
+            ),
+            m.to_string(),
+        )
+    };
     let body = body.map(|s| s.to_string());
     let owner_repo = t.owner_repo.clone();
     let tool = t.tool;
@@ -360,6 +445,15 @@ pub async fn workspace_card_post_ticket_comment(
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         external_id = extract_first_url(&stdout);
+        // Normalise GitLab's printed note URL (…#note_<id>) to the same
+        // `note_<id>` key the fetch path stores, so a later refresh updates
+        // this row in place instead of duplicating it.
+        if t.source == "gitlab" {
+            external_id = external_id
+                .as_deref()
+                .and_then(|u| comment_rest_id(u, "gitlab"))
+                .map(|rid| format!("note_{rid}"));
+        }
     }
 
     repo::insert_card_comment(
