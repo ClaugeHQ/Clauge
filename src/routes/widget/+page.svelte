@@ -26,12 +26,13 @@
     const WINDOW_WIDTH = 480;
     const COLLAPSED_HEIGHT = 80;
     const EXPANDED_HEIGHT = 236;
-    // Compact recording pill: 186×44 pill + 10px margin on each side
-    // (the extra 16px over the old 170 fits the drag-grip handle).
-    const COMPACT_WIDTH = 206;
+    // Compact recording pill — sized to hug its content (grip · dot ·
+    // timer · stop) with no dead space. ~130px pill + 10px shadow margin
+    // each side.
+    const COMPACT_WIDTH = 150;
     const COMPACT_HEIGHT = 64;
     // Wider pill while the stop-failed error line is showing.
-    const COMPACT_ERROR_WIDTH = 306;
+    const COMPACT_ERROR_WIDTH = 240;
 
     let phase = $state<"prompt" | "starting" | "model-missing" | "recording">(
         "prompt",

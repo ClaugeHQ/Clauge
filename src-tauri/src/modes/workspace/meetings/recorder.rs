@@ -27,7 +27,11 @@ use crate::shared::transcribe::engine::Transcriber;
 use crate::shared::transcribe::models as whisper_models;
 
 pub const DEFAULT_MODEL: &str = "base";
-pub const DEFAULT_LANGUAGE: &str = "auto";
+// Default to English, not auto-detect: per-chunk language detection is
+// unreliable on short audio (picks random langs @ p≈0.01 → wrong-language
+// decode = garbage + slow). English-first product; users pick another
+// language (or Auto) in Settings.
+pub const DEFAULT_LANGUAGE: &str = "en";
 
 const SOURCE_MIC: &str = "mic";
 const SOURCE_SYSTEM: &str = "system";

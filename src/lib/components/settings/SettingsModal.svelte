@@ -485,6 +485,15 @@
     let meetingAutostopEnabled = $state(true);
     let whisperModels = $state<WhisperModelInfo[]>([]);
     let deletingModel = $state<string | null>(null);
+    // Models whose download was just requested but no progress event has
+    // arrived yet — gives immediate feedback + blocks double-clicks.
+    let pendingDownloads = $state<Set<string>>(new Set());
+    // In-app delete confirmation (window.confirm is a no-op in the webview).
+    let showModelDeleteConfirm = $state(false);
+    let modelDeleteName = $state<string | null>(null);
+    let modelDeleteMessage = $state("");
+    // null = leave default unchanged; "" = clear; otherwise = switch to this.
+    let modelDeleteNextDefault = $state<string | null>(null);
     let meetingCardEl = $state<HTMLElement | null>(null);
     let meetingModel = $derived(
         // `||` not `??`: empty string means "cleared" and falls back to the
@@ -492,12 +501,20 @@
         ($settings["workspace_meeting_model"] || "base") as string,
     );
     let meetingLanguage = $derived(
-        ($settings["workspace_meeting_language"] ?? "auto") as string,
+        ($settings["workspace_meeting_language"] ?? "en") as string,
     );
-    let downloadedModels = $derived(whisperModels.filter((m) => m.downloaded));
+    // Recommended first, then most accurate, then smallest.
+    let sortedModels = $derived(
+        [...whisperModels].sort(
+            (a, b) =>
+                (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0) ||
+                b.accuracy - a.accuracy ||
+                a.sizeMb - b.sizeMb,
+        ),
+    );
+    let downloadedModels = $derived(sortedModels.filter((m) => m.downloaded));
 
     const MEETING_LANGUAGES = [
-        { code: "auto", label: "Auto-detect" },
         { code: "en", label: "English" },
         { code: "es", label: "Spanish" },
         { code: "fr", label: "French" },
@@ -506,6 +523,7 @@
         { code: "hi", label: "Hindi" },
         { code: "ja", label: "Japanese" },
         { code: "zh", label: "Chinese" },
+        { code: "auto", label: "Auto-detect (mixed-language only)" },
     ];
 
     $effect(() => {
@@ -582,36 +600,54 @@
     }
 
     async function handleMeetingModelDownload(name: string) {
+        if (pendingDownloads.has(name) || deletingModel === name) return;
+        // Immediate feedback: flip the button to "Starting…" + disable it so
+        // there's no dead window before the first progress event lands.
+        pendingDownloads = new Set(pendingDownloads).add(name);
         try {
             await downloadModel(name, refreshMeetingModels);
         } catch (e) {
             errorToast("Model download failed", e);
+        } finally {
+            const next = new Set(pendingDownloads);
+            next.delete(name);
+            pendingDownloads = next;
         }
     }
 
-    async function handleMeetingModelDelete(name: string) {
+    /** Open the in-app delete confirmation (window.confirm is a no-op in the
+     *  Tauri webview, so a native prompt never appeared and deletes — even of
+     *  the default model — went through silently). */
+    function requestMeetingModelDelete(name: string) {
         const label =
             whisperModels.find((m) => m.name === name)?.label ?? name;
-        // Deleting the active default needs a deliberate choice — prompt the
-        // user to move the default first (auto-suggesting a sensible model)
-        // rather than silently leaving recording without a model.
+        modelDeleteName = name;
         if (name === meetingModel) {
             const others = downloadedModels.filter((m) => m.name !== name);
             if (others.length > 0) {
-                const next =
+                const nextDefault =
                     others.find((m) => m.recommended) ?? others[0];
-                const ok = confirm(
-                    `"${label}" is your default transcription model.\n\nSwitch the default to "${next.label}" and delete "${label}"?`,
-                );
-                if (!ok) return;
-                await setSetting("workspace_meeting_model", next.name);
+                modelDeleteNextDefault = nextDefault.name;
+                modelDeleteMessage = `"${label}" is your default transcription model. The default will switch to "${nextDefault.label}".\n\nDelete "${label}"?`;
             } else {
-                const ok = confirm(
-                    `"${label}" is your only downloaded model and the default.\n\nDelete it anyway? You'll need to download a model before recording again.`,
-                );
-                if (!ok) return;
-                await setSetting("workspace_meeting_model", "");
+                modelDeleteNextDefault = "";
+                modelDeleteMessage = `"${label}" is your only downloaded model and the current default.\n\nDelete it anyway? You'll need to download a model before recording again.`;
             }
+        } else {
+            modelDeleteNextDefault = null;
+            modelDeleteMessage = `Delete the "${label}" model? You can re-download it anytime.`;
+        }
+        showModelDeleteConfirm = true;
+    }
+
+    async function performMeetingModelDelete() {
+        const name = modelDeleteName;
+        if (!name) return;
+        if (modelDeleteNextDefault !== null) {
+            await setSetting(
+                "workspace_meeting_model",
+                modelDeleteNextDefault,
+            );
         }
         deletingModel = name;
         try {
@@ -620,6 +656,7 @@
             errorToast("Failed to delete model", e);
         } finally {
             deletingModel = null;
+            modelDeleteName = null;
         }
         await refreshMeetingModels();
     }
@@ -2281,7 +2318,7 @@
                                     </label>
                                 </div>
 
-                                {#each whisperModels as m (m.name)}
+                                {#each sortedModels as m (m.name)}
                                     {@const prog = $modelDownloadProgress.get(
                                         m.name,
                                     )}
@@ -2332,15 +2369,23 @@
                                                         : undefined}
                                                 ></div>
                                             </div>
+                                        {:else if pendingDownloads.has(m.name)}
+                                            <button
+                                                class="stg-card-mini-btn"
+                                                disabled>Starting…</button
+                                            >
                                         {:else if m.downloaded}
                                             <button
                                                 class="stg-card-mini-btn"
                                                 onclick={() =>
-                                                    handleMeetingModelDelete(
+                                                    requestMeetingModelDelete(
                                                         m.name,
                                                     )}
                                                 disabled={deletingModel ===
-                                                    m.name}>Delete</button
+                                                    m.name}
+                                                >{deletingModel === m.name
+                                                    ? "Deleting…"
+                                                    : "Delete"}</button
                                             >
                                         {:else}
                                             <button
@@ -2396,8 +2441,11 @@
                                             >Language</span
                                         >
                                         <span class="stg-card-row-help"
-                                            >English-only models ignore this
-                                            and always transcribe in
+                                            >Pick your spoken language for best
+                                            accuracy. Auto-detect is unreliable
+                                            on short audio — only use it for
+                                            mixed-language calls. English-only
+                                            models always transcribe in
                                             English.</span
                                         >
                                     </div>
@@ -5969,6 +6017,14 @@
     message={`This will clear ${restHistoryCount.toLocaleString()} request${restHistoryCount === 1 ? "" : "s"} from the History section and ${aiChatCount.toLocaleString()} AI Assistance chat message${aiChatCount === 1 ? "" : "s"} across all modes.\n\nThis cannot be undone.`}
     confirmText="Clear History"
     onconfirm={handleClearChatHistory}
+/>
+
+<ConfirmDialog
+    bind:show={showModelDeleteConfirm}
+    title="Delete model"
+    message={modelDeleteMessage}
+    confirmText="Delete"
+    onconfirm={performMeetingModelDelete}
 />
 
 <style>
