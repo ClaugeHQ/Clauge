@@ -47,7 +47,10 @@
     }
   }
   function confirmDelete(c: WorkspaceCardComment) {
-    if (confirm('Delete this comment? This also removes it from the linked issue.')) ondelete?.(c);
+    const msg = c.externalId
+      ? 'Delete this comment? This also removes it from the linked issue.'
+      : 'Delete this comment?';
+    if (confirm(msg)) ondelete?.(c);
   }
 
   /** Long threads collapse the older portion behind a "Show N

@@ -144,7 +144,10 @@ pub async fn drawer_chat_turn(
     .map_err(|e| format!("DB error reading card meta: {e}"))?;
     let prior = repo::list_card_comments(pool, card_id, Some("coworker"))
         .await
-        .map_err(|e| format!("DB error reading thread: {e}"))?;
+        .map_err(|e| format!("DB error reading thread: {e}"))?
+        .into_iter()
+        .filter(|c| c.coworker_id.as_deref() == Some(coworker_id) || c.coworker_id.is_none())
+        .collect::<Vec<_>>();
     let prompt = build_prompt(&card_meta.0, &card_meta.1, &prior, body);
     let truncated = truncate_to_bytes(&prompt, PROMPT_MAX_BYTES);
 

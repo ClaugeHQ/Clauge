@@ -139,9 +139,10 @@ export const workspaceCardClearReview = (id: string, actor: string) =>
 export const workspaceCardDelete = (id: string) => invoke<void>('workspace_card_delete', { id });
 export const workspaceBoardDismissedExternals = (boardId: string) =>
   invoke<string[]>('workspace_board_dismissed_externals', { boardId });
-export const workspaceCardAddComment = (id: string, body: string, actor: string, channel?: string, parentId?: string | null) =>
+export type WorkspaceCommentChannel = 'ticket' | 'coworker';
+export const workspaceCardAddComment = (id: string, body: string, actor: string, channel?: WorkspaceCommentChannel, parentId?: string | null) =>
   invoke<WorkspaceCardComment>('workspace_card_add_comment', { id, body, actor, channel, parentId });
-export const workspaceCardCommentList = (cardId: string, channel?: string) =>
+export const workspaceCardCommentList = (cardId: string, channel?: WorkspaceCommentChannel) =>
   invoke<WorkspaceCardComment[]>('workspace_card_comment_list', { cardId, channel });
 export const workspaceCardCommentDelete = (id: string) =>
   invoke<void>('workspace_card_comment_delete', { id });

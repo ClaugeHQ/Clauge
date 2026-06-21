@@ -1232,23 +1232,28 @@ pub async fn upsert_external_comment(
     external_id: &str,
     external_author: &str,
 ) -> Result<bool, sqlx::Error> {
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM workspace_card_comments WHERE external_id = ? LIMIT 1")
-            .bind(external_id)
-            .fetch_optional(pool)
-            .await?;
-    if existing.is_some() {
+    // Scope by card_id: two cards can mirror the same upstream issue, so a
+    // global external_id match would let one card's fetch clobber another's.
+    let existing: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM workspace_card_comments \
+         WHERE card_id = ? AND channel = 'ticket' AND external_id = ? LIMIT 1",
+    )
+    .bind(card_id)
+    .bind(external_id)
+    .fetch_optional(pool)
+    .await?;
+    if let Some((existing_id,)) = existing {
         // Body may have been edited upstream — keep our copy in sync.
         sqlx::query(
             "UPDATE workspace_card_comments \
              SET body = ?, created_at = ?, external_author = ?, actor = ? \
-             WHERE external_id = ?",
+             WHERE id = ?",
         )
         .bind(body)
         .bind(created_at)
         .bind(external_author)
         .bind(actor)
-        .bind(external_id)
+        .bind(existing_id)
         .execute(pool)
         .await?;
         return Ok(false);

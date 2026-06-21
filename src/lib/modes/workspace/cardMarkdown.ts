@@ -5,12 +5,18 @@
 // that reveals/collapses an image; wire it to the container's onclick.
 
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 /** Render markdown to HTML with images replaced by click-to-reveal chips.
- *  The chip's `data-src`/`data-alt` are consumed by handleImageToggleClick. */
+ *  The chip's `data-src`/`data-alt` are consumed by handleImageToggleClick.
+ *  Output is sanitized — card descriptions and (crucially) fetched
+ *  GitHub/GitLab issue comments are untrusted content, so raw HTML in the
+ *  markdown must never reach the DOM unscrubbed. */
 export function renderCardMarkdown(text: string): string {
   if (!text || !text.trim()) return '';
-  let html = marked.parse(text, { async: false }) as string;
+  const raw = marked.parse(text, { async: false }) as string;
+  // Allow data: image URIs (pasted screenshots) through the sanitizer.
+  let html = DOMPurify.sanitize(raw, { ADD_DATA_URI_TAGS: ['img'] });
   html = html.replace(/<img\s+([^>]*?)\/?>/gi, (_match, attrs: string) => {
     const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
     const altMatch = attrs.match(/alt=["']([^"']*)["']/i);

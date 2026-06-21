@@ -34,22 +34,27 @@ fn provider_for(url: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-fn git_remote_url(path: &str) -> Option<String> {
-    let mut cmd = std::process::Command::new("git");
-    crate::shared::platform::path::apply_user_path(&mut cmd);
-    let out = cmd
-        .args(["-C", path, "remote", "get-url", "origin"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
+async fn git_remote_url(path: String) -> Option<String> {
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("git");
+        crate::shared::platform::path::apply_user_path(&mut cmd);
+        let out = cmd
+            .args(["-C", &path, "remote", "get-url", "origin"])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 fn target_from_url(url: &str, cwd: Option<String>) -> Option<RepoTarget> {
@@ -116,7 +121,7 @@ pub async fn resolve_for_board(
         .map(|p| p.trim().to_string())
         .filter(|s| !s.is_empty());
     if let Some(p) = &path {
-        if let Some(remote) = git_remote_url(p) {
+        if let Some(remote) = git_remote_url(p.clone()).await {
             if let Some((provider, tool)) = provider_for(&remote) {
                 return Ok(Some(RepoTarget {
                     provider: provider.to_string(),

@@ -223,9 +223,8 @@
     refreshTimer = setTimeout(async () => {
       refreshTimer = null;
       await loadRoot();
-      for (const dir of Array.from(childrenMap.keys())) {
-        if (dir !== root) await loadDir(dir);
-      }
+      const dirs = Array.from(childrenMap.keys()).filter((d) => d !== root);
+      await Promise.all(dirs.map((d) => loadDir(d)));
     }, 150);
   }
 
